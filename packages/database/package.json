@@ -1,0 +1,28 @@
+{
+  "name": "@restaurant-cloud/database",
+  "version": "1.0.0",
+  "description": "PostgreSQL database schemas, migrations, and transactional client for Restaurant Cloud",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf dist *.tsbuildinfo",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@restaurant-cloud/domain-kernel": "workspace:*",
+    "drizzle-orm": "^0.39.3",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.15",
+    "@types/node": "^22.13.4",
+    "dotenv": "^16.4.7",
+    "drizzle-kit": "^0.30.4",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  }
+}

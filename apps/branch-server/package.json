@@ -1,0 +1,23 @@
+{
+  "name": "@restaurant-cloud/branch-server",
+  "version": "1.0.0",
+  "description": "Restaurant Cloud - Local Branch Coordinator & Quota Sync Runtime",
+  "private": true,
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@restaurant-cloud/domain-kernel": "workspace:*",
+    "@restaurant-cloud/shared-contracts": "workspace:*",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

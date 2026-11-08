@@ -1,0 +1,16 @@
+{
+  "name": "@restaurant-cloud/domain-kernel",
+  "version": "1.0.0",
+  "description": "Core domain enums, types, and error codes for Restaurant Cloud",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf dist *.tsbuildinfo",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  }
+}

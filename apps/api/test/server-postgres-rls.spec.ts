@@ -73,6 +73,10 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
         code VARCHAR(50) NOT NULL,
         name VARCHAR(255) NOT NULL
       );
+      ALTER TABLE legal_entities ADD COLUMN IF NOT EXISTS code VARCHAR(50);
+      ALTER TABLE legal_entities ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+      ALTER TABLE legal_entities ALTER COLUMN vat_number DROP NOT NULL;
+      ALTER TABLE legal_entities ALTER COLUMN legal_name DROP NOT NULL;
 
       CREATE TABLE IF NOT EXISTS sales_orders (
         id UUID PRIMARY KEY,
@@ -82,6 +86,9 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
         idempotency_key VARCHAR(255),
         CONSTRAINT uq_server_order_num UNIQUE (tenant_id, order_number)
       );
+      ALTER TABLE sales_orders ALTER COLUMN legal_entity_id DROP NOT NULL;
+      ALTER TABLE sales_orders ALTER COLUMN branch_id DROP NOT NULL;
+      ALTER TABLE sales_orders ALTER COLUMN device_id DROP NOT NULL;
 
       CREATE TABLE IF NOT EXISTS inventory_balances (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -101,6 +108,7 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
         action VARCHAR(100) NOT NULL,
         entity_id UUID NOT NULL
       );
+      ALTER TABLE audit_logs ALTER COLUMN entity_type DROP NOT NULL;
     `);
 
     // 3. Configure Runtime Role rc_app_user (strictly NOSUPERUSER NOBYPASSRLS)

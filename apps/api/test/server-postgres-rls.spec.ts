@@ -20,11 +20,30 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
   let serverAvailable = false;
   let serverVersion = '';
 
+  // Seed Identifiers conforming to UUID RFC 4122 (Hex-only)
   const tenantAId = 'a0000000-0000-0000-0000-000000000001';
   const tenantBId = 'b0000000-0000-0000-0000-000000000002';
+
+  // Multi-Entity Topology: Entity A1 and Entity A2 belong to the SAME Tenant A
   const entityA1Id = 'a1111111-1111-1111-1111-111111111111';
   const entityA2Id = 'a2222222-2222-2222-2222-222222222222';
+  const entityB1Id = 'b1111111-1111-1111-1111-111111111111';
+
+  // Operational Branches
+  const branchA1Id = 'ab111111-1111-1111-1111-111111111111';
+  const branchA2Id = 'ab222222-2222-2222-2222-222222222222';
+  const branchB1Id = 'bb111111-1111-1111-1111-111111111111';
+
+  // Central Warehouses (warehouseSharedId is shared between Entity A1 and A2 under Tenant A)
   const warehouseSharedId = 'ad111111-1111-1111-1111-111111111111';
+  const warehouseBId = 'bd111111-1111-1111-1111-111111111111';
+
+  // POS Devices
+  const deviceA1Id = 'de111111-1111-1111-1111-111111111111';
+  const deviceA2Id = 'de222222-2222-2222-2222-222222222222';
+  const deviceB1Id = 'de333333-3333-3333-3333-333333333333';
+
+  // Catalog Item & Audit IDs
   const itemMeatId = 'aa000000-0000-0000-0000-000000000001';
   const orderAId = '11111111-1111-1111-1111-111111111111';
   const orderBId = '22222222-2222-2222-2222-222222222222';
@@ -47,7 +66,6 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
       serverAvailable = false;
       const errorMsg = (err as Error).message;
       if (isCiMode) {
-        // In CI mode: MUST fail immediately. No silent skips.
         throw new Error(
           `[FATAL CI FAILURE] Genuine PostgreSQL 16 server is REQUIRED in CI mode but was unreachable at ${adminUrl}. ` +
           `Connection error: ${errorMsg}. Integration suite cannot proceed without a live PostgreSQL 16 server.`
@@ -59,56 +77,11 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
       return;
     }
 
-    // 2. Setup DDL Schema for Integration Verification (Static DDL via Simple Query Protocol)
+    // 2. Clean up test records from prior runs for strict idempotency (Admin context)
     await adminSql.unsafe(`
-      CREATE TABLE IF NOT EXISTS tenants (
-        id UUID PRIMARY KEY,
-        code VARCHAR(50) NOT NULL UNIQUE,
-        display_name VARCHAR(255) NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS legal_entities (
-        id UUID PRIMARY KEY,
-        tenant_id UUID NOT NULL REFERENCES tenants(id),
-        code VARCHAR(50) NOT NULL,
-        name VARCHAR(255) NOT NULL
-      );
-      ALTER TABLE legal_entities ADD COLUMN IF NOT EXISTS code VARCHAR(50);
-      ALTER TABLE legal_entities ADD COLUMN IF NOT EXISTS name VARCHAR(255);
-      ALTER TABLE legal_entities ALTER COLUMN vat_number DROP NOT NULL;
-      ALTER TABLE legal_entities ALTER COLUMN legal_name DROP NOT NULL;
-
-      CREATE TABLE IF NOT EXISTS sales_orders (
-        id UUID PRIMARY KEY,
-        tenant_id UUID NOT NULL REFERENCES tenants(id),
-        order_number VARCHAR(50) NOT NULL,
-        grand_total NUMERIC(12, 4) NOT NULL,
-        idempotency_key VARCHAR(255),
-        CONSTRAINT uq_server_order_num UNIQUE (tenant_id, order_number)
-      );
-      ALTER TABLE sales_orders ALTER COLUMN legal_entity_id DROP NOT NULL;
-      ALTER TABLE sales_orders ALTER COLUMN branch_id DROP NOT NULL;
-      ALTER TABLE sales_orders ALTER COLUMN device_id DROP NOT NULL;
-
-      CREATE TABLE IF NOT EXISTS inventory_balances (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id UUID NOT NULL REFERENCES tenants(id),
-        legal_entity_owner_id UUID NOT NULL REFERENCES legal_entities(id),
-        warehouse_id UUID NOT NULL,
-        item_id UUID NOT NULL,
-        on_hand_qty NUMERIC(12, 4) NOT NULL DEFAULT 0.0000,
-        reserved_qty NUMERIC(12, 4) NOT NULL DEFAULT 0.0000,
-        version INTEGER NOT NULL DEFAULT 1,
-        CONSTRAINT uq_server_inv UNIQUE (tenant_id, legal_entity_owner_id, warehouse_id, item_id)
-      );
-
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id UUID PRIMARY KEY,
-        tenant_id UUID NOT NULL REFERENCES tenants(id),
-        action VARCHAR(100) NOT NULL,
-        entity_id UUID NOT NULL
-      );
-      ALTER TABLE audit_logs ALTER COLUMN entity_type DROP NOT NULL;
+      DELETE FROM audit_logs WHERE tenant_id IN ('${tenantAId}', '${tenantBId}');
+      DELETE FROM sales_orders WHERE tenant_id IN ('${tenantAId}', '${tenantBId}');
+      DELETE FROM inventory_balances WHERE tenant_id IN ('${tenantAId}', '${tenantBId}');
     `);
 
     // 3. Configure Runtime Role rc_app_user (strictly NOSUPERUSER NOBYPASSRLS)
@@ -142,13 +115,22 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
         EXECUTE FUNCTION prevent_audit_log_modification();
     `);
 
-    // 4. Force Row Level Security on all multi-tenant tables
+    // 4. Force Row Level Security on all Multi-Tenant Tables (Pristine Drizzle Schemas)
     await adminSql.unsafe(`
       ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
       ALTER TABLE tenants FORCE ROW LEVEL SECURITY;
 
       ALTER TABLE legal_entities ENABLE ROW LEVEL SECURITY;
       ALTER TABLE legal_entities FORCE ROW LEVEL SECURITY;
+
+      ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE branches FORCE ROW LEVEL SECURITY;
+
+      ALTER TABLE warehouses ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE warehouses FORCE ROW LEVEL SECURITY;
+
+      ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE devices FORCE ROW LEVEL SECURITY;
 
       ALTER TABLE sales_orders ENABLE ROW LEVEL SECURITY;
       ALTER TABLE sales_orders FORCE ROW LEVEL SECURITY;
@@ -160,7 +142,7 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
       ALTER TABLE audit_logs FORCE ROW LEVEL SECURITY;
     `);
 
-    // 5. Apply Permissive Policies with BOTH USING and WITH CHECK
+    // 5. Apply Permissive RLS Policies with BOTH USING and WITH CHECK
     await adminSql.unsafe(`
       DROP POLICY IF EXISTS tenant_isolation_tenants ON tenants;
       CREATE POLICY tenant_isolation_tenants ON tenants
@@ -170,6 +152,24 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
 
       DROP POLICY IF EXISTS tenant_isolation_legal_entities ON legal_entities;
       CREATE POLICY tenant_isolation_legal_entities ON legal_entities
+        FOR ALL TO rc_app_user
+        USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+        WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+      DROP POLICY IF EXISTS tenant_isolation_branches ON branches;
+      CREATE POLICY tenant_isolation_branches ON branches
+        FOR ALL TO rc_app_user
+        USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+        WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+      DROP POLICY IF EXISTS tenant_isolation_warehouses ON warehouses;
+      CREATE POLICY tenant_isolation_warehouses ON warehouses
+        FOR ALL TO rc_app_user
+        USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+        WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+      DROP POLICY IF EXISTS tenant_isolation_devices ON devices;
+      CREATE POLICY tenant_isolation_devices ON devices
         FOR ALL TO rc_app_user
         USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
         WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
@@ -193,18 +193,47 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
         WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
     `);
 
-    // 6. Seed Baseline Tenants and Legal Entities as Admin (individual parameterized statements)
+    // 6. Seed Complete, Valid Organizational Hierarchy (100% compliant with Foreign Keys)
+    // A) Tenants
     await adminSql`
       INSERT INTO tenants (id, code, display_name) VALUES
-        (${tenantAId}, 'tenant-a', 'Tenant A Org'),
-        (${tenantBId}, 'tenant-b', 'Tenant B Org')
+        (${tenantAId}, 'tenant-a', 'Al-Nakheel Group Org'),
+        (${tenantBId}, 'tenant-b', 'Al-Madina Catering Org')
       ON CONFLICT (id) DO NOTHING;
     `;
 
+    // B) Legal Entities (Entity A1 and Entity A2 belong to Tenant A; Entity B1 belongs to Tenant B)
     await adminSql`
-      INSERT INTO legal_entities (id, tenant_id, code, name) VALUES
-        (${entityA1Id}, ${tenantAId}, 'LE-A1', 'Al-Diyafa LLC'),
-        (${entityA2Id}, ${tenantAId}, 'LE-A2', 'Fast Food Ltd')
+      INSERT INTO legal_entities (id, tenant_id, legal_name, cr_number, vat_number) VALUES
+        (${entityA1Id}, ${tenantAId}, 'Al-Diyafa Hospitality LLC', '1010123456', '300000000000001'),
+        (${entityA2Id}, ${tenantAId}, 'Al-Nakheel Fast Food Ltd', '1010987654', '300000000000002'),
+        (${entityB1Id}, ${tenantBId}, 'Al-Madina Commercial LLC', '1010555555', '300000000000003')
+      ON CONFLICT (id) DO NOTHING;
+    `;
+
+    // C) Operational Branches
+    await adminSql`
+      INSERT INTO branches (id, tenant_id, legal_entity_id, code, name) VALUES
+        (${branchA1Id}, ${tenantAId}, ${entityA1Id}, 'BR-A1', 'Riyadh Fine Dining'),
+        (${branchA2Id}, ${tenantAId}, ${entityA2Id}, 'BR-A2', 'Riyadh Fast Food Express'),
+        (${branchB1Id}, ${tenantBId}, ${entityB1Id}, 'BR-B1', 'Jeddah Main Branch')
+      ON CONFLICT (id) DO NOTHING;
+    `;
+
+    // D) Warehouses
+    await adminSql`
+      INSERT INTO warehouses (id, tenant_id, branch_id, code, name) VALUES
+        (${warehouseSharedId}, ${tenantAId}, ${branchA1Id}, 'WH-SHARED', 'Riyadh Central Commissary WH'),
+        (${warehouseBId}, ${tenantBId}, ${branchB1Id}, 'WH-B1', 'Jeddah Storage WH')
+      ON CONFLICT (id) DO NOTHING;
+    `;
+
+    // E) POS Devices
+    await adminSql`
+      INSERT INTO devices (id, tenant_id, branch_id, device_code) VALUES
+        (${deviceA1Id}, ${tenantAId}, ${branchA1Id}, 'POS-A1-01'),
+        (${deviceA2Id}, ${tenantAId}, ${branchA2Id}, 'POS-A2-01'),
+        (${deviceB1Id}, ${tenantBId}, ${branchB1Id}, 'POS-B1-01')
       ON CONFLICT (id) DO NOTHING;
     `;
 
@@ -253,16 +282,16 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
     await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
       await tx`
-        INSERT INTO sales_orders (id, tenant_id, order_number, grand_total)
-        VALUES (${orderAId}, ${tenantAId}, 'ORD-A-001', 150.00);
+        INSERT INTO sales_orders (id, tenant_id, legal_entity_id, branch_id, device_id, order_number, grand_total)
+        VALUES (${orderAId}, ${tenantAId}, ${entityA1Id}, ${branchA1Id}, ${deviceA1Id}, 'ORD-A-001', 150.00);
       `;
     });
 
     await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantBId}, true);`;
       await tx`
-        INSERT INTO sales_orders (id, tenant_id, order_number, grand_total)
-        VALUES (${orderBId}, ${tenantBId}, 'ORD-B-001', 300.00);
+        INSERT INTO sales_orders (id, tenant_id, legal_entity_id, branch_id, device_id, order_number, grand_total)
+        VALUES (${orderBId}, ${tenantBId}, ${entityB1Id}, ${branchB1Id}, ${deviceB1Id}, 'ORD-B-001', 300.00);
       `;
     });
   });
@@ -306,8 +335,8 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
       await runtimeSql!.begin(async (tx) => {
         await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
         await tx`
-          INSERT INTO sales_orders (id, tenant_id, order_number, grand_total)
-          VALUES ('33333333-3333-3333-3333-333333333333', ${tenantBId}, 'ATTACK-001', 999.00);
+          INSERT INTO sales_orders (id, tenant_id, legal_entity_id, branch_id, device_id, order_number, grand_total)
+          VALUES ('33333333-3333-3333-3333-333333333333', ${tenantBId}, ${entityA1Id}, ${branchA1Id}, ${deviceA1Id}, 'ATTACK-001', 999.00);
         `;
       });
     } catch (err: unknown) {
@@ -319,38 +348,39 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
 
   it('8. Real Cross-Tenant Prevention (UPDATE): Tenant A cannot modify Tenant B records', async (ctx) => {
     requireServer(ctx);
-    const result = await runtimeSql!.begin(async (tx) => {
+    const affected = await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
-      return await tx`
+      const res = await tx`
         UPDATE sales_orders SET grand_total = 0.00 WHERE id = ${orderBId};
       `;
+      return res.count;
     });
 
-    expect(result.count).toBe(0);
+    expect(affected).toBe(0);
 
-    const rows = await runtimeSql!.begin(async (tx) => {
+    const bTotal = await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantBId}, true);`;
-      return await tx`SELECT grand_total FROM sales_orders WHERE id = ${orderBId};`;
+      const res = await tx`SELECT grand_total FROM sales_orders WHERE id = ${orderBId};`;
+      return Number(res[0]?.grand_total);
     });
-    expect(Number(rows[0]?.grand_total)).toBe(300.00);
+    expect(bTotal).toBe(300.00);
   });
 
   it('9. Real Cross-Tenant Prevention (DELETE): Tenant A cannot delete Tenant B records', async (ctx) => {
     requireServer(ctx);
-    const result = await runtimeSql!.begin(async (tx) => {
+    const affected = await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
-      return await tx`
-        DELETE FROM sales_orders WHERE id = ${orderBId};
-      `;
+      const res = await tx`DELETE FROM sales_orders WHERE id = ${orderBId};`;
+      return res.count;
     });
+    expect(affected).toBe(0);
 
-    expect(result.count).toBe(0);
-
-    const rows = await runtimeSql!.begin(async (tx) => {
+    const exists = await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantBId}, true);`;
-      return await tx`SELECT id FROM sales_orders WHERE id = ${orderBId};`;
+      const res = await tx`SELECT id FROM sales_orders WHERE id = ${orderBId};`;
+      return res.length;
     });
-    expect(rows.length).toBe(1);
+    expect(exists).toBe(1);
   });
 
   it('10. Connection Pool Isolation: SET LOCAL context is completely cleared when transaction ends', async (ctx) => {
@@ -371,10 +401,10 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
     try {
       await runtimeSql!.begin(async (tx) => {
         await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
-        throw new Error('Forced rollback for testing');
+        throw new Error('Forced rollback');
       });
     } catch {
-      // Expected rollback
+      // Expected
     }
 
     const check = await runtimeSql!`
@@ -388,16 +418,17 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
     await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
       await tx`
-        INSERT INTO audit_logs (id, tenant_id, action, entity_id)
-        VALUES (${auditId}, ${tenantAId}, 'ORDER_CREATED', ${orderAId});
+        INSERT INTO audit_logs (id, tenant_id, action, entity_type, entity_id)
+        VALUES (${auditId}, ${tenantAId}, 'ORDER_CREATED', 'sales_order', ${orderAId});
       `;
     });
 
     const rows = await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
-      return await tx`SELECT id FROM audit_logs WHERE id = ${auditId};`;
+      return await tx`SELECT id, action FROM audit_logs WHERE id = ${auditId};`;
     });
     expect(rows.length).toBe(1);
+    expect(rows[0]?.action).toBe('ORDER_CREATED');
   });
 
   it('13. Audit Log Append-Only: UPDATE and DELETE are strictly prohibited by trigger & permissions', async (ctx) => {
@@ -406,7 +437,7 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
     try {
       await runtimeSql!.begin(async (tx) => {
         await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
-        await tx`UPDATE audit_logs SET action = 'TAMPERED' WHERE id = ${auditId};`;
+        await tx`UPDATE audit_logs SET action = 'HACKED' WHERE id = ${auditId};`;
       });
     } catch (err: unknown) {
       updateFailed = true;
@@ -429,13 +460,12 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
 
   it('14. Real Multi-Entity Shared Warehouse Isolation: Segregated ownership under Tenant A', async (ctx) => {
     requireServer(ctx);
-    // Entity A1 records stock in shared warehouse
+    // Entity A1 records stock in shared warehouse (clean, direct INSERT into Drizzle schema)
     await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
       await tx`
         INSERT INTO inventory_balances (tenant_id, legal_entity_owner_id, warehouse_id, item_id, on_hand_qty, version)
-        VALUES (${tenantAId}, ${entityA1Id}, ${warehouseSharedId}, ${itemMeatId}, 50.00, 1)
-        ON CONFLICT (tenant_id, legal_entity_owner_id, warehouse_id, item_id) DO UPDATE SET on_hand_qty = 50.00;
+        VALUES (${tenantAId}, ${entityA1Id}, ${warehouseSharedId}, ${itemMeatId}, 50.00, 1);
       `;
     });
 
@@ -457,17 +487,29 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
 
   it('15. Real Server Concurrency: Optimistic locking blocks simultaneous overselling', async (ctx) => {
     requireServer(ctx);
-    // Initialize stock of 1 unit
+
+    // 1. Ensure inventory balance record exists with initial version = 1
     await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
-      await tx`
-        UPDATE inventory_balances
-        SET on_hand_qty = 1.00, reserved_qty = 0.00, version = 1
+      const existing = await tx`
+        SELECT id FROM inventory_balances
         WHERE tenant_id = ${tenantAId} AND legal_entity_owner_id = ${entityA1Id} AND item_id = ${itemMeatId};
       `;
+      if (existing.length === 0) {
+        await tx`
+          INSERT INTO inventory_balances (tenant_id, legal_entity_owner_id, warehouse_id, item_id, on_hand_qty, reserved_qty, version)
+          VALUES (${tenantAId}, ${entityA1Id}, ${warehouseSharedId}, ${itemMeatId}, 50.00, 0.00, 1);
+        `;
+      } else {
+        await tx`
+          UPDATE inventory_balances
+          SET on_hand_qty = 50.00, reserved_qty = 0.00, version = 1
+          WHERE id = ${existing[0]!.id};
+        `;
+      }
     });
 
-    // Device 1 and Device 2 simulate concurrent reservation attempts
+    // 2. Two concurrent transactions attempt to reserve the same inventory balance with version = 1
     const client1Promise = runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
       return await tx`
@@ -492,24 +534,69 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
     // Exactly one must succeed (length === 1) and one must receive 0 rows (length === 0)
     const successCount = (res1.length === 1 ? 1 : 0) + (res2.length === 1 ? 1 : 0);
     expect(successCount).toBe(1);
+
+    // 3. Verify winner received 1 updated row and loser received 0 rows
+    const winner = res1.length === 1 ? res1 : res2;
+    const loser = res1.length === 0 ? res1 : res2;
+    expect(winner.length).toBe(1);
+    expect(loser.length).toBe(0);
+
+    // 4. Verify that subsequent update with stale version = 1 is strictly rejected (0 rows updated)
+    const staleAttempt = await runtimeSql!.begin(async (tx) => {
+      await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
+      return await tx`
+        UPDATE inventory_balances
+        SET reserved_qty = 2.00, version = version + 1
+        WHERE tenant_id = ${tenantAId} AND legal_entity_owner_id = ${entityA1Id} AND item_id = ${itemMeatId} AND version = 1
+        RETURNING *;
+      `;
+    });
+    expect(staleAttempt.length).toBe(0);
+
+    // 5. Verify the persisted record has version = 2 and reserved_qty = 1.00
+    const finalBalance = await runtimeSql!.begin(async (tx) => {
+      await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
+      return await tx`
+        SELECT version, reserved_qty FROM inventory_balances
+        WHERE tenant_id = ${tenantAId} AND legal_entity_owner_id = ${entityA1Id} AND item_id = ${itemMeatId};
+      `;
+    });
+    expect(finalBalance[0]?.version).toBe(2);
+    expect(Number(finalBalance[0]?.reserved_qty)).toBe(1.00);
   });
 
-  it('16. Real Unique Composite Constraints: Rejects duplicate order number within same tenant', async (ctx) => {
+  it('16. Real Multi-Entity Invoice Uniqueness: Rejects duplicate in same entity, allows in different entities', async (ctx) => {
     requireServer(ctx);
+
+    // Sub-test A: Duplicate order_number 'ORD-A-001' within the SAME Legal Entity (entityA1Id) MUST be rejected
     let duplicateRejected = false;
     try {
       await runtimeSql!.begin(async (tx) => {
         await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
         await tx`
-          INSERT INTO sales_orders (id, tenant_id, order_number, grand_total)
-          VALUES ('44444444-4444-4444-4444-444444444444', ${tenantAId}, 'ORD-A-001', 500.00);
+          INSERT INTO sales_orders (id, tenant_id, legal_entity_id, branch_id, device_id, order_number, grand_total)
+          VALUES ('44444444-4444-4444-4444-444444444444', ${tenantAId}, ${entityA1Id}, ${branchA1Id}, ${deviceA1Id}, 'ORD-A-001', 500.00);
         `;
       });
     } catch (err: unknown) {
       duplicateRejected = true;
-      expect((err as Error).message).toMatch(/unique constraint|duplicate key/i);
+      expect((err as Error).message).toMatch(/unique constraint|duplicate key|idx_sales_orders_entity_number/i);
     }
     expect(duplicateRejected).toBe(true);
+
+    // Sub-test B: Same order_number 'ORD-A-001' within a DIFFERENT Legal Entity (entityA2Id) under Tenant A MUST succeed
+    const differentEntityOrder = await runtimeSql!.begin(async (tx) => {
+      await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
+      return await tx`
+        INSERT INTO sales_orders (id, tenant_id, legal_entity_id, branch_id, device_id, order_number, grand_total)
+        VALUES ('44444444-4444-4444-4444-444444444445', ${tenantAId}, ${entityA2Id}, ${branchA2Id}, ${deviceA2Id}, 'ORD-A-001', 750.00)
+        RETURNING id, order_number, legal_entity_id;
+      `;
+    });
+
+    expect(differentEntityOrder.length).toBe(1);
+    expect(differentEntityOrder[0]?.order_number).toBe('ORD-A-001');
+    expect(differentEntityOrder[0]?.legal_entity_id).toBe(entityA2Id);
   });
 
   it('17. Connection Pool Sequential Safety: Consecutive connection reuse leaks zero tenant context', async (ctx) => {
@@ -532,25 +619,25 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
 
   it('18. Real Transaction Atomicity: Multi-statement transaction rollback restores state completely', async (ctx) => {
     requireServer(ctx);
+    const rollbackOrderId = '55555555-5555-5555-5555-555555555555';
+
     try {
       await runtimeSql!.begin(async (tx) => {
         await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
         await tx`
-          INSERT INTO sales_orders (id, tenant_id, order_number, grand_total)
-          VALUES ('55555555-5555-5555-5555-555555555555', ${tenantAId}, 'ORD-ABORT-01', 99.00);
+          INSERT INTO sales_orders (id, tenant_id, legal_entity_id, branch_id, device_id, order_number, grand_total)
+          VALUES (${rollbackOrderId}, ${tenantAId}, ${entityA1Id}, ${branchA1Id}, ${deviceA1Id}, 'ORD-A-ROLLBACK', 100.00);
         `;
-        // Intentional failure mid-transaction
-        throw new Error('Intentional crash to test rollback atomicity');
+        throw new Error('Simulated atomic failure');
       });
     } catch {
-      // Expected
+      // Expected rollback
     }
 
-    // Verify aborted order was not committed
-    const verifyRows = await runtimeSql!.begin(async (tx) => {
+    const check = await runtimeSql!.begin(async (tx) => {
       await tx`SELECT set_config('app.current_tenant_id', ${tenantAId}, true);`;
-      return await tx`SELECT id FROM sales_orders WHERE id = '55555555-5555-5555-5555-555555555555';`;
+      return await tx`SELECT id FROM sales_orders WHERE id = ${rollbackOrderId};`;
     });
-    expect(verifyRows.length).toBe(0);
+    expect(check.length).toBe(0);
   });
 });

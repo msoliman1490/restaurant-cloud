@@ -8,14 +8,42 @@ import { PurchasingView } from './components/PurchasingView';
 import { ProductionView } from './components/ProductionView';
 import { DiningView } from './components/DiningView';
 import { AccountingView } from './components/AccountingView';
+import { PosView } from './components/PosView';
+import { IndustryPacksView } from './components/IndustryPacksView';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const [isPosFullscreen, setIsPosFullscreen] = useState(false);
+  const [activeIndustries, setActiveIndustries] = useState<string[]>(['RESTAURANT', 'CAFE']);
+
+  const handleToggleIndustry = (industryId: string) => {
+    setActiveIndustries((prev) =>
+      prev.includes(industryId)
+        ? prev.filter((id) => id !== industryId)
+        : [...prev, industryId]
+    );
+  };
+
+  // Dedicated Cashier Fullscreen Mode: remove all navigation bars for pure cashier experience
+  if (currentTab === 'pos' && isPosFullscreen) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased p-8" dir="rtl">
+        <PosView
+          isFullscreen={true}
+          onToggleFullscreen={() => setIsPosFullscreen(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-row-reverse text-slate-900 font-sans antialiased" dir="rtl">
-      {/* Sidebar */}
-      <Sidebar currentTab={currentTab} onSelectTab={setCurrentTab} />
+      {/* Sidebar with dynamic industry packs filtering */}
+      <Sidebar
+        currentTab={currentTab}
+        onSelectTab={setCurrentTab}
+        activeIndustries={activeIndustries}
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -29,12 +57,24 @@ export default function App() {
                 onNavigateToInventory={() => setCurrentTab('inventory')}
               />
             )}
+            {currentTab === 'pos' && (
+              <PosView
+                isFullscreen={false}
+                onToggleFullscreen={() => setIsPosFullscreen(true)}
+              />
+            )}
             {currentTab === 'catalog' && <CatalogView />}
             {(currentTab === 'inventory' || currentTab === 'transfers') && <InventoryView />}
             {currentTab === 'purchasing' && <PurchasingView />}
             {currentTab === 'production' && <ProductionView />}
             {currentTab === 'dining' && <DiningView />}
             {currentTab === 'accounting' && <AccountingView />}
+            {currentTab === 'industries' && (
+              <IndustryPacksView
+                activeIndustries={activeIndustries}
+                onToggleIndustry={handleToggleIndustry}
+              />
+            )}
             {currentTab === 'entities' && (
               <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
                 <h2 className="text-xl font-bold mb-2">إدارة الكيانات القانونية والفروع</h2>

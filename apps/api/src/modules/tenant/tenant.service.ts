@@ -2,6 +2,8 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
@@ -20,6 +22,8 @@ import {
   userMemberships,
   membershipScopes,
   auditLogs,
+  tenantSubscriptions,
+  tenantIndustryPacks,
 } from '@restaurant-cloud/database';
 import {
   CreateTenantRequest,
@@ -27,8 +31,20 @@ import {
   CreateBranchRequest,
   CreateWarehouseRequest,
   RegisterDeviceRequest,
+  ActivateIndustryPackRequest,
+  DeactivateIndustryPackRequest,
+  UpdateSubscriptionPlanRequest,
 } from '@restaurant-cloud/shared-contracts';
-import { TenantContext, ScopeType, BusinessType } from '@restaurant-cloud/domain-kernel';
+import {
+  TenantContext,
+  ScopeType,
+  BusinessType,
+  IndustryType,
+  IndustryPackStatus,
+  SubscriptionPlanCode,
+  SubscriptionStatus,
+  INDUSTRY_CAPABILITIES,
+} from '@restaurant-cloud/domain-kernel';
 import { eq, and } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -200,7 +216,36 @@ export class TenantService {
         accessMode: 'ALLOW',
       });
 
-      // 9. Record Immutable Audit Log
+      // 9. Provision SaaS Trial Subscription & Industry Pack
+      const trialEnds = new Date();
+      trialEnds.setDate(trialEnds.getDate() + 14);
+
+      const [subscription] = await tx
+        .insert(tenantSubscriptions)
+        .values({
+          tenantId: newTenant.id,
+          planCode: SubscriptionPlanCode.FREE_TRIAL,
+          status: SubscriptionStatus.TRIAL,
+          maxBranches: 3,
+          maxDevices: 5,
+          maxUsers: 10,
+          trialEndsAt: trialEnds,
+        })
+        .returning();
+
+      const primaryIndustry = dto.primaryIndustry || IndustryType.RESTAURANT;
+      const [primaryPack] = await tx
+        .insert(tenantIndustryPacks)
+        .values({
+          tenantId: newTenant.id,
+          industry: primaryIndustry,
+          status: IndustryPackStatus.ACTIVE,
+          isPrimary: true,
+          settings: JSON.stringify({ defaultUom: 'UNIT', currency: 'SAR' }),
+        })
+        .returning();
+
+      // 10. Record Immutable Audit Log
       await tx.insert(auditLogs).values({
         tenantId: newTenant.id,
         actorId: adminUser.id,
@@ -211,10 +256,11 @@ export class TenantService {
           tenantCode: newTenant.code,
           legalEntity: newLegalEntity.legalName,
           adminEmail: adminUser.email,
+          primaryIndustry,
         }),
       });
 
-      // 10. Generate Initial Authentication Token
+      // 11. Generate Initial Authentication Token
       const token = CryptoUtil.signToken({
         userId: adminUser.id,
         tenantId: newTenant.id,
@@ -227,6 +273,8 @@ export class TenantService {
         legalEntity: newLegalEntity,
         branch: newBranch,
         warehouse: newWarehouse,
+        subscription,
+        activeIndustryPacks: [primaryPack],
         user: {
           id: adminUser.id,
           email: adminUser.email,
@@ -371,5 +419,192 @@ export class TenantService {
         devices: allDevices,
       };
     });
+  }
+
+  // ====================================================================
+  // SaaS Multi-Industry Control Plane & Entitlements Engine
+  // ====================================================================
+
+  /**
+   * Activates a new Industry Pack for the tenant without duplicating legal entities or tenants.
+   */
+  async activateIndustryPack(context: TenantContext, dto: ActivateIndustryPackRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(tenantIndustryPacks)
+        .where(
+          and(
+            eq(tenantIndustryPacks.tenantId, context.tenantId),
+            eq(tenantIndustryPacks.industry, dto.industry)
+          )
+        )
+        .limit(1);
+
+      if (existing) {
+        if (existing.status === IndustryPackStatus.ACTIVE) {
+          return existing; // Idempotent: already active
+        }
+        // Reactivate previously deactivated pack
+        const [reactivated] = await tx
+          .update(tenantIndustryPacks)
+          .set({
+            status: IndustryPackStatus.ACTIVE,
+            deactivatedAt: null,
+            settings: dto.settings ? JSON.stringify(dto.settings) : existing.settings,
+          })
+          .where(eq(tenantIndustryPacks.id, existing.id))
+          .returning();
+
+        await this.auditService.log(
+          {
+            tenantId: context.tenantId,
+            actorId: context.userId,
+            action: 'INDUSTRY_PACK_REACTIVATED',
+            entityType: 'industry_pack',
+            entityId: existing.id,
+            afterState: reactivated,
+          },
+          tx
+        );
+        return reactivated;
+      }
+
+      // Activate new industry pack
+      const [newPack] = await tx
+        .insert(tenantIndustryPacks)
+        .values({
+          tenantId: context.tenantId,
+          industry: dto.industry,
+          status: IndustryPackStatus.ACTIVE,
+          isPrimary: false,
+          settings: dto.settings ? JSON.stringify(dto.settings) : null,
+        })
+        .returning();
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'INDUSTRY_PACK_ACTIVATED',
+          entityType: 'industry_pack',
+          entityId: newPack!.id,
+          afterState: newPack,
+        },
+        tx
+      );
+
+      return newPack;
+    });
+  }
+
+  /**
+   * Deactivates an Industry Pack safely without deleting historical tenant records (dining tables, recipes, orders remain safe).
+   */
+  async deactivateIndustryPack(context: TenantContext, dto: DeactivateIndustryPackRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [pack] = await tx
+        .select()
+        .from(tenantIndustryPacks)
+        .where(
+          and(
+            eq(tenantIndustryPacks.tenantId, context.tenantId),
+            eq(tenantIndustryPacks.industry, dto.industry)
+          )
+        )
+        .limit(1);
+
+      if (!pack) {
+        throw new NotFoundException(`Industry pack '${dto.industry}' is not installed for this tenant`);
+      }
+
+      const [updated] = await tx
+        .update(tenantIndustryPacks)
+        .set({
+          status: IndustryPackStatus.INACTIVE,
+          deactivatedAt: new Date(),
+        })
+        .where(eq(tenantIndustryPacks.id, pack.id))
+        .returning();
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'INDUSTRY_PACK_DEACTIVATED',
+          entityType: 'industry_pack',
+          entityId: pack.id,
+          afterState: { updated, reason: dto.reason },
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * Retrieves all active industry packs and aggregate capabilities for the tenant.
+   */
+  async getTenantIndustryPacks(context: TenantContext) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const packs = await tx
+        .select()
+        .from(tenantIndustryPacks)
+        .where(eq(tenantIndustryPacks.tenantId, context.tenantId));
+
+      const activePacks = packs.filter((p) => p.status === IndustryPackStatus.ACTIVE);
+      const capabilities = new Set<string>();
+
+      for (const p of activePacks) {
+        const ind = p.industry as IndustryType;
+        const caps = INDUSTRY_CAPABILITIES[ind] || [];
+        caps.forEach((c) => capabilities.add(c));
+      }
+
+      return {
+        packs,
+        activeIndustries: activePacks.map((p) => p.industry),
+        capabilities: Array.from(capabilities),
+      };
+    });
+  }
+
+  /**
+   * Retrieves current SaaS Subscription & usage limits for the tenant.
+   */
+  async getTenantSubscription(context: TenantContext) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [sub] = await tx
+        .select()
+        .from(tenantSubscriptions)
+        .where(eq(tenantSubscriptions.tenantId, context.tenantId))
+        .limit(1);
+
+      return sub || null;
+    });
+  }
+
+  /**
+   * Server-side entitlement check verifying tenant holds the required capability or industry.
+   */
+  async checkEntitlement(tenantId: string, requiredCapabilityOrIndustry: string): Promise<boolean> {
+    const packs = await this.dbService.db
+      .select()
+      .from(tenantIndustryPacks)
+      .where(
+        and(
+          eq(tenantIndustryPacks.tenantId, tenantId),
+          eq(tenantIndustryPacks.status, IndustryPackStatus.ACTIVE)
+        )
+      );
+
+    for (const p of packs) {
+      if (p.industry === requiredCapabilityOrIndustry) return true;
+      const caps = INDUSTRY_CAPABILITIES[p.industry as IndustryType] || [];
+      if (caps.includes(requiredCapabilityOrIndustry)) return true;
+    }
+
+    return false;
   }
 }

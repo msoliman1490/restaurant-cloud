@@ -5,15 +5,17 @@ import {
   ArrowLeftRight,
   Building2,
   Receipt,
-  Users,
   ShoppingCart,
   ChefHat,
   Utensils,
   BookOpen,
+  Layers,
+  Users,
 } from 'lucide-react';
 
 export type NavTab =
   | 'dashboard'
+  | 'pos'
   | 'catalog'
   | 'inventory'
   | 'transfers'
@@ -21,16 +23,23 @@ export type NavTab =
   | 'production'
   | 'dining'
   | 'accounting'
-  | 'entities';
+  | 'entities'
+  | 'industries';
 
 interface SidebarProps {
   currentTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
+  activeIndustries?: string[];
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  currentTab,
+  onSelectTab,
+  activeIndustries = ['RESTAURANT'],
+}) => {
   const operationsNav = [
     { id: 'dashboard' as NavTab, label: 'لوحة التحكم', icon: LayoutDashboard },
+    { id: 'pos' as NavTab, label: 'نقاط البيع والكاشير (POS)', icon: Receipt },
     { id: 'catalog' as NavTab, label: 'قائمة المنتجات والتسعير', icon: UtensilsCrossed },
     { id: 'dining' as NavTab, label: 'إدارة الصالة والطاولات', icon: Utensils },
     { id: 'inventory' as NavTab, label: 'أرصدة المخزون والتكلفة', icon: Boxes },
@@ -39,9 +48,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => 
     { id: 'transfers' as NavTab, label: 'التحويلات والمناقلات', icon: ArrowLeftRight },
   ];
 
+  const filteredOperationsNav = operationsNav.filter((item) => {
+    if (item.id === 'dining') {
+      return activeIndustries.includes('RESTAURANT');
+    }
+    if (item.id === 'production') {
+      return activeIndustries.some((ind) =>
+        ['RESTAURANT', 'CAFE', 'BAKERY', 'CATERING'].includes(ind)
+      );
+    }
+    return true;
+  });
+
   const enterpriseNav = [
     { id: 'accounting' as NavTab, label: 'المحاسبة ودفتر الأستاذ', icon: BookOpen },
     { id: 'entities' as NavTab, label: 'الشركات والفروع', icon: Building2 },
+    { id: 'industries' as NavTab, label: 'قطاعات المنشأة وباقات SaaS', icon: Layers },
   ];
 
   return (
@@ -58,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => 
 
       <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
         <div className="text-[11px] font-semibold text-slate-400 px-3 py-1">العمليات والتشغيل</div>
-        {operationsNav.map((item) => {
+        {filteredOperationsNav.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
           return (

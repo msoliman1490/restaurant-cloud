@@ -59,8 +59,8 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
       return;
     }
 
-    // 2. Setup DDL Schema for Integration Verification
-    await adminSql`
+    // 2. Setup DDL Schema for Integration Verification (Static DDL via Simple Query Protocol)
+    await adminSql.unsafe(`
       CREATE TABLE IF NOT EXISTS tenants (
         id UUID PRIMARY KEY,
         code VARCHAR(50) NOT NULL UNIQUE,
@@ -101,10 +101,10 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
         action VARCHAR(100) NOT NULL,
         entity_id UUID NOT NULL
       );
-    `;
+    `);
 
     // 3. Configure Runtime Role rc_app_user (strictly NOSUPERUSER NOBYPASSRLS)
-    await adminSql`
+    await adminSql.unsafe(`
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rc_app_user') THEN
@@ -132,10 +132,10 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
         BEFORE UPDATE OR DELETE ON audit_logs
         FOR EACH ROW
         EXECUTE FUNCTION prevent_audit_log_modification();
-    `;
+    `);
 
     // 4. Force Row Level Security on all multi-tenant tables
-    await adminSql`
+    await adminSql.unsafe(`
       ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
       ALTER TABLE tenants FORCE ROW LEVEL SECURITY;
 
@@ -150,10 +150,10 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
 
       ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
       ALTER TABLE audit_logs FORCE ROW LEVEL SECURITY;
-    `;
+    `);
 
     // 5. Apply Permissive Policies with BOTH USING and WITH CHECK
-    await adminSql`
+    await adminSql.unsafe(`
       DROP POLICY IF EXISTS tenant_isolation_tenants ON tenants;
       CREATE POLICY tenant_isolation_tenants ON tenants
         FOR ALL TO rc_app_user
@@ -183,15 +183,17 @@ describe('Genuine PostgreSQL 16 Server Integration & Security Verification', () 
         FOR ALL TO rc_app_user
         USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
         WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
-    `;
+    `);
 
-    // 6. Seed Baseline Tenants and Legal Entities as Admin
+    // 6. Seed Baseline Tenants and Legal Entities as Admin (individual parameterized statements)
     await adminSql`
       INSERT INTO tenants (id, code, display_name) VALUES
         (${tenantAId}, 'tenant-a', 'Tenant A Org'),
         (${tenantBId}, 'tenant-b', 'Tenant B Org')
       ON CONFLICT (id) DO NOTHING;
+    `;
 
+    await adminSql`
       INSERT INTO legal_entities (id, tenant_id, code, name) VALUES
         (${entityA1Id}, ${tenantAId}, 'LE-A1', 'Al-Diyafa LLC'),
         (${entityA2Id}, ${tenantAId}, 'LE-A2', 'Fast Food Ltd')

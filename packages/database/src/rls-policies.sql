@@ -487,4 +487,21 @@ CREATE POLICY tenant_isolation_fiscal_periods ON fiscal_periods
   USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
+-- Multi-Industry SaaS & Subscription Entitlements Policies
+ALTER TABLE tenant_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_subscriptions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_tenant_subscriptions ON tenant_subscriptions;
+CREATE POLICY tenant_isolation_tenant_subscriptions ON tenant_subscriptions
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+ALTER TABLE tenant_industry_packs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_industry_packs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_tenant_industry_packs ON tenant_industry_packs;
+CREATE POLICY tenant_isolation_tenant_industry_packs ON tenant_industry_packs
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
 

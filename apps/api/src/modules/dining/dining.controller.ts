@@ -11,7 +11,9 @@ import {
 import { DiningService } from './dining.service';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { IndustryEntitlementGuard } from '../../common/guards/industry-entitlement.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { RequireCapability } from '../../common/decorators/industry-entitlement.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
   CreateDiningTableSchema,
@@ -22,7 +24,8 @@ import {
 import { TenantContext, TableStatus } from '@restaurant-cloud/domain-kernel';
 
 @Controller('api/v1/dining')
-@UseGuards(TenantContextGuard, PermissionsGuard)
+@UseGuards(TenantContextGuard, PermissionsGuard, IndustryEntitlementGuard)
+@RequireCapability('dining.tables')
 export class DiningController {
   constructor(private readonly diningService: DiningService) {}
 

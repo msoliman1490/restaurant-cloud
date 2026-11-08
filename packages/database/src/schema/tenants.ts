@@ -1,5 +1,13 @@
-import { pgTable, uuid, varchar, timestamp, text, boolean, uniqueIndex, index, primaryKey } from 'drizzle-orm/pg-core';
-import { TenantStatus, DeploymentMode, BusinessType, ScopeType } from '@restaurant-cloud/domain-kernel';
+import { pgTable, uuid, varchar, timestamp, text, boolean, integer, uniqueIndex, index, primaryKey } from 'drizzle-orm/pg-core';
+import {
+  TenantStatus,
+  DeploymentMode,
+  BusinessType,
+  ScopeType,
+  IndustryPackStatus,
+  SubscriptionPlanCode,
+  SubscriptionStatus,
+} from '@restaurant-cloud/domain-kernel';
 
 export const tenants = pgTable('tenants', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -180,5 +188,47 @@ export const membershipScopes = pgTable(
   },
   (table) => [
     index('idx_membership_scopes_membership_id').on(table.membershipId),
+  ]
+);
+
+// Multi-Industry SaaS & Subscription Entitlements
+export const tenantSubscriptions = pgTable(
+  'tenant_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    planCode: varchar('plan_code', { length: 50 }).notNull().default(SubscriptionPlanCode.FREE_TRIAL),
+    status: varchar('status', { length: 30 }).notNull().default(SubscriptionStatus.TRIAL),
+    maxBranches: integer('max_branches').notNull().default(3),
+    maxDevices: integer('max_devices').notNull().default(5),
+    maxUsers: integer('max_users').notNull().default(10),
+    trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+    currentPeriodStart: timestamp('current_period_start', { withTimezone: true }).notNull().defaultNow(),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_tenant_subscriptions_tenant_id').on(table.tenantId),
+    index('idx_tenant_subscriptions_status').on(table.status),
+  ]
+);
+
+export const tenantIndustryPacks = pgTable(
+  'tenant_industry_packs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    industry: varchar('industry', { length: 50 }).notNull(), // RESTAURANT, CAFE, GROCERY, etc.
+    status: varchar('status', { length: 30 }).notNull().default(IndustryPackStatus.ACTIVE),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    settings: text('settings'), // JSON configuration
+    activatedAt: timestamp('activated_at', { withTimezone: true }).notNull().defaultNow(),
+    deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_tenant_industry_packs_tenant_ind').on(table.tenantId, table.industry),
+    index('idx_tenant_industry_packs_tenant_status').on(table.tenantId, table.status),
   ]
 );

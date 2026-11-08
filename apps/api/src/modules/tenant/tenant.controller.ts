@@ -20,6 +20,8 @@ import {
   CreateBranchRequest,
   RegisterDeviceRequestSchema,
   RegisterDeviceRequest,
+  ActivateIndustryPackRequestSchema,
+  DeactivateIndustryPackRequestSchema,
 } from '@restaurant-cloud/shared-contracts';
 import { TenantContext } from '@restaurant-cloud/domain-kernel';
 
@@ -86,6 +88,57 @@ export class TenantController {
   ) {
     const validatedDto = RegisterDeviceRequestSchema.parse(body);
     const data = await this.tenantService.registerDevice(context, validatedDto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  // Multi-Industry SaaS Endpoints
+  @Get('tenants/industries')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  async getIndustryPacks(@CurrentContext() context: TenantContext) {
+    const data = await this.tenantService.getTenantIndustryPacks(context);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('tenants/industries/activate')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.update')
+  async activateIndustryPack(
+    @CurrentContext() context: TenantContext,
+    @Body() body: unknown
+  ) {
+    const validatedDto = ActivateIndustryPackRequestSchema.parse(body);
+    const data = await this.tenantService.activateIndustryPack(context, validatedDto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('tenants/industries/deactivate')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.update')
+  async deactivateIndustryPack(
+    @CurrentContext() context: TenantContext,
+    @Body() body: unknown
+  ) {
+    const validatedDto = DeactivateIndustryPackRequestSchema.parse(body);
+    const data = await this.tenantService.deactivateIndustryPack(context, validatedDto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Get('tenants/subscription')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  async getSubscription(@CurrentContext() context: TenantContext) {
+    const data = await this.tenantService.getTenantSubscription(context);
     return {
       success: true,
       data,

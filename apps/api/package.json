@@ -7,8 +7,8 @@
     "build": "nest build",
     "start": "nest start",
     "dev": "nest start --watch",
-    "test": "vitest run test/gate1-security.spec.ts test/local-postgres-rls.spec.ts test/security-negative.spec.ts test/catalog-inventory.spec.ts test/phase3-comprehensive.spec.ts test/operational-integration.spec.ts test/e2e-operational-audit.spec.ts test/pilot-hardening-integrity.spec.ts",
-    "test:local": "vitest run test/gate1-security.spec.ts test/local-postgres-rls.spec.ts test/security-negative.spec.ts test/catalog-inventory.spec.ts test/phase3-comprehensive.spec.ts test/operational-integration.spec.ts test/e2e-operational-audit.spec.ts test/pilot-hardening-integrity.spec.ts",
+    "test": "vitest run test/gate1-security.spec.ts test/local-postgres-rls.spec.ts test/security-negative.spec.ts test/catalog-inventory.spec.ts test/phase3-comprehensive.spec.ts test/operational-integration.spec.ts test/e2e-operational-audit.spec.ts test/pilot-hardening-integrity.spec.ts test/multi-industry-saas.spec.ts",
+    "test:local": "vitest run test/gate1-security.spec.ts test/local-postgres-rls.spec.ts test/security-negative.spec.ts test/catalog-inventory.spec.ts test/phase3-comprehensive.spec.ts test/operational-integration.spec.ts test/e2e-operational-audit.spec.ts test/pilot-hardening-integrity.spec.ts test/multi-industry-saas.spec.ts",
     "test:integration": "vitest run test/server-postgres-rls.spec.ts",
     "test:all": "vitest run",
     "typecheck": "tsc --noEmit"

@@ -10,7 +10,9 @@ import {
 import { ProductionService } from './production.service';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { IndustryEntitlementGuard } from '../../common/guards/industry-entitlement.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { RequireCapability } from '../../common/decorators/industry-entitlement.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
   CreateRecipeSchema,
@@ -21,7 +23,8 @@ import {
 import { TenantContext } from '@restaurant-cloud/domain-kernel';
 
 @Controller('api/v1/production')
-@UseGuards(TenantContextGuard, PermissionsGuard)
+@UseGuards(TenantContextGuard, PermissionsGuard, IndustryEntitlementGuard)
+@RequireCapability('production.recipes')
 export class ProductionController {
   constructor(private readonly productionService: ProductionService) {}
 

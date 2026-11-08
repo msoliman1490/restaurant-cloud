@@ -31,6 +31,10 @@ import {
   ShiftCashTransactionType,
   FiscalPeriodStatus,
   SupplierPaymentMethod,
+  IndustryType,
+  IndustryPackStatus,
+  SubscriptionPlanCode,
+  SubscriptionStatus,
 } from '@restaurant-cloud/domain-kernel';
 
 // ====================================================================
@@ -43,6 +47,7 @@ export const CreateTenantRequestSchema = z.object({
   deploymentMode: z.nativeEnum(DeploymentMode).default(DeploymentMode.SHARED),
   primaryLocale: z.string().default('ar-SA'),
   timezone: z.string().default('Asia/Riyadh'),
+  primaryIndustry: z.nativeEnum(IndustryType).optional().default(IndustryType.RESTAURANT),
   initialLegalEntity: z.object({
     legalName: z.string().min(2).max(255),
     vatNumber: z.string().regex(/^\d{15}$/, 'Saudi VAT number must be 15 digits'),
@@ -58,6 +63,29 @@ export const CreateTenantRequestSchema = z.object({
 });
 
 export type CreateTenantRequest = z.infer<typeof CreateTenantRequestSchema>;
+
+export const ActivateIndustryPackRequestSchema = z.object({
+  industry: z.nativeEnum(IndustryType),
+  settings: z.record(z.any()).optional(),
+});
+
+export type ActivateIndustryPackRequest = z.infer<typeof ActivateIndustryPackRequestSchema>;
+
+export const DeactivateIndustryPackRequestSchema = z.object({
+  industry: z.nativeEnum(IndustryType),
+  reason: z.string().optional(),
+});
+
+export type DeactivateIndustryPackRequest = z.infer<typeof DeactivateIndustryPackRequestSchema>;
+
+export const UpdateSubscriptionPlanRequestSchema = z.object({
+  planCode: z.nativeEnum(SubscriptionPlanCode),
+  maxBranches: z.number().int().positive().optional(),
+  maxDevices: z.number().int().positive().optional(),
+  maxUsers: z.number().int().positive().optional(),
+});
+
+export type UpdateSubscriptionPlanRequest = z.infer<typeof UpdateSubscriptionPlanRequestSchema>;
 
 export const CreateLegalEntityRequestSchema = z.object({
   groupId: z.string().uuid().optional(),

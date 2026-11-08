@@ -19,6 +19,81 @@ export enum BusinessType {
   MIXED = 'MIXED',
 }
 
+export enum IndustryType {
+  RESTAURANT = 'RESTAURANT',
+  CAFE = 'CAFE',
+  GROCERY = 'GROCERY',
+  BAKERY = 'BAKERY',
+  CATERING = 'CATERING',
+  RETAIL = 'RETAIL',
+}
+
+export enum IndustryPackStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+  TRIAL = 'TRIAL',
+  SUSPENDED = 'SUSPENDED',
+}
+
+export enum SubscriptionPlanCode {
+  FREE_TRIAL = 'FREE_TRIAL',
+  STARTER = 'STARTER',
+  GROWTH = 'GROWTH',
+  ENTERPRISE = 'ENTERPRISE',
+  CUSTOM = 'CUSTOM',
+}
+
+export enum SubscriptionStatus {
+  TRIAL = 'TRIAL',
+  ACTIVE = 'ACTIVE',
+  PAST_DUE = 'PAST_DUE',
+  SUSPENDED = 'SUSPENDED',
+  CANCELLED = 'CANCELLED',
+  EXPIRED = 'EXPIRED',
+}
+
+export const INDUSTRY_CAPABILITIES: Record<IndustryType, string[]> = {
+  [IndustryType.RESTAURANT]: [
+    'dining.tables',
+    'dining.floor_plan',
+    'production.recipes',
+    'production.kitchen_kds',
+    'inventory.recipe_costing',
+    'sales.order_modifiers',
+    'pos.dine_in',
+  ],
+  [IndustryType.CAFE]: [
+    'sales.customizations',
+    'sales.beverage_sizes',
+    'production.quick_recipes',
+    'sales.loyalty_points',
+    'pos.quick_counter',
+  ],
+  [IndustryType.GROCERY]: [
+    'pos.barcode_scanner',
+    'pos.weight_scale',
+    'catalog.expiry_tracking',
+    'catalog.batch_numbers',
+    'inventory.retail_packaging',
+    'inventory.fast_replenishment',
+  ],
+  [IndustryType.BAKERY]: [
+    'production.batch_baking',
+    'catalog.daily_fresh_expiration',
+    'production.waste_tracking',
+  ],
+  [IndustryType.CATERING]: [
+    'sales.banquet_events',
+    'sales.contract_orders',
+    'production.large_scale_bom',
+  ],
+  [IndustryType.RETAIL]: [
+    'catalog.matrix_variants',
+    'pos.gift_cards',
+    'sales.customer_accounts',
+  ],
+};
+
 export enum ScopeType {
   TENANT = 'TENANT',
   GROUP = 'GROUP',

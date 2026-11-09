@@ -115,6 +115,19 @@ export class AccountingService {
           throw new NotFoundException(`الحساب الرئيسي المحدد '${dto.parentId}' غير موجود`);
         }
         level = (parent.level || 1) + 1;
+
+        // Rule: A parent account with children must strictly be a summary account (isPostable = false)
+        if (parent.isPostable) {
+          await tx
+            .update(chartOfAccounts)
+            .set({ isPostable: false, updatedAt: new Date() })
+            .where(
+              and(
+                eq(chartOfAccounts.tenantId, context.tenantId),
+                eq(chartOfAccounts.id, parent.id)
+              )
+            );
+        }
       }
 
       const [account] = await tx
@@ -2017,6 +2030,28 @@ export class AccountingService {
 
         await tx.delete(journalLines).where(eq(journalLines.journalEntryId, entryId));
         for (const line of dto.lines) {
+          if (line.accountId) {
+            const [acc] = await tx
+              .select({
+                id: chartOfAccounts.id,
+                accountCode: chartOfAccounts.accountCode,
+                name: chartOfAccounts.name,
+                isPostable: chartOfAccounts.isPostable,
+              })
+              .from(chartOfAccounts)
+              .where(
+                and(
+                  eq(chartOfAccounts.tenantId, context.tenantId),
+                  eq(chartOfAccounts.id, line.accountId)
+                )
+              )
+              .limit(1);
+
+            if (acc && !acc.isPostable) {
+              throw new BadRequestException(`لا يمكن إضافة حساب رئيسي/تجميعي في أسطر القيد: (${acc.accountCode} - ${acc.name})`);
+            }
+          }
+
           await tx.insert(journalLines).values({
             journalEntryId: entryId,
             accountId: line.accountId,
@@ -2262,8 +2297,14 @@ export class AccountingService {
         .select({
           accountId: chartOfAccounts.id,
           accountCode: chartOfAccounts.accountCode,
-          accountName: chartOfAccounts.name,
+          name: chartOfAccounts.name,
+          nameAr: chartOfAccounts.nameAr,
+          nameEn: chartOfAccounts.nameEn,
+          accountName: sql<string>`COALESCE(${chartOfAccounts.nameAr}, ${chartOfAccounts.name})`,
           accountType: chartOfAccounts.accountType,
+          isPostable: chartOfAccounts.isPostable,
+          level: chartOfAccounts.level,
+          parentId: chartOfAccounts.parentId,
           totalDebit: sql<string>`COALESCE(SUM(CASE WHEN ${journalEntries.id} IS NOT NULL THEN CAST(${journalLines.debit} AS NUMERIC) ELSE 0 END), 0)::text`,
           totalCredit: sql<string>`COALESCE(SUM(CASE WHEN ${journalEntries.id} IS NOT NULL THEN CAST(${journalLines.credit} AS NUMERIC) ELSE 0 END), 0)::text`,
         })
@@ -2286,7 +2327,12 @@ export class AccountingService {
           chartOfAccounts.id,
           chartOfAccounts.accountCode,
           chartOfAccounts.name,
-          chartOfAccounts.accountType
+          chartOfAccounts.nameAr,
+          chartOfAccounts.nameEn,
+          chartOfAccounts.accountType,
+          chartOfAccounts.isPostable,
+          chartOfAccounts.level,
+          chartOfAccounts.parentId
         )
         .orderBy(asc(chartOfAccounts.accountCode));
 
@@ -2311,7 +2357,10 @@ export class AccountingService {
         legalEntityId,
         grandDebitTotal: grandDebit.toFixed(4),
         grandCreditTotal: grandCredit.toFixed(4),
+        totalDebit: grandDebit.toFixed(4),
+        totalCredit: grandCredit.toFixed(4),
         discrepancy: discrepancy.toFixed(4),
+        difference: discrepancy.toFixed(4),
         isBalanced: discrepancy < 0.0001,
         accounts,
       };

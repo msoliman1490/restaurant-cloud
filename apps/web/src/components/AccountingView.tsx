@@ -23,6 +23,7 @@ import {
   X,
   Layers,
   ArrowRightLeft,
+  Pencil,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
@@ -210,8 +211,8 @@ export const AccountingView: React.FC = () => {
     notes: '',
     status: 'POSTED',
     lines: [
-      { id: '1', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '0.0000', credit: '0.0000' },
-      { id: '2', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '0.0000', credit: '0.0000' },
+      { id: '1', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '', credit: '' },
+      { id: '2', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '', credit: '' },
     ],
   });
 
@@ -403,13 +404,82 @@ export const AccountingView: React.FC = () => {
   }, [journalForm.lines, journalTotals.isBalanced]);
 
   // Multi-line editor actions
-  const handleAddJournalLine = () => {
-    setJournalForm((prev) => ({
-      ...prev,
+  const openNewJournalDrawer = () => {
+    setEditingJournalId(null);
+    setJournalForm({
+      journalNumber: `JV-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000 + 1000)}`,
+      entryDate: new Date().toISOString().slice(0, 10),
+      dueDate: '',
+      journalType: 'GENERAL',
+      sourceType: 'MANUAL',
+      description: '',
+      notes: '',
+      status: 'POSTED',
       lines: [
+        { id: '1', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '', credit: '' },
+        { id: '2', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '', credit: '' },
+      ],
+    });
+    setIsJournalDrawerOpen(true);
+    setTimeout(() => {
+      const el = document.getElementById('line-account-0');
+      if (el) el.focus();
+    }, 100);
+  };
+
+  const handleOpenEditDraft = (j: JournalEntryHeader) => {
+    if (j.status !== 'DRAFT') {
+      setFeedbackMessage({ type: 'error', text: 'لا يمكن تعديل إلا مسودات القيود (DRAFT)' });
+      return;
+    }
+    setEditingJournalId(j.id);
+    setJournalForm({
+      journalNumber: j.journalNumber,
+      entryDate: j.entryDate ? new Date(j.entryDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      dueDate: (j as any).dueDate ? new Date((j as any).dueDate).toISOString().slice(0, 10) : '',
+      journalType: j.journalType || 'GENERAL',
+      sourceType: j.sourceType || 'MANUAL',
+      description: j.description || '',
+      notes: j.notes || '',
+      status: 'DRAFT',
+      lines: (j.lines && j.lines.length > 0)
+        ? j.lines.map((l, idx) => {
+            const acc = flatAccounts.find((a) => a.id === l.accountId || a.accountCode === l.accountCode);
+            const dVal = parseFloat(l.debit || '0');
+            const cVal = parseFloat(l.credit || '0');
+            return {
+              id: l.id || `line-${idx}-${Date.now()}`,
+              accountId: l.accountId || acc?.id || '',
+              accountCode: l.accountCode || acc?.accountCode || '',
+              accountName: l.accountName || acc?.nameAr || acc?.name || '',
+              isPostable: acc ? acc.isPostable : true,
+              description: l.description || '',
+              partnerId: l.partnerId || '',
+              partnerRole: l.partnerRole || '',
+              costCenterId: l.costCenterId || '',
+              debit: dVal > 0 ? String(dVal) : '',
+              credit: cVal > 0 ? String(cVal) : '',
+            };
+          })
+        : [
+            { id: '1', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '', credit: '' },
+            { id: '2', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '', credit: '' },
+          ],
+    });
+    setIsJournalDrawerOpen(true);
+    setTimeout(() => {
+      const el = document.getElementById('line-account-0');
+      if (el) el.focus();
+    }, 100);
+  };
+
+  const handleAddJournalLine = (focusNew = false) => {
+    const newLineId = Date.now().toString();
+    setJournalForm((prev) => {
+      const newLines = [
         ...prev.lines,
         {
-          id: Date.now().toString(),
+          id: newLineId,
           accountId: '',
           accountCode: '',
           accountName: '',
@@ -418,11 +488,21 @@ export const AccountingView: React.FC = () => {
           partnerId: '',
           partnerRole: '',
           costCenterId: '',
-          debit: '0.0000',
-          credit: '0.0000',
+          debit: '',
+          credit: '',
         },
-      ],
-    }));
+      ];
+      if (focusNew) {
+        setTimeout(() => {
+          const el = document.getElementById(`line-account-${newLines.length - 1}`);
+          if (el) el.focus();
+        }, 50);
+      }
+      return {
+        ...prev,
+        lines: newLines,
+      };
+    });
   };
 
   const handleDuplicateLine = (index: number) => {
@@ -431,6 +511,10 @@ export const AccountingView: React.FC = () => {
     const updated = [...journalForm.lines];
     updated.splice(index + 1, 0, cloned);
     setJournalForm((prev) => ({ ...prev, lines: updated }));
+    setTimeout(() => {
+      const el = document.getElementById(`line-account-${index + 1}`);
+      if (el) el.focus();
+    }, 50);
   };
 
   const handleDeleteLine = (index: number) => {
@@ -442,6 +526,70 @@ export const AccountingView: React.FC = () => {
       ...prev,
       lines: prev.lines.filter((_, idx) => idx !== index),
     }));
+  };
+
+  const handleKeyDown = (
+    e: React.KeyboardEvent,
+    fieldName: 'account' | 'desc' | 'partner' | 'debit' | 'credit',
+    idx: number
+  ) => {
+    // Ctrl + Enter: Add line and focus first field of new line
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleAddJournalLine(true);
+      return;
+    }
+
+    // Ctrl + D: Duplicate current line
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+      e.preventDefault();
+      handleDuplicateLine(idx);
+      return;
+    }
+
+    // Enter key navigation
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const isControl =
+        journalForm.lines[idx].accountCode === '113000' ||
+        journalForm.lines[idx].accountCode === '211000';
+
+      if (fieldName === 'account') {
+        const el = document.getElementById(`line-desc-${idx}`);
+        if (el) el.focus();
+      } else if (fieldName === 'desc') {
+        if (isControl) {
+          const el = document.getElementById(`line-partner-${idx}`);
+          if (el) el.focus();
+        } else {
+          const el = document.getElementById(`line-debit-${idx}`);
+          if (el) el.focus();
+        }
+      } else if (fieldName === 'partner') {
+        const el = document.getElementById(`line-debit-${idx}`);
+        if (el) el.focus();
+      } else if (fieldName === 'debit') {
+        const dVal = parseFloat(journalForm.lines[idx].debit || '0');
+        if (dVal > 0) {
+          if (idx + 1 < journalForm.lines.length) {
+            const el = document.getElementById(`line-account-${idx + 1}`);
+            if (el) el.focus();
+          } else {
+            handleAddJournalLine(true);
+          }
+        } else {
+          const el = document.getElementById(`line-credit-${idx}`);
+          if (el) el.focus();
+        }
+      } else if (fieldName === 'credit') {
+        if (idx + 1 < journalForm.lines.length) {
+          const el = document.getElementById(`line-account-${idx + 1}`);
+          if (el) el.focus();
+        } else {
+          handleAddJournalLine(true);
+        }
+      }
+    }
   };
 
   const handleLineAccountChange = (index: number, accountId: string) => {
@@ -468,44 +616,64 @@ export const AccountingView: React.FC = () => {
         return;
       }
 
-      const payload = {
-        legalEntityId,
-        branchId: activeBranch?.id || null,
-        journalNumber: journalForm.journalNumber,
-        journalType: journalForm.journalType,
-        sourceType: 'MANUAL',
-        description: journalForm.description || 'قيد يومية يدوي مركب',
-        notes: journalForm.notes,
-        entryDate: journalForm.entryDate,
-        dueDate: journalForm.dueDate || undefined,
-        status: targetStatus,
-        lines: journalForm.lines
-          .filter((l) => l.accountId && (parseFloat(l.debit || '0') > 0 || parseFloat(l.credit || '0') > 0))
-          .map((l) => ({
-            accountId: l.accountId,
-            accountCode: l.accountCode,
-            branchId: activeBranch?.id || null,
-            partnerId: l.partnerId || null,
-            partnerRole: l.partnerRole || null,
-            costCenterId: l.costCenterId || null,
-            debit: parseFloat(l.debit || '0').toFixed(4),
-            credit: parseFloat(l.credit || '0').toFixed(4),
-            currency: 'SAR',
-            description: l.description || journalForm.description,
-          })),
-      };
+      const formattedLines = journalForm.lines
+        .filter((l) => l.accountId && (parseFloat(l.debit || '0') > 0 || parseFloat(l.credit || '0') > 0))
+        .map((l) => ({
+          accountId: l.accountId,
+          accountCode: l.accountCode,
+          branchId: activeBranch?.id || null,
+          partnerId: l.partnerId || null,
+          partnerRole: l.partnerRole || null,
+          costCenterId: l.costCenterId || null,
+          debit: parseFloat(l.debit || '0') > 0 ? parseFloat(l.debit).toFixed(4) : '0.0000',
+          credit: parseFloat(l.credit || '0') > 0 ? parseFloat(l.credit).toFixed(4) : '0.0000',
+          currency: 'SAR',
+          description: l.description || journalForm.description,
+        }));
+
+      if (targetStatus === 'POSTED' && formattedLines.length < 2) {
+        setFeedbackMessage({ type: 'error', text: 'يجب أن يحتوي القيد على بندين على الأقل' });
+        return;
+      }
 
       if (editingJournalId) {
-        await apiClient.put(`/accounting/journal-entries/${editingJournalId}`, payload);
+        // Updating existing draft
+        await apiClient.put(`/accounting/journal-entries/${editingJournalId}`, {
+          journalType: journalForm.journalType,
+          description: journalForm.description,
+          notes: journalForm.notes,
+          entryDate: journalForm.entryDate,
+          dueDate: journalForm.dueDate || undefined,
+          lines: formattedLines,
+        });
+
         if (targetStatus === 'POSTED') {
           await apiClient.post(`/accounting/journal-entries/${editingJournalId}/post`, {});
+          setFeedbackMessage({ type: 'success', text: `تم تحديث وترحيل القيد #${journalForm.journalNumber} بنجاح` });
+        } else {
+          setFeedbackMessage({ type: 'success', text: `تم حفظ تعديلات مسودة القيد #${journalForm.journalNumber} بنجاح` });
         }
-        setFeedbackMessage({ type: 'success', text: 'تم تحديث القيد بنجاح' });
       } else {
-        await apiClient.post('/accounting/journal-entries', payload);
+        // Creating new entry
+        const payload = {
+          legalEntityId,
+          branchId: activeBranch?.id || null,
+          journalNumber: journalForm.journalNumber,
+          journalType: journalForm.journalType,
+          sourceType: 'MANUAL',
+          description: journalForm.description || 'قيد يومية يدوي مركب',
+          notes: journalForm.notes,
+          entryDate: journalForm.entryDate,
+          dueDate: journalForm.dueDate || undefined,
+          currency: 'SAR',
+          status: targetStatus,
+          lines: formattedLines,
+        };
+
+        const res = await apiClient.post<any>('/accounting/journal-entries', payload);
         setFeedbackMessage({
           type: 'success',
-          text: targetStatus === 'POSTED' ? 'تم ترحيل القيد في الأستاذ العام بنجاح' : 'تم حفظ مسودة القيد بنجاح',
+          text: targetStatus === 'POSTED' ? `تم ترحيل القيد #${res.journalNumber || journalForm.journalNumber} بنجاح` : `تم حفظ مسودة القيد #${res.journalNumber || journalForm.journalNumber} بنجاح`,
         });
       }
 
@@ -913,24 +1081,7 @@ export const AccountingView: React.FC = () => {
             {/* New Multi-Line Journal Entry Button */}
             <button
               type="button"
-              onClick={() => {
-                setEditingJournalId(null);
-                setJournalForm({
-                  journalNumber: `JV-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000 + 1000)}`,
-                  entryDate: new Date().toISOString().slice(0, 10),
-                  dueDate: '',
-                  journalType: 'GENERAL',
-                  sourceType: 'MANUAL',
-                  description: '',
-                  notes: '',
-                  status: 'POSTED',
-                  lines: [
-                    { id: '1', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '0.0000', credit: '0.0000' },
-                    { id: '2', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '0.0000', credit: '0.0000' },
-                  ],
-                });
-                setIsJournalDrawerOpen(true);
-              }}
+              onClick={openNewJournalDrawer}
               className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-medium text-sm transition shadow-lg shadow-emerald-600/30"
             >
               <Plus className="w-4 h-4" />
@@ -1099,6 +1250,15 @@ export const AccountingView: React.FC = () => {
                               <div className="flex items-center justify-center gap-1.5">
                                 {j.status === 'DRAFT' && (
                                   <>
+                                    <button
+                                      type="button"
+                                      title="تعديل المسودة"
+                                      onClick={() => handleOpenEditDraft(j)}
+                                      className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-950 text-blue-600 rounded transition flex items-center gap-1 text-xs font-semibold"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                      <span>تعديل</span>
+                                    </button>
                                     <button
                                       type="button"
                                       title="ترحيل المسودة"
@@ -1547,7 +1707,9 @@ export const AccountingView: React.FC = () => {
                       {trialBalanceData?.accounts?.map((acc: any) => (
                         <tr key={acc.accountId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                           <td className="py-2 px-3 text-emerald-500 font-semibold">{acc.accountCode}</td>
-                          <td className="py-2 px-3 font-sans text-slate-700 dark:text-slate-300">{acc.name}</td>
+                          <td className="py-2 px-3 font-sans text-slate-700 dark:text-slate-300">
+                            {acc.accountName || acc.nameAr || acc.name || acc.nameEn || '-'}
+                          </td>
                           <td className="py-2 px-3 text-left">{parseFloat(acc.totalDebit).toFixed(2)}</td>
                           <td className="py-2 px-3 text-left">{parseFloat(acc.totalCredit).toFixed(2)}</td>
                           <td className="py-2 px-3 text-left font-bold">{parseFloat(acc.netBalance).toFixed(2)}</td>
@@ -1557,9 +1719,15 @@ export const AccountingView: React.FC = () => {
                     <tfoot className={`font-bold border-t-2 border-slate-300 dark:border-slate-700 ${theme === 'dark' ? 'bg-slate-800/80' : 'bg-slate-100'}`}>
                       <tr>
                         <td colSpan={2} className="py-3 px-3 font-sans">الإجمالي العام للميزان:</td>
-                        <td className="py-3 px-3 text-left text-emerald-500">{parseFloat(trialBalanceData?.totalDebit || '0').toFixed(2)} SAR</td>
-                        <td className="py-3 px-3 text-left text-emerald-500">{parseFloat(trialBalanceData?.totalCredit || '0').toFixed(2)} SAR</td>
-                        <td className="py-3 px-3 text-left">{parseFloat(trialBalanceData?.difference || '0').toFixed(2)}</td>
+                        <td className="py-3 px-3 text-left text-emerald-500">
+                          {parseFloat(trialBalanceData?.grandDebitTotal || trialBalanceData?.totalDebit || '0').toFixed(2)} SAR
+                        </td>
+                        <td className="py-3 px-3 text-left text-emerald-500">
+                          {parseFloat(trialBalanceData?.grandCreditTotal || trialBalanceData?.totalCredit || '0').toFixed(2)} SAR
+                        </td>
+                        <td className="py-3 px-3 text-left">
+                          {parseFloat(trialBalanceData?.discrepancy || trialBalanceData?.difference || '0').toFixed(2)}
+                        </td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1671,7 +1839,11 @@ export const AccountingView: React.FC = () => {
             <div className={`p-4 border-b flex items-center justify-between ${theme === 'dark' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
               <div className="flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-emerald-500" />
-                <h3 className="font-bold text-base">محرر قيود اليومية المركبة متعددة الأسطر (Multi-Line Journal Entry)</h3>
+                <h3 className="font-bold text-base">
+                  {editingJournalId
+                    ? `تعديل مسودة القيد المحاسبي #${journalForm.journalNumber}`
+                    : 'محرر قيود اليومية المركبة متعددة الأسطر (Multi-Line Journal Entry)'}
+                </h3>
               </div>
               <button
                 type="button"
@@ -1761,7 +1933,7 @@ export const AccountingView: React.FC = () => {
                   </h4>
                   <button
                     type="button"
-                    onClick={handleAddJournalLine}
+                    onClick={() => handleAddJournalLine(false)}
                     className="flex items-center gap-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-500 text-xs px-3 py-1.5 rounded-lg border border-emerald-500/20 font-semibold transition"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -1790,9 +1962,11 @@ export const AccountingView: React.FC = () => {
                             <td className="py-2.5 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
                             <td className="py-2.5 px-3">
                               <select
+                                id={`line-account-${idx}`}
                                 value={line.accountId}
                                 onChange={(e) => handleLineAccountChange(idx, e.target.value)}
-                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none ${
+                                onKeyDown={(e) => handleKeyDown(e, 'account', idx)}
+                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                                   !line.isPostable
                                     ? 'border-amber-500 bg-amber-500/10'
                                     : theme === 'dark'
@@ -1802,7 +1976,7 @@ export const AccountingView: React.FC = () => {
                               >
                                 <option value="">-- اختر الحساب --</option>
                                 {flatAccounts
-                                  .filter((a) => a.isPostable)
+                                  .filter((a) => a.isPostable && (!a.children || a.children.length === 0))
                                   .map((a) => (
                                     <option key={a.id} value={a.id}>
                                       {a.accountCode} - {a.nameAr || a.name}
@@ -1813,15 +1987,17 @@ export const AccountingView: React.FC = () => {
 
                             <td className="py-2.5 px-3">
                               <input
+                                id={`line-desc-${idx}`}
                                 type="text"
                                 value={line.description}
+                                onKeyDown={(e) => handleKeyDown(e, 'desc', idx)}
                                 onChange={(e) => {
                                   const updated = [...journalForm.lines];
                                   updated[idx].description = e.target.value;
                                   setJournalForm({ ...journalForm, lines: updated });
                                 }}
                                 placeholder="بيان السطر..."
-                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none ${
+                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                                   theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-300'
                                 }`}
                               />
@@ -1830,13 +2006,15 @@ export const AccountingView: React.FC = () => {
                             <td className="py-2.5 px-3">
                               {isControlAcc ? (
                                 <select
+                                  id={`line-partner-${idx}`}
                                   value={line.partnerId}
+                                  onKeyDown={(e) => handleKeyDown(e, 'partner', idx)}
                                   onChange={(e) => {
                                     const updated = [...journalForm.lines];
                                     updated[idx].partnerId = e.target.value;
                                     setJournalForm({ ...journalForm, lines: updated });
                                   }}
-                                  className="w-full px-2.5 py-1.5 rounded-lg border border-blue-500/50 bg-blue-500/10 text-xs focus:outline-none font-medium"
+                                  className="w-full px-2.5 py-1.5 rounded-lg border border-blue-500/50 bg-blue-500/10 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                                 >
                                   <option value="">-- اختر الطرف التجاري --</option>
                                   {partners.map((p) => (
@@ -1852,40 +2030,46 @@ export const AccountingView: React.FC = () => {
 
                             <td className="py-2.5 px-3">
                               <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={line.debit}
+                                id={`line-debit-${idx}`}
+                                type="text"
+                                inputMode="decimal"
+                                placeholder=""
+                                value={line.debit || ''}
+                                onKeyDown={(e) => handleKeyDown(e, 'debit', idx)}
                                 onChange={(e) => {
+                                  const val = e.target.value.replace(/[^0-9.]/g, '');
                                   const updated = [...journalForm.lines];
-                                  updated[idx].debit = e.target.value;
-                                  if (parseFloat(e.target.value || '0') > 0) {
-                                    updated[idx].credit = '0.0000';
+                                  updated[idx].debit = val;
+                                  if (val && parseFloat(val) > 0) {
+                                    updated[idx].credit = '';
                                   }
                                   setJournalForm({ ...journalForm, lines: updated });
                                 }}
-                                className={`w-full text-left font-mono font-semibold px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none ${
-                                  parseFloat(line.debit) > 0 ? 'border-emerald-500 text-emerald-500 font-bold' : ''
+                                className={`w-full text-left font-mono font-semibold px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                  line.debit && parseFloat(line.debit) > 0 ? 'border-emerald-500 text-emerald-500 font-bold bg-emerald-500/5' : ''
                                 } ${theme === 'dark' ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`}
                               />
                             </td>
 
                             <td className="py-2.5 px-3">
                               <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={line.credit}
+                                id={`line-credit-${idx}`}
+                                type="text"
+                                inputMode="decimal"
+                                placeholder=""
+                                value={line.credit || ''}
+                                onKeyDown={(e) => handleKeyDown(e, 'credit', idx)}
                                 onChange={(e) => {
+                                  const val = e.target.value.replace(/[^0-9.]/g, '');
                                   const updated = [...journalForm.lines];
-                                  updated[idx].credit = e.target.value;
-                                  if (parseFloat(e.target.value || '0') > 0) {
-                                    updated[idx].debit = '0.0000';
+                                  updated[idx].credit = val;
+                                  if (val && parseFloat(val) > 0) {
+                                    updated[idx].debit = '';
                                   }
                                   setJournalForm({ ...journalForm, lines: updated });
                                 }}
-                                className={`w-full text-left font-mono font-semibold px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none ${
-                                  parseFloat(line.credit) > 0 ? 'border-emerald-500 text-emerald-500 font-bold' : ''
+                                className={`w-full text-left font-mono font-semibold px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                  line.credit && parseFloat(line.credit) > 0 ? 'border-emerald-500 text-emerald-500 font-bold bg-emerald-500/5' : ''
                                 } ${theme === 'dark' ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`}
                               />
                             </td>
@@ -1979,7 +2163,7 @@ export const AccountingView: React.FC = () => {
                   onClick={() => handleSaveJournal('DRAFT')}
                   className="px-4 py-2 rounded-xl text-xs font-semibold border border-blue-500/30 text-blue-500 hover:bg-blue-500/10 transition"
                 >
-                  حفظ كمسودة (Save Draft)
+                  {editingJournalId ? 'حفظ تعديلات المسودة' : 'حفظ كمسودة (Save Draft)'}
                 </button>
 
                 <button

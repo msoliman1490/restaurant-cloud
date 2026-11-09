@@ -77,7 +77,9 @@ export class PostingEngineService {
           id: chartOfAccounts.id,
           accountCode: chartOfAccounts.accountCode,
           name: chartOfAccounts.name,
+          nameAr: chartOfAccounts.nameAr,
           isPostable: chartOfAccounts.isPostable,
+          status: chartOfAccounts.status,
         })
         .from(chartOfAccounts)
         .where(
@@ -93,13 +95,33 @@ export class PostingEngineService {
         throw new NotFoundException(`الحساب المحدد غير موجود: ${line.accountId}`);
       }
 
+      // 1. Inactive account guard
+      if (acc.status && acc.status !== 'ACTIVE') {
+        throw new BadRequestException(`لا يمكن الترحيل لحساب غير نشط: (${acc.accountCode} - ${acc.nameAr || acc.name})`);
+      }
+
+      // 2. isPostable flag guard
       if (!acc.isPostable) {
-        throw new BadRequestException(`لا يمكن الترحيل لحساب رئيسي/تجميعي: ${line.accountId}`);
+        throw new BadRequestException(`لا يمكن الترحيل لحساب رئيسي/تجميعي: (${acc.accountCode} - ${acc.nameAr || acc.name})`);
+      }
+
+      // 3. Dynamic hierarchy child-check guard
+      const [childCheck] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(chartOfAccounts)
+        .where(
+          and(
+            eq(chartOfAccounts.tenantId, context.tenantId),
+            eq(chartOfAccounts.parentId, acc.id)
+          )
+        );
+      if (childCheck && childCheck.count > 0) {
+        throw new BadRequestException(`لا يمكن الترحيل لحساب تجميعي لديه حسابات فرعية: (${acc.accountCode} - ${acc.nameAr || acc.name})`);
       }
 
       // Guarded Control Accounts Enforcement (113000 AR Control / 211000 AP Control)
       if ((acc.accountCode === '113000' || acc.accountCode === '211000') && !line.partnerId) {
-        throw new BadRequestException(`حساب المراقبة (${acc.accountCode} - ${acc.name}) محمي ويتطلب تحديد الطرف التجاري (partnerId)`);
+        throw new BadRequestException(`حساب المراقبة (${acc.accountCode} - ${acc.nameAr || acc.name}) محمي ويتطلب تحديد الطرف التجاري (partnerId)`);
       }
 
       return acc.id;

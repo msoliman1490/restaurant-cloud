@@ -571,4 +571,115 @@ describe('Restaurant Cloud — Accounting Module UX & Functional Upgrade Spec', 
       })
     ).rejects.toThrow(/تم عكس هذا القيد مسبقاً/);
   });
+
+  // ==================================================================
+  // Scenario 11: Trial Balance Returns Non-Empty Account Names
+  // ==================================================================
+  it('TEST-11: Trial Balance returns Arabic and English account names and matched totals', async () => {
+    const tb = await accountingService.getTrialBalance(tenantContext, legalEntityId);
+    expect(tb).toBeDefined();
+    expect(tb.accounts.length).toBeGreaterThan(0);
+
+    for (const acc of tb.accounts) {
+      expect(acc.accountCode).toBeDefined();
+      expect(acc.accountName).toBeDefined();
+      expect(acc.accountName.trim().length).toBeGreaterThan(0);
+      expect(acc.totalDebit).toBeDefined();
+      expect(acc.totalCredit).toBeDefined();
+    }
+
+    // Grand totals match
+    expect(parseFloat(tb.grandDebitTotal)).toBeGreaterThanOrEqual(0);
+    expect(parseFloat(tb.grandCreditTotal)).toBeGreaterThanOrEqual(0);
+  });
+
+  // ==================================================================
+  // Scenario 12: Rejection of Posting to Summary Account with Children
+  // ==================================================================
+  it('TEST-12: Strictly rejects posting to summary account (rootAssetId / 100000) that has children', async () => {
+    await expect(
+      accountingService.createJournalEntry(tenantContext, {
+        legalEntityId,
+        branchId,
+        journalNumber: `JV-SUMM-${Date.now().toString().slice(-6)}`,
+        journalType: JournalType.GENERAL,
+        status: JournalStatus.POSTED,
+        lines: [
+          { accountId: rootAssetId, debit: '1000.0000', credit: '0.0000' },
+          { accountId: salesAccountId, debit: '0.0000', credit: '1000.0000' },
+        ],
+      })
+    ).rejects.toThrow(/لا يمكن الترحيل لحساب/);
+  });
+
+  // ==================================================================
+  // Scenario 13: Rejection of Posting to Inactive Account
+  // ==================================================================
+  it('TEST-13: Strictly rejects posting to inactive account (status != ACTIVE)', async () => {
+    // Create an inactive account
+    const inact = await accountingService.createAccount(tenantContext, {
+      legalEntityId,
+      accountCode: '599999',
+      name: 'حساب مصروفات معطل',
+      nameAr: 'حساب مصروفات معطل',
+      accountType: AccountType.EXPENSE,
+      normalBalance: NormalBalance.DEBIT,
+      isPostable: true,
+    });
+
+    // Set to INACTIVE
+    await accountingService.updateAccount(tenantContext, inact.id, {
+      status: 'INACTIVE',
+    });
+
+    await expect(
+      accountingService.createJournalEntry(tenantContext, {
+        legalEntityId,
+        branchId,
+        journalNumber: `JV-INACT-${Date.now().toString().slice(-6)}`,
+        journalType: JournalType.GENERAL,
+        status: JournalStatus.POSTED,
+        lines: [
+          { accountId: inact.id, debit: '500.0000', credit: '0.0000' },
+          { accountId: vaultAccountId, debit: '0.0000', credit: '500.0000' },
+        ],
+      })
+    ).rejects.toThrow(/غير نشط/);
+  });
+
+  // ==================================================================
+  // Scenario 14: Draft Updating and Subsequent Posting
+  // ==================================================================
+  it('TEST-14: Updates draft journal entry on same ID, then successfully posts it to GL', async () => {
+    const draftNumber = `JV-EDIT-${Date.now().toString().slice(-6)}`;
+    const draft = await accountingService.createJournalEntry(tenantContext, {
+      legalEntityId,
+      branchId,
+      journalNumber: draftNumber,
+      journalType: JournalType.GENERAL,
+      description: 'مسودة قيد أولية',
+      status: JournalStatus.DRAFT,
+      lines: [
+        { accountId: bankAccountId, debit: '1500.0000', credit: '0.0000' },
+        { accountId: salesAccountId, debit: '0.0000', credit: '1500.0000' },
+      ],
+    });
+
+    // Update draft on same ID
+    const updated = await accountingService.updateDraftJournalEntry(tenantContext, draft.id, {
+      description: 'مسودة قيد معدلة ومطورة',
+      lines: [
+        { accountId: bankAccountId, debit: '2500.0000', credit: '0.0000' },
+        { accountId: salesAccountId, debit: '0.0000', credit: '2500.0000' },
+      ],
+    });
+
+    expect(updated.description).toBe('مسودة قيد معدلة ومطورة');
+    expect(parseFloat(updated.debitTotal)).toBe(2500);
+
+    // Post the updated draft
+    const posted = await accountingService.postDraftJournalEntry(tenantContext, draft.id);
+    expect(posted.status).toBe('POSTED');
+    expect(parseFloat(posted.debitTotal)).toBe(2500);
+  });
 });

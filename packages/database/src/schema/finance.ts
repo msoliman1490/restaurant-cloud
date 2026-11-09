@@ -127,6 +127,10 @@ export const journalLines = pgTable(
     accountId: uuid('account_id').notNull().references(() => chartOfAccounts.id),
     branchId: uuid('branch_id').references(() => branches.id),
     costCenterId: uuid('cost_center_id').references(() => costCenters.id),
+    partnerId: uuid('partner_id'),
+    partnerRole: varchar('partner_role', { length: 20 }),
+    subledgerDocumentType: varchar('subledger_document_type', { length: 30 }),
+    subledgerDocumentId: uuid('subledger_document_id'),
     debit: numeric('debit', { precision: 14, scale: 4 }).notNull().default('0.0000'),
     credit: numeric('credit', { precision: 14, scale: 4 }).notNull().default('0.0000'),
     currency: varchar('currency', { length: 3 }).notNull().default('SAR'),
@@ -136,6 +140,7 @@ export const journalLines = pgTable(
     index('idx_journal_lines_entry_id').on(table.journalEntryId),
     index('idx_journal_lines_account_id').on(table.accountId),
     index('idx_journal_lines_cost_center').on(table.costCenterId),
+    index('idx_journal_lines_partner').on(table.partnerId),
   ]
 );
 
@@ -223,6 +228,7 @@ export const paymentVouchers = pgTable(
     costCenterId: uuid('cost_center_id').references(() => costCenters.id),
     paymentMethod: varchar('payment_method', { length: 30 }).notNull().default('CASH'),
     amount: numeric('amount', { precision: 14, scale: 4 }).notNull(),
+    unallocatedAmount: numeric('unallocated_amount', { precision: 14, scale: 4 }).notNull().default('0.0000'),
     currency: varchar('currency', { length: 3 }).notNull().default('SAR'),
     exchangeRate: numeric('exchange_rate', { precision: 12, scale: 6 }).notNull().default('1.000000'),
     status: varchar('status', { length: 30 }).notNull().default(VoucherStatus.POSTED),
@@ -256,6 +262,7 @@ export const receiptVouchers = pgTable(
     accountId: uuid('account_id').notNull().references(() => chartOfAccounts.id), // Credit account
     paymentMethod: varchar('payment_method', { length: 30 }).notNull().default('CASH'),
     amount: numeric('amount', { precision: 14, scale: 4 }).notNull(),
+    unallocatedAmount: numeric('unallocated_amount', { precision: 14, scale: 4 }).notNull().default('0.0000'),
     currency: varchar('currency', { length: 3 }).notNull().default('SAR'),
     exchangeRate: numeric('exchange_rate', { precision: 12, scale: 6 }).notNull().default('1.000000'),
     status: varchar('status', { length: 30 }).notNull().default(VoucherStatus.POSTED),

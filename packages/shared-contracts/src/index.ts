@@ -955,27 +955,39 @@ export type UpdateChartOfAccountRequest = z.infer<typeof UpdateChartOfAccountSch
 
 export const JournalLineCreateSchema = z.object({
   accountId: z.string().uuid(),
+  accountCode: z.string().optional(),
+  accountName: z.string().optional(),
   branchId: z.string().uuid().optional().nullable(),
   costCenterId: z.string().uuid().optional().nullable(),
+  partnerId: z.string().uuid().optional().nullable(),
+  partnerRole: z.string().optional().nullable(),
   debit: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
   credit: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
   currency: z.string().length(3).default('SAR'),
   description: z.string().max(255).optional(),
 });
+export type JournalLineCreate = z.infer<typeof JournalLineCreateSchema>;
 
 export const CreateJournalEntrySchema = z.object({
   legalEntityId: z.string().uuid(),
   branchId: z.string().uuid().optional().nullable(),
   journalNumber: z.string().min(2).max(50),
   journalType: z.nativeEnum(JournalType).default(JournalType.GENERAL),
-  sourceType: z.string().min(2).max(50),
-  sourceId: z.string().uuid(),
+  sourceType: z.string().default('MANUAL').optional(),
+  sourceId: z.string().uuid().optional().nullable(),
+  status: z.nativeEnum(JournalStatus).default(JournalStatus.POSTED).optional(),
   description: z.string().max(500).optional(),
   notes: z.string().max(1000).optional(),
-  entryDate: z.string().datetime().optional(),
+  entryDate: z.string().optional(),
+  dueDate: z.string().optional(),
+  currency: z.string().default('SAR').optional(),
   lines: z.array(JournalLineCreateSchema).min(2),
 }).refine(
   (data) => {
+    // If saving as DRAFT, allow in-progress unbalance
+    if (data.status === JournalStatus.DRAFT) {
+      return true;
+    }
     // Validate balanced entry: Sum(debit) == Sum(credit)
     const totalDebit = data.lines.reduce((acc, l) => acc + parseFloat(l.debit || '0'), 0);
     const totalCredit = data.lines.reduce((acc, l) => acc + parseFloat(l.credit || '0'), 0);
@@ -987,6 +999,45 @@ export const CreateJournalEntrySchema = z.object({
   }
 );
 export type CreateJournalEntry = z.infer<typeof CreateJournalEntrySchema>;
+
+export const UpdateDraftJournalEntrySchema = z.object({
+  branchId: z.string().uuid().optional().nullable(),
+  journalType: z.nativeEnum(JournalType).optional(),
+  description: z.string().max(500).optional(),
+  notes: z.string().max(1000).optional(),
+  entryDate: z.string().optional(),
+  dueDate: z.string().optional(),
+  status: z.nativeEnum(JournalStatus).optional(),
+  lines: z.array(JournalLineCreateSchema).min(2).optional(),
+});
+export type UpdateDraftJournalEntryRequest = z.infer<typeof UpdateDraftJournalEntrySchema>;
+
+export const QueryJournalEntriesSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  status: z.string().optional(),
+  journalType: z.string().optional(),
+  search: z.string().optional(),
+  fromDate: z.string().optional(),
+  toDate: z.string().optional(),
+  limit: z.coerce.number().optional().default(50),
+  offset: z.coerce.number().optional().default(0),
+});
+export type QueryJournalEntries = z.infer<typeof QueryJournalEntriesSchema>;
+
+export const BankTransferSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
+  sourceType: z.enum(['BANK', 'VAULT']),
+  sourceId: z.string().uuid(),
+  destinationType: z.enum(['BANK', 'VAULT']),
+  destinationId: z.string().uuid(),
+  amount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  currency: z.string().default('SAR'),
+  referenceNumber: z.string().optional(),
+  notes: z.string().optional(),
+  transferDate: z.string().optional(),
+});
+export type BankTransferRequest = z.infer<typeof BankTransferSchema>;
 
 // ====================================================================
 // 13. POS Operations & Shift Management Contracts
@@ -1197,6 +1248,7 @@ export const CreateBankAccountSchema = z.object({
   swiftCode: z.string().max(50).optional(),
   currency: z.string().length(3).default('SAR'),
   accountId: z.string().uuid(),
+  openingBalance: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000').optional(),
 });
 export type CreateBankAccountRequest = z.infer<typeof CreateBankAccountSchema>;
 
@@ -1325,6 +1377,177 @@ export const AgingReportQuerySchema = z.object({
   entityType: z.enum(['CUSTOMER', 'SUPPLIER']).default('CUSTOMER'),
 });
 export type AgingReportQuery = z.infer<typeof AgingReportQuerySchema>;
+
+// ====================================================================
+// 26. Business Partners Master (سجل الأطراف الموحد)
+// ====================================================================
+
+export const CreateBusinessPartnerSchema = z.object({
+  partnerNumber: z.string().min(1).max(50),
+  partnerType: z.enum(['CORPORATE', 'INDIVIDUAL']).default('CORPORATE'),
+  legalNameAr: z.string().min(2).max(255),
+  legalNameEn: z.string().max(255).optional().nullable(),
+  tradeNameAr: z.string().max(255).optional().nullable(),
+  tradeNameEn: z.string().max(255).optional().nullable(),
+  taxIdentificationNumber: z.string().regex(/^3\d{13}3$/).optional().nullable(), // ZATCA 15-digits starting and ending with 3
+  commercialRegistrationNumber: z.string().regex(/^\d{10}$/).optional().nullable(),
+  nationalIdOrIqama: z.string().max(20).optional().nullable(),
+  primaryEmail: z.string().email().optional().nullable(),
+  primaryPhone: z.string().max(50).optional().nullable(),
+  website: z.string().max(255).optional().nullable(),
+  roles: z.array(z.enum(['CUSTOMER', 'VENDOR', 'EMPLOYEE', 'BROKER'])).min(1),
+  notes: z.string().max(1000).optional().nullable(),
+});
+export type CreateBusinessPartnerRequest = z.infer<typeof CreateBusinessPartnerSchema>;
+
+export const UpdateBusinessPartnerSchema = CreateBusinessPartnerSchema.partial();
+export type UpdateBusinessPartnerRequest = z.infer<typeof UpdateBusinessPartnerSchema>;
+
+export const CreatePartnerAddressSchema = z.object({
+  addressType: z.enum(['NATIONAL_ADDRESS', 'BILLING', 'SHIPPING', 'BRANCH_SITE']).default('NATIONAL_ADDRESS'),
+  buildingNumber: z.string().min(1).max(10),
+  streetName: z.string().min(2).max(255),
+  districtName: z.string().min(2).max(100),
+  city: z.string().min(2).max(100),
+  postalCode: z.string().min(4).max(20),
+  additionalNumber: z.string().max(10).optional().nullable(),
+  countryCode: z.string().length(3).default('SA'),
+  shortAddress: z.string().max(20).optional().nullable(),
+  isPrimary: z.boolean().default(false),
+});
+export type CreatePartnerAddressRequest = z.infer<typeof CreatePartnerAddressSchema>;
+
+export const CreatePartnerContactSchema = z.object({
+  name: z.string().min(2).max(255),
+  jobTitle: z.string().max(100).optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().max(50).optional().nullable(),
+  isAuthorizedSignatory: z.boolean().default(false),
+  isPrimary: z.boolean().default(false),
+});
+export type CreatePartnerContactRequest = z.infer<typeof CreatePartnerContactSchema>;
+
+export const SetPartnerCompanySettingsSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  defaultCurrency: z.string().length(3).default('SAR'),
+  paymentTermsDays: z.number().int().min(0).default(30),
+  creditLimit: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
+  isCreditBlocked: z.boolean().default(false),
+  priceTolerancePct: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0200'),
+  arControlAccountId: z.string().uuid().optional().nullable(),
+  apControlAccountId: z.string().uuid().optional().nullable(),
+  customDiscountPct: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
+  priceTierId: z.string().uuid().optional().nullable(),
+  taxExempt: z.boolean().default(false),
+  taxExemptionReason: z.string().max(500).optional().nullable(),
+});
+export type SetPartnerCompanySettingsRequest = z.infer<typeof SetPartnerCompanySettingsSchema>;
+
+// ====================================================================
+// 27. AR Invoices & Allocations (الذمم المدينة)
+// ====================================================================
+
+export const ArInvoiceLineInputSchema = z.object({
+  itemId: z.string().uuid(),
+  uomId: z.string().uuid(),
+  quantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  unitPrice: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  discountAmount: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
+  taxRate: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.1500'),
+  notes: z.string().max(255).optional().nullable(),
+});
+
+export const CreateArInvoiceSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
+  partnerId: z.string().uuid(),
+  invoiceNumber: z.string().min(1).max(50),
+  invoiceType: z.enum(['TAX_INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE']).default('TAX_INVOICE'),
+  originalInvoiceId: z.string().uuid().optional().nullable(),
+  originalInvoiceUuid: z.string().max(100).optional().nullable(),
+  originalInvoiceNumber: z.string().max(50).optional().nullable(),
+  originalInvoiceDate: z.string().optional().nullable(),
+  zatcaReasonCode: z.string().max(10).optional().nullable(),
+  issueDate: z.string().optional(),
+  dueDate: z.string(),
+  currency: z.string().length(3).default('SAR'),
+  exchangeRate: z.string().regex(/^\d+(\.\d{1,6})?$/).default('1.000000'),
+  notes: z.string().max(500).optional().nullable(),
+  lines: z.array(ArInvoiceLineInputSchema).min(1),
+});
+export type CreateArInvoiceRequest = z.infer<typeof CreateArInvoiceSchema>;
+
+export const AllocateArReceiptSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  receiptVoucherId: z.string().uuid(),
+  allocations: z.array(
+    z.object({
+      invoiceId: z.string().uuid(),
+      allocatedAmount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+      discountAmount: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
+    })
+  ).min(1),
+  notes: z.string().max(255).optional().nullable(),
+});
+export type AllocateArReceiptRequest = z.infer<typeof AllocateArReceiptSchema>;
+
+// ====================================================================
+// 28. AP Invoices & Allocations (الذمم الدائنة والمشتريات)
+// ====================================================================
+
+export const ApInvoiceLineInputSchema = z.object({
+  itemId: z.string().uuid(),
+  uomId: z.string().uuid(),
+  quantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  unitPrice: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  taxRate: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.1500'),
+  notes: z.string().max(255).optional().nullable(),
+});
+
+export const CreateApInvoiceSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
+  warehouseId: z.string().uuid().optional().nullable(),
+  partnerId: z.string().uuid(),
+  supplierInvoiceNumber: z.string().min(1).max(100),
+  internalNumber: z.string().min(1).max(50),
+  invoiceType: z.enum(['STANDARD', 'DEBIT_NOTE', 'CREDIT_NOTE']).default('STANDARD'),
+  originalInvoiceId: z.string().uuid().optional().nullable(),
+  purchaseOrderId: z.string().uuid().optional().nullable(),
+  goodsReceiptId: z.string().uuid().optional().nullable(),
+  invoiceDate: z.string(),
+  dueDate: z.string(),
+  currency: z.string().length(3).default('SAR'),
+  exchangeRate: z.string().regex(/^\d+(\.\d{1,6})?$/).default('1.000000'),
+  notes: z.string().max(500).optional().nullable(),
+  lines: z.array(ApInvoiceLineInputSchema).min(1),
+});
+export type CreateApInvoiceRequest = z.infer<typeof CreateApInvoiceSchema>;
+
+export const AllocateApPaymentSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  paymentVoucherId: z.string().uuid(),
+  allocations: z.array(
+    z.object({
+      invoiceId: z.string().uuid(),
+      allocatedAmount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+      discountAmount: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
+    })
+  ).min(1),
+  notes: z.string().max(255).optional().nullable(),
+});
+export type AllocateApPaymentRequest = z.infer<typeof AllocateApPaymentSchema>;
+
+// ====================================================================
+// 29. Subledger to GL Reconciliation
+// ====================================================================
+
+export const SubledgerReconciliationQuerySchema = z.object({
+  legalEntityId: z.string().uuid(),
+  subledgerType: z.enum(['AR', 'AP']).default('AR'),
+});
+export type SubledgerReconciliationQuery = z.infer<typeof SubledgerReconciliationQuerySchema>;
+
 
 
 

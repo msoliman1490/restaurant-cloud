@@ -7,3 +7,4 @@ export * from './inventory.js';
 export * from './purchasing.js';
 export * from './recipes.js';
 export * from './dining.js';
+export * from './partners.js';

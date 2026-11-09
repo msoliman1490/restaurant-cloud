@@ -13,8 +13,8 @@ import { DiningModule } from './modules/dining/dining.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { MediaModule } from './modules/media/media.module';
+import { PartnersModule } from './modules/partners/partners.module';
 import { OperationsFrameworkModule } from './common/operations/operations-framework.module';
-import { TenantContextService } from './common/context/tenant-context.service';
 
 @Module({
   imports: [
@@ -31,8 +31,9 @@ import { TenantContextService } from './common/context/tenant-context.service';
     DiningModule,
     AccountingModule,
     SalesModule,
+    PartnersModule,
   ],
   controllers: [AppController],
-  providers: [AppService, TenantContextService],
+  providers: [AppService],
 })
 export class AppModule {}

@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingEngineService } from './posting-engine.service';
@@ -21,11 +22,15 @@ import {
   expenses,
   vaultTransactions,
   bankReconciliations,
+  businessPartners,
 } from '@restaurant-cloud/database';
 import {
   CreateChartOfAccount,
   UpdateChartOfAccountRequest,
   CreateJournalEntry,
+  UpdateDraftJournalEntryRequest,
+  QueryJournalEntries,
+  BankTransferRequest,
   CreateFiscalPeriodRequest,
   CloseFiscalPeriodRequest,
   ReverseJournalEntryRequest,
@@ -57,7 +62,7 @@ import {
   VoucherStatus,
   DefaultAccountMappingKey,
 } from '@restaurant-cloud/domain-kernel';
-import { eq, and, sql, desc, asc, inArray, gte, lte } from 'drizzle-orm';
+import { eq, and, or, ilike, sql, desc, asc, inArray, gte, lte } from 'drizzle-orm';
 
 @Injectable()
 export class AccountingService {
@@ -167,8 +172,51 @@ export class AccountingService {
         throw new NotFoundException(`الحساب '${accountId}' غير موجود`);
       }
 
+      if (dto.isPostable === true && !existing.isPostable) {
+        // Check if account has child accounts
+        const [hasChildren] = await tx
+          .select({ id: chartOfAccounts.id })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.tenantId, context.tenantId),
+              eq(chartOfAccounts.parentId, accountId)
+            )
+          )
+          .limit(1);
+
+        if (hasChildren) {
+          throw new BadRequestException('لا يمكن تحويل حساب تجميعي إلى حساب قابل للترحيل لأنه يحتوي على حسابات فرعية');
+        }
+      }
+
       if (dto.parentId && dto.parentId === accountId) {
         throw new BadRequestException('لا يمكن أن يكون الحساب أباً لنفسه (حلقة دائرية مفرغة)');
+      }
+
+      // Check cyclical descendant if parentId changed
+      if (dto.parentId && dto.parentId !== existing.parentId) {
+        const allAccounts = await tx
+          .select({ id: chartOfAccounts.id, parentId: chartOfAccounts.parentId })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.tenantId, context.tenantId),
+              eq(chartOfAccounts.legalEntityId, existing.legalEntityId)
+            )
+          );
+
+        let curr: string | null = dto.parentId;
+        const visited = new Set<string>();
+        while (curr) {
+          if (curr === accountId) {
+            throw new BadRequestException('لا يمكن تعيين حساب فرعي كأب لحساب رئيسي (حلقة دائرية مفرغة)');
+          }
+          if (visited.has(curr)) break;
+          visited.add(curr);
+          const parentAcc = allAccounts.find((a) => a.id === curr);
+          curr = parentAcc ? parentAcc.parentId : null;
+        }
       }
 
       const [updated] = await tx
@@ -306,6 +354,32 @@ export class AccountingService {
       } else {
         rootNodes.push(node);
       }
+    }
+
+    // Recursive rollup for summary / group accounts
+    function calculateRollup(node: any): { debit: number; credit: number; net: number } {
+      let d = parseFloat(node.totalDebit || '0');
+      let c = parseFloat(node.totalCredit || '0');
+      let net = parseFloat(node.netBalance || '0');
+
+      for (const child of node.children) {
+        const childTotals = calculateRollup(child);
+        d += childTotals.debit;
+        c += childTotals.credit;
+        net += childTotals.net;
+      }
+
+      if (!node.isPostable) {
+        node.totalDebit = d.toFixed(4);
+        node.totalCredit = c.toFixed(4);
+        node.netBalance = net.toFixed(4);
+      }
+
+      return { debit: d, credit: c, net };
+    }
+
+    for (const root of rootNodes) {
+      calculateRollup(root);
     }
 
     return rootNodes;
@@ -778,7 +852,7 @@ export class AccountingService {
           swiftCode: dto.swiftCode || null,
           currency: dto.currency || 'SAR',
           accountId: dto.accountId,
-          balance: '0.0000',
+          balance: dto.openingBalance || '0.0000',
         })
         .returning();
 
@@ -978,6 +1052,7 @@ export class AccountingService {
           costCenterId: dto.costCenterId || null,
           paymentMethod: dto.paymentMethod,
           amount: amount.toFixed(4),
+          unallocatedAmount: amount.toFixed(4),
           currency: dto.currency || 'SAR',
           exchangeRate: dto.exchangeRate || '1.000000',
           status: VoucherStatus.POSTED,
@@ -1132,6 +1207,7 @@ export class AccountingService {
           accountId: dto.accountId,
           paymentMethod: dto.paymentMethod,
           amount: amount.toFixed(4),
+          unallocatedAmount: amount.toFixed(4),
           currency: dto.currency || 'SAR',
           exchangeRate: dto.exchangeRate || '1.000000',
           status: VoucherStatus.POSTED,
@@ -1590,8 +1666,8 @@ export class AccountingService {
       branchId: dto.branchId,
       journalNumber: dto.journalNumber,
       journalType: dto.journalType,
-      sourceType: dto.sourceType,
-      sourceId: dto.sourceId,
+      sourceType: dto.sourceType || 'MANUAL',
+      sourceId: dto.sourceId || randomUUID(),
       description: dto.description,
       notes: dto.notes,
       entryDate: dto.entryDate ? new Date(dto.entryDate) : undefined,
@@ -1634,18 +1710,22 @@ export class AccountingService {
         accountId: l.accountId,
         branchId: l.branchId,
         costCenterId: l.costCenterId,
+        partnerId: l.partnerId,
+        partnerRole: l.partnerRole,
         debit: l.credit,
         credit: l.debit,
         currency: l.currency,
         description: `عكس القيد ${entry.journalNumber}: ${dto.reversalReason}`,
       }));
 
+      const newJournalNum = dto.newJournalNumber || `REV-${entry.journalNumber}-${Date.now().toString().slice(-4)}`;
+
       const reversalResult = await this.postingEngine.postEntry(
         context,
         {
           legalEntityId: entry.legalEntityId,
           branchId: entry.branchId,
-          journalNumber: dto.newJournalNumber,
+          journalNumber: newJournalNum,
           journalType: JournalType.REVERSAL,
           sourceType: 'journal_reversal',
           sourceId: entry.id,
@@ -1668,6 +1748,468 @@ export class AccountingService {
       );
 
       return reversalResult;
+    });
+  }
+
+  /**
+   * List Journal Entries with headers, lines, accounts, and business partners
+   */
+  async listJournalEntries(context: TenantContext, query: QueryJournalEntries) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const limit = query.limit || 50;
+      const offset = query.offset || 0;
+
+      const conditions: any[] = [
+        eq(journalEntries.tenantId, context.tenantId),
+        eq(journalEntries.legalEntityId, query.legalEntityId),
+      ];
+
+      if (query.status) {
+        conditions.push(eq(journalEntries.status, query.status as any));
+      }
+
+      if (query.journalType) {
+        conditions.push(eq(journalEntries.journalType, query.journalType as any));
+      }
+
+      if (query.fromDate) {
+        conditions.push(sql`${journalEntries.entryDate} >= ${new Date(query.fromDate)}`);
+      }
+
+      if (query.toDate) {
+        conditions.push(sql`${journalEntries.entryDate} <= ${new Date(query.toDate)}`);
+      }
+
+      if (query.search) {
+        conditions.push(
+          or(
+            ilike(journalEntries.journalNumber, `%${query.search}%`),
+            ilike(journalEntries.description, `%${query.search}%`)
+          )
+        );
+      }
+
+      const entries = await tx
+        .select()
+        .from(journalEntries)
+        .where(and(...conditions))
+        .orderBy(desc(journalEntries.entryDate), desc(journalEntries.postedAt))
+        .limit(limit)
+        .offset(offset);
+
+      const [totalCount] = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(journalEntries)
+        .where(and(...conditions));
+
+      if (entries.length === 0) {
+        return { items: [], total: 0 };
+      }
+
+      const entryIds = entries.map((e) => e.id);
+
+      const lines = await tx
+        .select({
+          id: journalLines.id,
+          journalEntryId: journalLines.journalEntryId,
+          accountId: journalLines.accountId,
+          accountCode: chartOfAccounts.accountCode,
+          accountName: chartOfAccounts.name,
+          accountNameAr: chartOfAccounts.nameAr,
+          branchId: journalLines.branchId,
+          costCenterId: journalLines.costCenterId,
+          partnerId: journalLines.partnerId,
+          partnerName: businessPartners.legalNameAr,
+          partnerRole: journalLines.partnerRole,
+          debit: journalLines.debit,
+          credit: journalLines.credit,
+          currency: journalLines.currency,
+          description: journalLines.description,
+        })
+        .from(journalLines)
+        .innerJoin(chartOfAccounts, eq(journalLines.accountId, chartOfAccounts.id))
+        .leftJoin(businessPartners, eq(journalLines.partnerId, businessPartners.id))
+        .where(inArray(journalLines.journalEntryId, entryIds));
+
+      const linesByEntry = new Map<string, any[]>();
+      for (const line of lines) {
+        if (!linesByEntry.has(line.journalEntryId)) {
+          linesByEntry.set(line.journalEntryId, []);
+        }
+        linesByEntry.get(line.journalEntryId)!.push(line);
+      }
+
+      const enriched = entries.map((e) => ({
+        ...e,
+        lines: linesByEntry.get(e.id) || [],
+      }));
+
+      return {
+        items: enriched,
+        total: Number(totalCount?.count || 0),
+      };
+    });
+  }
+
+  /**
+   * Get single Journal Entry with lines
+   */
+  async getJournalEntryById(context: TenantContext, entryId: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [entry] = await tx
+        .select()
+        .from(journalEntries)
+        .where(
+          and(
+            eq(journalEntries.tenantId, context.tenantId),
+            eq(journalEntries.id, entryId)
+          )
+        )
+        .limit(1);
+
+      if (!entry) throw new NotFoundException('القيد غير موجود');
+
+      const lines = await tx
+        .select({
+          id: journalLines.id,
+          journalEntryId: journalLines.journalEntryId,
+          accountId: journalLines.accountId,
+          accountCode: chartOfAccounts.accountCode,
+          accountName: chartOfAccounts.name,
+          accountNameAr: chartOfAccounts.nameAr,
+          branchId: journalLines.branchId,
+          costCenterId: journalLines.costCenterId,
+          partnerId: journalLines.partnerId,
+          partnerName: businessPartners.legalNameAr,
+          partnerRole: journalLines.partnerRole,
+          debit: journalLines.debit,
+          credit: journalLines.credit,
+          currency: journalLines.currency,
+          description: journalLines.description,
+        })
+        .from(journalLines)
+        .innerJoin(chartOfAccounts, eq(journalLines.accountId, chartOfAccounts.id))
+        .leftJoin(businessPartners, eq(journalLines.partnerId, businessPartners.id))
+        .where(eq(journalLines.journalEntryId, entry.id));
+
+      return {
+        ...entry,
+        lines,
+      };
+    });
+  }
+
+  /**
+   * Create Multi-Line Journal Entry (supports DRAFT and POSTED)
+   */
+  async createJournalEntry(context: TenantContext, dto: CreateJournalEntry) {
+    if (dto.status === JournalStatus.DRAFT) {
+      return await this.dbService.withTenantContext(context, async (tx) => {
+        let totalDebit = 0;
+        let totalCredit = 0;
+        for (const l of dto.lines) {
+          totalDebit += parseFloat(l.debit || '0');
+          totalCredit += parseFloat(l.credit || '0');
+        }
+
+        const entryDate = dto.entryDate ? new Date(dto.entryDate) : new Date();
+
+        const [draft] = await tx
+          .insert(journalEntries)
+          .values({
+            tenantId: context.tenantId,
+            legalEntityId: dto.legalEntityId,
+            branchId: dto.branchId || null,
+            journalNumber: dto.journalNumber,
+            journalType: dto.journalType,
+            sourceType: dto.sourceType || 'MANUAL',
+            sourceId: dto.sourceId || randomUUID(),
+            status: JournalStatus.DRAFT,
+            approvalStatus: 'PENDING',
+            debitTotal: totalDebit.toFixed(4),
+            creditTotal: totalCredit.toFixed(4),
+            description: dto.description || null,
+            notes: dto.notes || null,
+            entryDate,
+            documentDate: entryDate,
+            postedBy: context.userId,
+          })
+          .returning();
+
+        if (!draft) throw new Error('فشل إنشاء مسودة القيد');
+
+        for (const line of dto.lines) {
+          await tx.insert(journalLines).values({
+            journalEntryId: draft.id,
+            accountId: line.accountId,
+            branchId: line.branchId || dto.branchId || null,
+            costCenterId: line.costCenterId || null,
+            partnerId: line.partnerId || null,
+            partnerRole: line.partnerRole || null,
+            debit: parseFloat(line.debit || '0').toFixed(4),
+            credit: parseFloat(line.credit || '0').toFixed(4),
+            currency: line.currency || 'SAR',
+            description: line.description || dto.description || null,
+          });
+        }
+
+        await this.auditService.log(
+          {
+            tenantId: context.tenantId,
+            actorId: context.userId,
+            action: 'JOURNAL_DRAFT_CREATED',
+            entityType: 'journal_entries',
+            entityId: draft.id,
+            afterState: { journalNumber: draft.journalNumber, status: 'DRAFT' },
+          },
+          tx
+        );
+
+        return draft;
+      });
+    }
+
+    return await this.postingEngine.postEntry(context, {
+      legalEntityId: dto.legalEntityId,
+      branchId: dto.branchId,
+      journalNumber: dto.journalNumber,
+      journalType: dto.journalType,
+      sourceType: dto.sourceType || 'MANUAL',
+      sourceId: dto.sourceId || randomUUID(),
+      description: dto.description,
+      notes: dto.notes,
+      entryDate: dto.entryDate ? new Date(dto.entryDate) : undefined,
+      lines: dto.lines,
+    });
+  }
+
+  /**
+   * Update Draft Journal Entry
+   */
+  async updateDraftJournalEntry(context: TenantContext, entryId: string, dto: UpdateDraftJournalEntryRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(journalEntries)
+        .where(
+          and(
+            eq(journalEntries.tenantId, context.tenantId),
+            eq(journalEntries.id, entryId)
+          )
+        )
+        .limit(1);
+
+      if (!existing) throw new NotFoundException('القيد غير موجود');
+      if (existing.status !== JournalStatus.DRAFT) {
+        throw new BadRequestException('لا يمكن تعديل قيد تم ترحيله أو إلغاؤه؛ القيود المرحلة غير قابلة للتعديل');
+      }
+
+      let totalDebit = parseFloat(existing.debitTotal);
+      let totalCredit = parseFloat(existing.creditTotal);
+
+      if (dto.lines) {
+        totalDebit = 0;
+        totalCredit = 0;
+        for (const l of dto.lines) {
+          totalDebit += parseFloat(l.debit || '0');
+          totalCredit += parseFloat(l.credit || '0');
+        }
+
+        await tx.delete(journalLines).where(eq(journalLines.journalEntryId, entryId));
+        for (const line of dto.lines) {
+          await tx.insert(journalLines).values({
+            journalEntryId: entryId,
+            accountId: line.accountId,
+            branchId: line.branchId || dto.branchId || existing.branchId || null,
+            costCenterId: line.costCenterId || null,
+            partnerId: line.partnerId || null,
+            partnerRole: line.partnerRole || null,
+            debit: parseFloat(line.debit || '0').toFixed(4),
+            credit: parseFloat(line.credit || '0').toFixed(4),
+            currency: line.currency || 'SAR',
+            description: line.description || dto.description || existing.description || null,
+          });
+        }
+      }
+
+      const [updated] = await tx
+        .update(journalEntries)
+        .set({
+          branchId: dto.branchId !== undefined ? dto.branchId : existing.branchId,
+          journalType: dto.journalType ?? existing.journalType,
+          description: dto.description ?? existing.description,
+          notes: dto.notes ?? existing.notes,
+          entryDate: dto.entryDate ? new Date(dto.entryDate) : existing.entryDate,
+          status: dto.status ?? existing.status,
+          debitTotal: totalDebit.toFixed(4),
+          creditTotal: totalCredit.toFixed(4),
+        })
+        .where(eq(journalEntries.id, entryId))
+        .returning();
+
+      return updated;
+    });
+  }
+
+  /**
+   * Delete Draft Journal Entry
+   */
+  async deleteDraftJournalEntry(context: TenantContext, entryId: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(journalEntries)
+        .where(
+          and(
+            eq(journalEntries.tenantId, context.tenantId),
+            eq(journalEntries.id, entryId)
+          )
+        )
+        .limit(1);
+
+      if (!existing) throw new NotFoundException('القيد غير موجود');
+      if (existing.status !== JournalStatus.DRAFT) {
+        throw new BadRequestException('ممنوع حذف القيود المرحلة؛ المحاسبة السليمة تتطلب عكس القيد وليس حذفه');
+      }
+
+      await tx.delete(journalLines).where(eq(journalLines.journalEntryId, entryId));
+      await tx.delete(journalEntries).where(eq(journalEntries.id, entryId));
+
+      return { success: true, message: 'تم حذف مسودة القيد بنجاح' };
+    });
+  }
+
+  /**
+   * Post a Draft Journal Entry to General Ledger
+   */
+  async postDraftJournalEntry(context: TenantContext, entryId: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const entryWithLines = await this.getJournalEntryById(context, entryId);
+      if (entryWithLines.status !== JournalStatus.DRAFT) {
+        throw new BadRequestException('القيد مرحل مسبقاً أو غير قابل للترحيل');
+      }
+
+      await tx.delete(journalLines).where(eq(journalLines.journalEntryId, entryId));
+      await tx.delete(journalEntries).where(eq(journalEntries.id, entryId));
+
+      return await this.postingEngine.postEntry(
+        context,
+        {
+          legalEntityId: entryWithLines.legalEntityId,
+          branchId: entryWithLines.branchId,
+          journalNumber: entryWithLines.journalNumber,
+          journalType: entryWithLines.journalType as any,
+          sourceType: 'MANUAL',
+          sourceId: entryWithLines.sourceId,
+          description: entryWithLines.description || undefined,
+          notes: entryWithLines.notes || undefined,
+          entryDate: entryWithLines.entryDate ? new Date(entryWithLines.entryDate) : undefined,
+          lines: entryWithLines.lines.map((l: any) => ({
+            accountId: l.accountId,
+            branchId: l.branchId,
+            costCenterId: l.costCenterId,
+            partnerId: l.partnerId,
+            partnerRole: l.partnerRole,
+            debit: l.debit,
+            credit: l.credit,
+            currency: l.currency,
+            description: l.description,
+          })),
+        },
+        tx
+      );
+    });
+  }
+
+  /**
+   * Bank and Vault Transfers with Automated Double-Entry
+   */
+  async bankTransfer(context: TenantContext, dto: BankTransferRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const amount = parseFloat(dto.amount);
+      if (amount <= 0) throw new BadRequestException('مبلغ التحويل يجب أن يكون أكبر من صفر');
+
+      let sourceAccountId: string;
+      let sourceName: string;
+
+      if (dto.sourceType === 'VAULT') {
+        const [vault] = await tx.select().from(cashVaults).where(eq(cashVaults.id, dto.sourceId)).limit(1);
+        if (!vault) throw new NotFoundException('الخزينة المصدر غير موجودة');
+        if (parseFloat(vault.balance) < amount) {
+          throw new BadRequestException(`رصيد الخزينة المصدر غير كافٍ (${vault.balance})`);
+        }
+        const newBal = (parseFloat(vault.balance) - amount).toFixed(4);
+        await tx.update(cashVaults).set({ balance: newBal }).where(eq(cashVaults.id, vault.id));
+        sourceAccountId = vault.accountId;
+        sourceName = vault.nameAr;
+      } else {
+        const [bank] = await tx.select().from(bankAccounts).where(eq(bankAccounts.id, dto.sourceId)).limit(1);
+        if (!bank) throw new NotFoundException('الحساب البنكي المصدر غير موجود');
+        if (parseFloat(bank.balance) < amount) {
+          throw new BadRequestException(`رصيد الحساب البنكي المصدر غير كافٍ (${bank.balance})`);
+        }
+        const newBal = (parseFloat(bank.balance) - amount).toFixed(4);
+        await tx.update(bankAccounts).set({ balance: newBal }).where(eq(bankAccounts.id, bank.id));
+        sourceAccountId = bank.accountId;
+        sourceName = bank.bankName;
+      }
+
+      let destAccountId: string;
+      let destName: string;
+
+      if (dto.destinationType === 'VAULT') {
+        const [vault] = await tx.select().from(cashVaults).where(eq(cashVaults.id, dto.destinationId)).limit(1);
+        if (!vault) throw new NotFoundException('الخزينة الوجهة غير موجودة');
+        const newBal = (parseFloat(vault.balance) + amount).toFixed(4);
+        await tx.update(cashVaults).set({ balance: newBal }).where(eq(cashVaults.id, vault.id));
+        destAccountId = vault.accountId;
+        destName = vault.nameAr;
+      } else {
+        const [bank] = await tx.select().from(bankAccounts).where(eq(bankAccounts.id, dto.destinationId)).limit(1);
+        if (!bank) throw new NotFoundException('الحساب البنكي الوجهة غير موجود');
+        const newBal = (parseFloat(bank.balance) + amount).toFixed(4);
+        await tx.update(bankAccounts).set({ balance: newBal }).where(eq(bankAccounts.id, bank.id));
+        destAccountId = bank.accountId;
+        destName = bank.bankName;
+      }
+
+      const jvNumber = `TRF-${Date.now().toString().slice(-6)}`;
+      const jv = await this.postingEngine.postEntry(
+        context,
+        {
+          legalEntityId: dto.legalEntityId,
+          branchId: dto.branchId,
+          journalNumber: jvNumber,
+          journalType: JournalType.GENERAL,
+          sourceType: 'TRANSFER',
+          sourceId: randomUUID(),
+          description: `تحويل نقدي من ${sourceName} إلى ${destName} - ${dto.notes || ''}`,
+          lines: [
+            {
+              accountId: destAccountId,
+              debit: amount.toFixed(4),
+              credit: '0.0000',
+              description: `استلام تحويل من ${sourceName}`,
+            },
+            {
+              accountId: sourceAccountId,
+              debit: '0.0000',
+              credit: amount.toFixed(4),
+              description: `تحويل صادر إلى ${destName}`,
+            },
+          ],
+        },
+        tx
+      );
+
+      return {
+        success: true,
+        journalEntryId: jv.id,
+        journalNumber: jv.journalNumber,
+        amount: amount.toFixed(4),
+        source: sourceName,
+        destination: destName,
+      };
     });
   }
 

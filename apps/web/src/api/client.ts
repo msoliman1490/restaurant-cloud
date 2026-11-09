@@ -1,4 +1,3 @@
-import { ApiResponse } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -98,15 +97,27 @@ class ApiClient {
       }
 
       // Parse JSON body
-      const json: ApiResponse<T> = await response.json().catch(() => ({
-        success: false,
-        message: 'استجابة غير صالحة من الخادم',
-      }));
+      let json: any;
+      try {
+        json = await response.json();
+      } catch {
+        let fallbackMessage = 'استجابة غير صالحة من الخادم';
+        if (response.status === 502 || response.status === 504 || response.status === 503) {
+          fallbackMessage = `خادم API غير متاح حالياً (${response.status}). يرجى التحقق من تشغيل خدمة الـ Backend والاتصال بقاعدة البيانات.`;
+        } else if (response.status === 404) {
+          fallbackMessage = `نقطة النهاية المطلوبة غير متوفرة على الخادم (${cleanEndpoint}).`;
+        }
+        throw new ApiError(response.status, fallbackMessage);
+      }
 
       if (!response.ok || json.success === false) {
         const errorMsg =
           json.message ||
-          (typeof json.error === 'string' ? json.error : `خطأ من الخادم (${response.status})`);
+          (typeof json.error === 'object' && json.error?.message
+            ? (Array.isArray(json.error.message) ? json.error.message.join('، ') : json.error.message)
+            : typeof json.error === 'string'
+            ? json.error
+            : `خطأ من الخادم (${response.status})`);
         throw new ApiError(response.status, errorMsg, json);
       }
 

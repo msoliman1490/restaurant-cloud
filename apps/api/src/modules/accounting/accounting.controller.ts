@@ -18,6 +18,9 @@ import {
   CreateChartOfAccountSchema,
   UpdateChartOfAccountSchema,
   CreateJournalEntrySchema,
+  UpdateDraftJournalEntrySchema,
+  QueryJournalEntriesSchema,
+  BankTransferSchema,
   CreateFiscalPeriodSchema,
   CloseFiscalPeriodSchema,
   ReverseJournalEntrySchema,
@@ -242,6 +245,17 @@ export class AccountingController {
     return { success: true, data };
   }
 
+  @Post('bank-accounts/transfer')
+  @RequirePermissions('accounting.bank.manage')
+  async transferFunds(
+    @CurrentContext() context: TenantContext,
+    @Body() body: unknown
+  ) {
+    const validatedDto = BankTransferSchema.parse(body);
+    const data = await this.accountingService.bankTransfer(context, validatedDto);
+    return { success: true, data };
+  }
+
   // ==================================================================
   // 6. Payment Vouchers (سندات الصرف)
   // ==================================================================
@@ -318,14 +332,65 @@ export class AccountingController {
   // 9. General Ledger & Journal Entries
   // ==================================================================
 
+  @Get('journal-entries')
+  async listJournalEntries(
+    @CurrentContext() context: TenantContext,
+    @Query() query: unknown
+  ) {
+    const validatedQuery = QueryJournalEntriesSchema.parse(query);
+    const data = await this.accountingService.listJournalEntries(context, validatedQuery);
+    return { success: true, data };
+  }
+
+  @Get('journal-entries/:id')
+  async getJournalEntry(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.accountingService.getJournalEntryById(context, id);
+    return { success: true, data };
+  }
+
   @Post('journal-entries')
   @RequirePermissions('accounting.journal.post')
-  async postJournalEntry(
+  async createJournalEntry(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
   ) {
     const validatedDto = CreateJournalEntrySchema.parse(body);
-    const data = await this.accountingService.postJournalEntry(context, validatedDto);
+    const data = await this.accountingService.createJournalEntry(context, validatedDto);
+    return { success: true, data };
+  }
+
+  @Put('journal-entries/:id')
+  @RequirePermissions('accounting.journal.post')
+  async updateDraftJournalEntry(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = UpdateDraftJournalEntrySchema.parse(body);
+    const data = await this.accountingService.updateDraftJournalEntry(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Delete('journal-entries/:id')
+  @RequirePermissions('accounting.journal.post')
+  async deleteDraftJournalEntry(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.accountingService.deleteDraftJournalEntry(context, id);
+    return { success: true, data };
+  }
+
+  @Post('journal-entries/:id/post')
+  @RequirePermissions('accounting.journal.post')
+  async postDraftJournalEntry(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.accountingService.postDraftJournalEntry(context, id);
     return { success: true, data };
   }
 

@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import {
@@ -30,6 +31,10 @@ export interface PostingLineInput {
   mappingKey?: DefaultAccountMappingKey | string;
   branchId?: string | null;
   costCenterId?: string | null;
+  partnerId?: string | null;
+  partnerRole?: string | null;
+  subledgerDocumentType?: string | null;
+  subledgerDocumentId?: string | null;
   debit: string | number;
   credit: string | number;
   currency?: string;
@@ -68,7 +73,12 @@ export class PostingEngineService {
     if (line.accountId) {
       // Validate that the account exists, belongs to tenant & legal entity, and is postable
       const [acc] = await tx
-        .select({ id: chartOfAccounts.id, isPostable: chartOfAccounts.isPostable })
+        .select({
+          id: chartOfAccounts.id,
+          accountCode: chartOfAccounts.accountCode,
+          name: chartOfAccounts.name,
+          isPostable: chartOfAccounts.isPostable,
+        })
         .from(chartOfAccounts)
         .where(
           and(
@@ -85,6 +95,11 @@ export class PostingEngineService {
 
       if (!acc.isPostable) {
         throw new BadRequestException(`لا يمكن الترحيل لحساب رئيسي/تجميعي: ${line.accountId}`);
+      }
+
+      // Guarded Control Accounts Enforcement (113000 AR Control / 211000 AP Control)
+      if ((acc.accountCode === '113000' || acc.accountCode === '211000') && !line.partnerId) {
+        throw new BadRequestException(`حساب المراقبة (${acc.accountCode} - ${acc.name}) محمي ويتطلب تحديد الطرف التجاري (partnerId)`);
       }
 
       return acc.id;
@@ -199,6 +214,10 @@ export class PostingEngineService {
         accountId: string;
         branchId: string | null;
         costCenterId: string | null;
+        partnerId: string | null;
+        partnerRole: string | null;
+        subledgerDocumentType: string | null;
+        subledgerDocumentId: string | null;
         debit: string;
         credit: string;
         currency: string;
@@ -231,6 +250,10 @@ export class PostingEngineService {
           accountId: resolvedAccountId,
           branchId: line.branchId || params.branchId || null,
           costCenterId: line.costCenterId || null,
+          partnerId: line.partnerId || null,
+          partnerRole: line.partnerRole || null,
+          subledgerDocumentType: line.subledgerDocumentType || null,
+          subledgerDocumentId: line.subledgerDocumentId || null,
           debit: d.toFixed(4),
           credit: c.toFixed(4),
           currency: line.currency || 'SAR',
@@ -275,8 +298,8 @@ export class PostingEngineService {
           branchId: params.branchId || null,
           journalNumber: params.journalNumber,
           journalType: params.journalType,
-          sourceType: params.sourceType,
-          sourceId: params.sourceId,
+          sourceType: params.sourceType || 'MANUAL',
+          sourceId: params.sourceId || randomUUID(),
           status: JournalStatus.POSTED,
           approvalStatus: 'APPROVED',
           debitTotal: totalDebit.toFixed(4),
@@ -304,6 +327,10 @@ export class PostingEngineService {
             accountId: l.accountId,
             branchId: l.branchId,
             costCenterId: l.costCenterId,
+            partnerId: l.partnerId,
+            partnerRole: l.partnerRole,
+            subledgerDocumentType: l.subledgerDocumentType,
+            subledgerDocumentId: l.subledgerDocumentId,
             debit: l.debit,
             credit: l.credit,
             currency: l.currency,

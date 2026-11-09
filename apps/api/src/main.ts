@@ -40,7 +40,7 @@ async function bootstrap() {
   // 3. Strict CORS Configuration
   const allowedOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'];
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'];
 
   app.enableCors({
     origin: (origin, callback) => {

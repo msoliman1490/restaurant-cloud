@@ -11,8 +11,12 @@ import {
   Search,
   ShieldCheck,
   PackageCheck,
+  ClipboardCheck,
+  CheckCircle2,
+  Truck,
+  Lock,
 } from 'lucide-react';
-import { StockBalance, Warehouse, StockTransfer, InventoryMovementRow } from '../types';
+import { StockBalance, Warehouse, StockTransfer, InventoryMovementRow, StocktakeOrder } from '../types';
 
 const INITIAL_WAREHOUSES: Warehouse[] = [
   {
@@ -229,7 +233,13 @@ const INITIAL_TRANSFERS: StockTransfer[] = [
     destinationWarehouseName: 'مستودع فرع العليا',
     status: 'IN_TRANSIT',
     itemCount: 4,
+    totalShippedQty: 40,
+    totalReceivedQty: 0,
+    totalDamagedQty: 0,
+    totalLostQty: 0,
     requestedAt: '2026-11-08 09:30',
+    approvedAt: '2026-11-08 10:15',
+    notes: 'تحويل مبرد دوري لتغذية المستودع',
   },
   {
     id: 'trf-2',
@@ -238,7 +248,62 @@ const INITIAL_TRANSFERS: StockTransfer[] = [
     destinationWarehouseName: 'مستودع فرع الملقا',
     status: 'RECEIVED',
     itemCount: 6,
+    totalShippedQty: 60,
+    totalReceivedQty: 58,
+    totalDamagedQty: 2,
+    totalLostQty: 0,
     requestedAt: '2026-11-07 14:15',
+    approvedAt: '2026-11-07 15:00',
+    notes: 'تم الاستلام مع رصد 2 وحدة تالفة أثناء النقل',
+  },
+  {
+    id: 'trf-3',
+    transferNumber: 'TRF-2026-0043',
+    sourceWarehouseName: 'المستودع المركزي (الملز)',
+    destinationWarehouseName: 'مستودع فرع العليا',
+    status: 'DRAFT',
+    itemCount: 2,
+    totalShippedQty: 0,
+    totalReceivedQty: 0,
+    totalDamagedQty: 0,
+    totalLostQty: 0,
+    requestedAt: '2026-11-09 10:00',
+    notes: 'طلب تغذية عاجل قيد انتظار المراجعة والاعتماد',
+  },
+];
+
+const INITIAL_STOCKTAKES: StocktakeOrder[] = [
+  {
+    id: 'stk-1',
+    orderNumber: 'STK-2026-0012',
+    warehouseName: 'مستودع فرع العليا',
+    stocktakeType: 'FULL',
+    countFrequency: 'PERIODIC',
+    status: 'IN_PROGRESS',
+    freezeMovements: true,
+    itemCount: 3,
+    countedCount: 0,
+    totalVarianceQty: 0,
+    totalVarianceAmount: 0,
+    createdAt: '2026-11-09 08:00',
+    notes: 'جرد ربع سنوي شامل لمستودع فرع العليا مع تجميد الحركات',
+  },
+  {
+    id: 'stk-2',
+    orderNumber: 'STK-2026-0011',
+    warehouseName: 'المستودع المركزي (الملز)',
+    stocktakeType: 'PARTIAL',
+    countFrequency: 'SURPRISE',
+    status: 'APPROVED',
+    freezeMovements: false,
+    itemCount: 2,
+    countedCount: 2,
+    totalVarianceQty: 2,
+    totalVarianceAmount: 29.0,
+    createdAt: '2026-11-07 10:30',
+    countedAt: '2026-11-07 14:00',
+    approvedAt: '2026-11-07 16:30',
+    notes: 'جرد مفاجئ لأصناف اللحوم وتم اعتماد التسوية المخزنية',
   },
 ];
 
@@ -292,12 +357,13 @@ const INITIAL_MOVEMENTS: InventoryMovementRow[] = [
 ];
 
 export const InventoryView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'BALANCES' | 'WAREHOUSES' | 'MOVEMENTS' | 'TRANSFERS'>('BALANCES');
+  const [activeTab, setActiveTab] = useState<'BALANCES' | 'WAREHOUSES' | 'MOVEMENTS' | 'TRANSFERS' | 'STOCKTAKE'>('BALANCES');
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>(INITIAL_WAREHOUSES);
   const [balances, setBalances] = useState<StockBalance[]>(INITIAL_BALANCES);
   const [movements, setMovements] = useState<InventoryMovementRow[]>(INITIAL_MOVEMENTS);
   const [transfers, setTransfers] = useState<StockTransfer[]>(INITIAL_TRANSFERS);
+  const [stocktakes, setStocktakes] = useState<StocktakeOrder[]>(INITIAL_STOCKTAKES);
 
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('wh-all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -308,8 +374,31 @@ export const InventoryView: React.FC = () => {
   const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
   const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
+  const [isStocktakeModalOpen, setIsStocktakeModalOpen] = useState(false);
   const [selectedMovementForReversal, setSelectedMovementForReversal] = useState<InventoryMovementRow | null>(null);
   const [reversalReason, setReversalReason] = useState('');
+
+  // Transfer Inspection / Receive Modal
+  const [selectedTransferForReceive, setSelectedTransferForReceive] = useState<StockTransfer | null>(null);
+  const [rcvTrfReceivedQty, setRcvTrfReceivedQty] = useState('20');
+  const [rcvTrfDamagedQty, setRcvTrfDamagedQty] = useState('0');
+  const [rcvTrfLostQty, setRcvTrfLostQty] = useState('0');
+  const [rcvTrfNotes, setRcvTrfNotes] = useState('');
+
+  // Stocktake Order Modal
+  const [stkWh, setStkWh] = useState('wh-2');
+  const [stkType, setStkType] = useState<'FULL' | 'PARTIAL'>('FULL');
+  const [stkFreq, setStkFreq] = useState<'PERIODIC' | 'SURPRISE'>('PERIODIC');
+  const [stkFreeze, setStkFreeze] = useState(false);
+  const [stkNotes, setStkNotes] = useState('');
+
+  // Stocktake Count Entry Modal
+  const [selectedStocktakeForCount, setSelectedStocktakeForCount] = useState<StocktakeOrder | null>(null);
+  const [countedItems, setCountedItems] = useState<Array<{ id: string; name: string; sku: string; sysQty: number; countQty: number; unitCost: number }>>([
+    { id: 'prod-1', name: 'برجر أنجوس كلاسيك (شريحة خام)', sku: 'BRG-001', sysQty: 85, countQty: 85, unitCost: 14.5 },
+    { id: 'prod-2', name: 'برجر دجاج كرسبي مقرمش', sku: 'BRG-002', sysQty: 18, countQty: 15, unitCost: 11.0 },
+    { id: 'prod-5', name: 'كوكاكولا عبوة معدنية 330 مل', sku: 'BEV-001', sysQty: 350, countQty: 355, unitCost: 2.2 },
+  ]);
 
   // Receive Form
   const [rcvWarehouse, setRcvWarehouse] = useState('wh-1');
@@ -537,19 +626,243 @@ export const InventoryView: React.FC = () => {
 
     const src = warehouses.find((w) => w.id === srcWh);
     const dst = warehouses.find((w) => w.id === dstWh);
+    const qty = parseFloat(transferQty) || 10;
 
     const newTrf: StockTransfer = {
       id: `trf-${Date.now()}`,
-      transferNumber: `TRF-2026-00${transfers.length + 43}`,
+      transferNumber: `TRF-2026-00${transfers.length + 44}`,
       sourceWarehouseName: src?.name ?? 'مستودع المصدر',
       destinationWarehouseName: dst?.name ?? 'مستودع الوجهة',
-      status: 'IN_TRANSIT',
+      status: 'DRAFT',
       itemCount: 1,
+      totalShippedQty: qty,
+      totalReceivedQty: 0,
+      totalDamagedQty: 0,
+      totalLostQty: 0,
       requestedAt: 'الآن',
+      notes: `طلب مناقلة كمية ${qty} بين الفروع`,
     };
 
     setTransfers([newTrf, ...transfers]);
     setIsTransferModalOpen(false);
+  };
+
+  const handleApproveTransfer = (id: string) => {
+    setTransfers(
+      transfers.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status: 'APPROVED',
+              approvedAt: 'الآن',
+            }
+          : t
+      )
+    );
+  };
+
+  const handleRejectTransfer = (id: string) => {
+    const reason = prompt('أدخل سبب رفض طلب المناقلة:');
+    if (!reason) return;
+    setTransfers(
+      transfers.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status: 'REJECTED',
+              notes: `${t.notes || ''} [مرفوض: ${reason}]`,
+            }
+          : t
+      )
+    );
+  };
+
+  const handleDispatchTransfer = (id: string) => {
+    setTransfers(
+      transfers.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status: 'IN_TRANSIT',
+            }
+          : t
+      )
+    );
+  };
+
+  const handleOpenReceiveModal = (trf: StockTransfer) => {
+    setSelectedTransferForReceive(trf);
+    setRcvTrfReceivedQty(String(trf.totalShippedQty || 20));
+    setRcvTrfDamagedQty('0');
+    setRcvTrfLostQty('0');
+    setRcvTrfNotes('');
+  };
+
+  const handleConfirmReceiveTransfer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTransferForReceive) return;
+
+    const rcv = parseFloat(rcvTrfReceivedQty) || 0;
+    const dmg = parseFloat(rcvTrfDamagedQty) || 0;
+    const lost = parseFloat(rcvTrfLostQty) || 0;
+    const totalProcessed = rcv + dmg + lost;
+
+    if (totalProcessed <= 0) {
+      alert('يرجى إدخال كمية استلام صحيحة');
+      return;
+    }
+
+    const shipped = selectedTransferForReceive.totalShippedQty || 0;
+    if (totalProcessed > shipped && shipped > 0) {
+      alert(`لا يمكن استلام كمية (${totalProcessed}) تفوق الكمية المشحونة (${shipped})`);
+      return;
+    }
+
+    const isFullyReceived = totalProcessed >= shipped;
+
+    setTransfers(
+      transfers.map((t) =>
+        t.id === selectedTransferForReceive.id
+          ? {
+              ...t,
+              status: isFullyReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED',
+              totalReceivedQty: (t.totalReceivedQty || 0) + rcv,
+              totalDamagedQty: (t.totalDamagedQty || 0) + dmg,
+              totalLostQty: (t.totalLostQty || 0) + lost,
+              notes: `${t.notes || ''} [استلام: ${rcv} سليم، ${dmg} تالف، ${lost} مفقود]`,
+            }
+          : t
+      )
+    );
+
+    setSelectedTransferForReceive(null);
+  };
+
+  const handleCloseTransfer = (id: string) => {
+    if (!confirm('هل أنت متأكد من رغبتك في إغلاق المناقلة وتسوية الكميات غير المستلمة؟')) return;
+    setTransfers(
+      transfers.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status: 'CLOSED',
+              notes: `${t.notes || ''} [تم الإغلاق النهائي]`,
+            }
+          : t
+      )
+    );
+  };
+
+  // Stocktake Handlers
+  const handleCreateStocktake = (e: React.FormEvent) => {
+    e.preventDefault();
+    const wh = warehouses.find((w) => w.id === stkWh);
+    const newOrder: StocktakeOrder = {
+      id: `stk-${Date.now()}`,
+      orderNumber: `STK-2026-00${stocktakes.length + 13}`,
+      warehouseName: wh?.name || 'مستودع فرع العليا',
+      stocktakeType: stkType,
+      countFrequency: stkFreq,
+      status: 'DRAFT',
+      freezeMovements: stkFreeze,
+      itemCount: 3,
+      countedCount: 0,
+      totalVarianceQty: 0,
+      totalVarianceAmount: 0,
+      createdAt: 'الآن',
+      notes: stkNotes || 'أمر جرد دوري',
+    };
+
+    setStocktakes([newOrder, ...stocktakes]);
+    setIsStocktakeModalOpen(false);
+    setStkNotes('');
+  };
+
+  const handleStartStocktake = (id: string) => {
+    setStocktakes(
+      stocktakes.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              status: 'IN_PROGRESS',
+            }
+          : s
+      )
+    );
+  };
+
+  const handleOpenCountModal = (stk: StocktakeOrder) => {
+    setSelectedStocktakeForCount(stk);
+  };
+
+  const handleSaveStocktakeCount = () => {
+    if (!selectedStocktakeForCount) return;
+
+    let netVarianceQty = 0;
+    let netVarianceVal = 0;
+
+    countedItems.forEach((item) => {
+      const diff = item.countQty - item.sysQty;
+      netVarianceQty += diff;
+      netVarianceVal += diff * item.unitCost;
+    });
+
+    setStocktakes(
+      stocktakes.map((s) =>
+        s.id === selectedStocktakeForCount.id
+          ? {
+              ...s,
+              status: 'COUNTED',
+              countedCount: countedItems.length,
+              totalVarianceQty: netVarianceQty,
+              totalVarianceAmount: netVarianceVal,
+              countedAt: 'الآن',
+            }
+          : s
+      )
+    );
+
+    setSelectedStocktakeForCount(null);
+  };
+
+  const handleApproveStocktake = (id: string) => {
+    const stk = stocktakes.find((s) => s.id === id);
+    if (!stk) return;
+
+    if (!confirm(`هل أنت متأكد من اعتماد تسوية الجرد؟ سيتم توليد قيد التسوية وحركات المخزون بصافي فرق (${stk.totalVarianceAmount >= 0 ? '+' : ''}${stk.totalVarianceAmount.toFixed(2)} ر.س).`)) {
+      return;
+    }
+
+    setStocktakes(
+      stocktakes.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              status: 'APPROVED',
+              approvedAt: 'الآن',
+            }
+          : s
+      )
+    );
+
+    // Add stock adjustment movement
+    const adjMov: InventoryMovementRow = {
+      id: `mov-adj-${Date.now()}`,
+      movementNumber: `MOV-ADJ-${Date.now().toString(36).toUpperCase()}`,
+      movementType: 'STOCK_ADJUSTMENT',
+      direction: stk.totalVarianceQty >= 0 ? 'IN' : 'OUT',
+      warehouseName: stk.warehouseName,
+      itemName: 'تسوية فروقات جرد المخزون',
+      itemSku: 'ADJ-STK',
+      quantity: Math.abs(stk.totalVarianceQty),
+      unitCost: Math.abs(stk.totalVarianceAmount) / (Math.abs(stk.totalVarianceQty) || 1),
+      totalCost: Math.abs(stk.totalVarianceAmount),
+      notes: `اعتماد التسوية لأمر الجرد ${stk.orderNumber}`,
+      occurredAt: 'الآن',
+      isReversed: false,
+    };
+
+    setMovements([adjMov, ...movements]);
   };
 
   return (
@@ -559,12 +872,12 @@ export const InventoryView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-2xl font-black text-slate-800 tracking-tight">نظام إدارة المستودعات والمخزون (WMS)</h2>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-              المرحلة A: التأسيس والتكلفة المرجحة WAC
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              المرحلة B: المناقلات المحمية والجرد الفعلي والتسويات
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            متابعة أرصدة المستودعات لحظياً، دفتر الحركات المركزي غير القابل للتعديل، ومتوسط التكلفة المرجح (WAC)
+            متابعة أرصدة المستودعات لحظياً، دورة المناقلات والشحن، تثبيت الأرصدة وتسجيل الجرد الفعلي، واعتماد تسويات الفروقات
           </p>
         </div>
 
@@ -591,6 +904,14 @@ export const InventoryView: React.FC = () => {
           >
             <ArrowLeftRight className="w-4 h-4" />
             <span>طلب مناقلة</span>
+          </button>
+
+          <button
+            onClick={() => setIsStocktakeModalOpen(true)}
+            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-xs shadow-amber-600/20"
+          >
+            <ClipboardCheck className="w-4 h-4" />
+            <span>أمر جرد جديد</span>
           </button>
 
           <button
@@ -697,7 +1018,19 @@ export const InventoryView: React.FC = () => {
           }`}
         >
           <ArrowLeftRight className="w-4 h-4" />
-          <span>المناقلات بين الفروع ({transfers.length})</span>
+          <span>المناقلات والشحن ({transfers.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('STOCKTAKE')}
+          className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
+            activeTab === 'STOCKTAKE'
+              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/30'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <ClipboardCheck className="w-4 h-4" />
+          <span>أوامر الجرد والتسويات ({stocktakes.length})</span>
         </button>
       </div>
 
@@ -996,9 +1329,20 @@ export const InventoryView: React.FC = () => {
       {/* Tab 4: Transfers */}
       {activeTab === 'TRANSFERS' && (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-          <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-bold text-sm text-slate-800">حركات المناقلات بين المستودعات والفروع</h3>
-            <span className="text-xs text-slate-400">حفظ كتلة المخزون (Conservation of Stock)</span>
+          <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-sm text-slate-800">حركات المناقلات بين المستودعات والفروع (Stock Transfers Lifecycle)</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                دورة تشغيلية متكاملة: حجز الرصيد عند الاعتماد، العزل في الطريق عند الشحن، واستلام جزئي/كلي مع رصد التوالف
+              </p>
+            </div>
+            <button
+              onClick={() => setIsTransferModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 border border-indigo-200"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>طلب مناقلة جديد</span>
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-right border-collapse">
@@ -1007,36 +1351,285 @@ export const InventoryView: React.FC = () => {
                   <th className="py-3 px-4">رقم المناقلة</th>
                   <th className="py-3 px-4">من مستودع</th>
                   <th className="py-3 px-4">إلى مستودع</th>
-                  <th className="py-3 px-4 text-center">عدد الأصناف</th>
+                  <th className="py-3 px-4 text-center">الأصناف</th>
+                  <th className="py-3 px-4 text-center">الكمية المشحونة</th>
+                  <th className="py-3 px-4 text-center">المستلم / التالف</th>
                   <th className="py-3 px-4 text-center">تاريخ الطلب</th>
-                  <th className="py-3 px-4 text-center">حالة المناقلة</th>
+                  <th className="py-3 px-4 text-center">الحالة التشغيلية</th>
+                  <th className="py-3 px-4 text-center">الإجراءات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {transfers.map((t) => (
                   <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-mono font-medium text-xs text-indigo-600">{t.transferNumber}</td>
-                    <td className="py-3 px-4 text-slate-700">{t.sourceWarehouseName}</td>
-                    <td className="py-3 px-4 text-slate-700">{t.destinationWarehouseName}</td>
-                    <td className="py-3 px-4 text-center font-mono">{t.itemCount}</td>
+                    <td className="py-3 px-4 font-mono font-medium text-xs text-indigo-600">
+                      <div>{t.transferNumber}</div>
+                      {t.notes && <div className="text-[11px] text-slate-400 font-sans truncate max-w-[140px]">{t.notes}</div>}
+                    </td>
+                    <td className="py-3 px-4 text-slate-700 font-medium text-xs">{t.sourceWarehouseName}</td>
+                    <td className="py-3 px-4 text-slate-700 font-medium text-xs">{t.destinationWarehouseName}</td>
+                    <td className="py-3 px-4 text-center font-mono text-xs">{t.itemCount} صنف</td>
+                    <td className="py-3 px-4 text-center font-mono text-xs font-bold text-slate-800">
+                      {t.totalShippedQty || '—'}
+                    </td>
+                    <td className="py-3 px-4 text-center font-mono text-xs">
+                      {t.status === 'RECEIVED' || t.status === 'PARTIALLY_RECEIVED' ? (
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span className="text-emerald-700 font-bold">{t.totalReceivedQty || 0}</span>
+                          {(t.totalDamagedQty || 0) > 0 && (
+                            <span className="text-amber-600 bg-amber-50 px-1 rounded text-[11px]">
+                              {t.totalDamagedQty} تالف
+                            </span>
+                          )}
+                          {(t.totalLostQty || 0) > 0 && (
+                            <span className="text-rose-600 bg-rose-50 px-1 rounded text-[11px]">
+                              {t.totalLostQty} فاقد
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 text-center text-xs text-slate-500 font-mono">{t.requestedAt}</td>
                     <td className="py-3 px-4 text-center">
                       <span
                         className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          t.status === 'IN_TRANSIT'
+                          t.status === 'DRAFT'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : t.status === 'APPROVED'
+                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                            : t.status === 'IN_TRANSIT'
                             ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                            : t.status === 'PARTIALLY_RECEIVED'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
                             : t.status === 'RECEIVED'
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-700'
+                            : t.status === 'CLOSED'
+                            ? 'bg-slate-100 text-slate-600 border border-slate-200'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200'
                         }`}
                       >
-                        {t.status === 'IN_TRANSIT' ? 'في الطريق (In Transit)' : 'تم الاستلام (Received)'}
+                        {t.status === 'DRAFT' && 'مسودة (Draft)'}
+                        {t.status === 'APPROVED' && 'معتمد للحجز (Approved)'}
+                        {t.status === 'IN_TRANSIT' && 'في الطريق (In Transit)'}
+                        {t.status === 'PARTIALLY_RECEIVED' && 'استلام جزئي (Partial)'}
+                        {t.status === 'RECEIVED' && 'مستلم بالكامل (Received)'}
+                        {t.status === 'CLOSED' && 'مغلق (Closed)'}
+                        {t.status === 'REJECTED' && 'مرفوض (Rejected)'}
                       </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        {t.status === 'DRAFT' && (
+                          <>
+                            <button
+                              onClick={() => handleApproveTransfer(t.id)}
+                              className="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 border border-indigo-200"
+                              title="اعتماد وحجز الرصيد"
+                            >
+                              اعتماد
+                            </button>
+                            <button
+                              onClick={() => handleRejectTransfer(t.id)}
+                              className="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100 border border-rose-200"
+                              title="رفض الطلب"
+                            >
+                              رفض
+                            </button>
+                          </>
+                        )}
+                        {t.status === 'APPROVED' && (
+                          <button
+                            onClick={() => handleDispatchTransfer(t.id)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs"
+                            title="شحن البضاعة ونقلها إلى In-Transit"
+                          >
+                            <Truck className="w-3 h-3" />
+                            <span>شحن وإرسال</span>
+                          </button>
+                        )}
+                        {(t.status === 'IN_TRANSIT' || t.status === 'PARTIALLY_RECEIVED') && (
+                          <>
+                            <button
+                              onClick={() => handleOpenReceiveModal(t)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-xs"
+                              title="استلام وفحص الوارد"
+                            >
+                              <PackageCheck className="w-3 h-3" />
+                              <span>استلام وفحص</span>
+                            </button>
+                            <button
+                              onClick={() => handleCloseTransfer(t.id)}
+                              className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200"
+                              title="إغلاق المناقلة"
+                            >
+                              إغلاق
+                            </button>
+                          </>
+                        )}
+                        {(t.status === 'RECEIVED' || t.status === 'CLOSED' || t.status === 'REJECTED') && (
+                          <span className="text-xs text-slate-400 font-medium">مكتمل</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 5: Stocktaking & Physical Inventory */}
+      {activeTab === 'STOCKTAKE' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+            <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-sm text-slate-800">أوامر الجرد المخزني الفعلي والتسويات (Physical Stocktake Engine)</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  تثبيت الأرصدة الدفترية تلقائياً، تسجيل العد الفعلي، احتساب الفروقات، وتوليد قيود وحركات التسوية المحاسبية
+                </p>
+              </div>
+              <button
+                onClick={() => setIsStocktakeModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 shadow-xs shadow-amber-600/20"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>أمر جرد جديد</span>
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-right border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
+                    <th className="py-3 px-4">رقم الجرد</th>
+                    <th className="py-3 px-4">المستودع الخاضع للجرد</th>
+                    <th className="py-3 px-4 text-center">نوع الجرد</th>
+                    <th className="py-3 px-4 text-center">التكرار</th>
+                    <th className="py-3 px-4 text-center">تجميد الحركات</th>
+                    <th className="py-3 px-4 text-center">الأصناف</th>
+                    <th className="py-3 px-4 text-center">فرق الكميات</th>
+                    <th className="py-3 px-4 text-center">قيمة الفرق (ر.س)</th>
+                    <th className="py-3 px-4 text-center">حالة الجرد</th>
+                    <th className="py-3 px-4 text-center">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {stocktakes.map((s) => (
+                    <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3 px-4 font-mono font-medium text-xs text-indigo-600">
+                        <div>{s.orderNumber}</div>
+                        <div className="text-[11px] text-slate-400 font-sans">{s.createdAt}</div>
+                      </td>
+                      <td className="py-3 px-4 text-slate-800 font-medium text-xs">{s.warehouseName}</td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                          {s.stocktakeType === 'FULL' ? 'شامل (Full)' : 'جزئي (Partial)'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                          {s.countFrequency === 'PERIODIC' ? 'دوري' : 'مفاجئ'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        {s.freezeMovements ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                            <Lock className="w-3 h-3" />
+                            <span>مجمّد</span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">غير مجمد</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center font-mono text-xs">
+                        {s.countedCount > 0 ? `${s.countedCount} / ${s.itemCount}` : `${s.itemCount} صنف`}
+                      </td>
+                      <td className="py-3 px-4 text-center font-mono text-xs font-bold">
+                        {s.status === 'COUNTED' || s.status === 'APPROVED' ? (
+                          <span className={s.totalVarianceQty < 0 ? 'text-rose-600' : s.totalVarianceQty > 0 ? 'text-emerald-600' : 'text-slate-600'}>
+                            {s.totalVarianceQty > 0 ? `+${s.totalVarianceQty}` : s.totalVarianceQty}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center font-mono text-xs font-bold">
+                        {s.status === 'COUNTED' || s.status === 'APPROVED' ? (
+                          <span className={s.totalVarianceAmount < 0 ? 'text-rose-600' : s.totalVarianceAmount > 0 ? 'text-emerald-600' : 'text-slate-600'}>
+                            {s.totalVarianceAmount > 0 ? `+${s.totalVarianceAmount.toFixed(2)}` : s.totalVarianceAmount.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span
+                          className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            s.status === 'DRAFT'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : s.status === 'IN_PROGRESS'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : s.status === 'COUNTED'
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : s.status === 'APPROVED'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          {s.status === 'DRAFT' && 'مسودة أمر جرد'}
+                          {s.status === 'IN_PROGRESS' && 'جاري الحصر والعد'}
+                          {s.status === 'COUNTED' && 'تم العد بانتظار الاعتماد'}
+                          {s.status === 'APPROVED' && 'معتمد وتمت التسوية'}
+                          {s.status === 'REJECTED' && 'مرفوض'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {s.status === 'DRAFT' && (
+                            <button
+                              onClick={() => handleStartStocktake(s.id)}
+                              className="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs"
+                              title="بدء عملية الجرد وتثبيت اللقطة الدفترية للأرصدة"
+                            >
+                              بدء الجرد
+                            </button>
+                          )}
+                          {s.status === 'IN_PROGRESS' && (
+                            <button
+                              onClick={() => handleOpenCountModal(s)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 shadow-xs"
+                              title="إدخال الكميات الفعلية المحصورة"
+                            >
+                              <ClipboardCheck className="w-3 h-3" />
+                              <span>تسجيل العد</span>
+                            </button>
+                          )}
+                          {s.status === 'COUNTED' && (
+                            <button
+                              onClick={() => handleApproveStocktake(s.id)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-xs"
+                              title="اعتماد الفروقات وتوليد حركة التسوية المخزنية"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>اعتماد التسوية</span>
+                            </button>
+                          )}
+                          {s.status === 'APPROVED' && (
+                            <span className="text-xs text-emerald-700 font-bold flex items-center justify-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>تمت التسوية</span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1512,10 +2105,298 @@ export const InventoryView: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium shadow-xs hover:bg-indigo-700"
                 >
-                  تأكيد وإرسال المناقلة
+                  إنشاء طلب المناقلة
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 6: Receive & Inspect Transfer */}
+      {selectedTransferForReceive && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                <PackageCheck className="w-5 h-5 text-emerald-600" />
+                <span>استلام وفحص شحنة المناقلة</span>
+              </h3>
+              <button onClick={() => setSelectedTransferForReceive(null)} className="text-slate-400 hover:text-slate-600">
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1 text-slate-700 border border-slate-200">
+              <div>رقم المناقلة: <b className="font-mono text-indigo-600">{selectedTransferForReceive.transferNumber}</b></div>
+              <div>المسار: من <b>{selectedTransferForReceive.sourceWarehouseName}</b> إلى <b>{selectedTransferForReceive.destinationWarehouseName}</b></div>
+              <div>إجمالي الكمية المشحونة: <b className="font-mono text-slate-900">{selectedTransferForReceive.totalShippedQty} وحدة</b></div>
+            </div>
+
+            <form onSubmit={handleConfirmReceiveTransfer} className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-emerald-800 mb-1">الكمية السليمة</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={rcvTrfReceivedQty}
+                    onChange={(e) => setRcvTrfReceivedQty(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-300 text-sm font-mono font-bold text-emerald-700 bg-emerald-50/30"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-amber-800 mb-1">الكمية التالفة</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={rcvTrfDamagedQty}
+                    onChange={(e) => setRcvTrfDamagedQty(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-amber-300 text-sm font-mono text-amber-700 bg-amber-50/30"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-rose-800 mb-1">عجز الشحن / فاقد</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={rcvTrfLostQty}
+                    onChange={(e) => setRcvTrfLostQty(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-rose-300 text-sm font-mono text-rose-700 bg-rose-50/30"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">ملاحظات ومحضر فحص الاستلام</label>
+                <input
+                  type="text"
+                  placeholder="مثال: تم الفحص ووجد كرتون به تلف ناتج عن سوء التثبيت أثناء النقل"
+                  value={rcvTrfNotes}
+                  onChange={(e) => setRcvTrfNotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                />
+              </div>
+
+              <div className="p-3 bg-indigo-50/60 rounded-xl text-xs text-indigo-900 border border-indigo-100">
+                يتم خصم الكميات من الرصيد المنقول (In-Transit) وإضافة الكميات السليمة إلى الرصيد المتاح بالمستودع المستلم، مع إثبات التوالف في حسابات خسائر الشحن.
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTransferForReceive(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-xs hover:bg-emerald-700"
+                >
+                  تأكيد استلام الشحنة
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 7: Create Stocktake Order */}
+      {isStocktakeModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                <ClipboardCheck className="w-5 h-5 text-amber-600" />
+                <span>إنشاء أمر جرد مخزني جديد</span>
+              </h3>
+              <button onClick={() => setIsStocktakeModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateStocktake} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">المستودع الخاضع للجرد</label>
+                <select
+                  value={stkWh}
+                  onChange={(e) => setStkWh(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                >
+                  {warehouses
+                    .filter((w) => w.id !== 'wh-all')
+                    .map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.code})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">نطاق الجرد</label>
+                  <select
+                    value={stkType}
+                    onChange={(e) => setStkType(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  >
+                    <option value="FULL">جرد شامل لجميع الأصناف (FULL)</option>
+                    <option value="PARTIAL">جرد جزئي لأصناف محددة (PARTIAL)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">تكرار الجرد</label>
+                  <select
+                    value={stkFreq}
+                    onChange={(e) => setStkFreq(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  >
+                    <option value="PERIODIC">جرد دوري مجدول (PERIODIC)</option>
+                    <option value="SURPRISE">جرد مفاجئ رقابي (SURPRISE)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={stkFreeze}
+                    onChange={(e) => setStkFreeze(e.target.checked)}
+                    className="rounded text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>تجميد حركات الصرف والتوريد على المستودع أثناء الجرد (Freeze Movements)</span>
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">ملاحظات وتعليمات الجرد</label>
+                <input
+                  type="text"
+                  placeholder="مثال: جرد نهاية الشهر لقسم البروتينات والمشروبات"
+                  value={stkNotes}
+                  onChange={(e) => setStkNotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsStocktakeModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-600 text-white text-sm font-medium shadow-xs hover:bg-amber-700"
+                >
+                  إنشاء أمر الجرد
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 8: Record Physical Count */}
+      {selectedStocktakeForCount && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                <ClipboardCheck className="w-5 h-5 text-indigo-600" />
+                <span>تسجيل العد الفعلي لجرد المخزون ({selectedStocktakeForCount.orderNumber})</span>
+              </h3>
+              <button onClick={() => setSelectedStocktakeForCount(null)} className="text-slate-400 hover:text-slate-600">
+                ✕
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-500">
+              أدخل الكمية الفعلية المحصورة يدوياً في المستودع. يتم حساب الفروقات المالية والكمية فوراً.
+            </div>
+
+            <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+              <table className="w-full text-right text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 font-semibold text-slate-600">
+                    <th className="py-2.5 px-3">الصنف</th>
+                    <th className="py-2.5 px-3 text-center">الرصيد الدفتري</th>
+                    <th className="py-2.5 px-3 text-center">العد الفعلي</th>
+                    <th className="py-2.5 px-3 text-center">فرق الكمية</th>
+                    <th className="py-2.5 px-3 text-left">أثر القيمة (ر.س)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {countedItems.map((item, idx) => {
+                    const diff = item.countQty - item.sysQty;
+                    const valDiff = diff * item.unitCost;
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/50">
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-800">{item.name}</div>
+                          <span className="font-mono text-slate-400">{item.sku}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-700">{item.sysQty}</td>
+                        <td className="py-2.5 px-3 text-center">
+                          <input
+                            type="number"
+                            step="any"
+                            value={item.countQty}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              const updated = [...countedItems];
+                              updated[idx].countQty = val;
+                              setCountedItems(updated);
+                            }}
+                            className="w-20 px-2 py-1 border border-slate-300 rounded-lg text-center font-mono font-bold"
+                          />
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold">
+                          <span className={diff < 0 ? 'text-rose-600' : diff > 0 ? 'text-emerald-600' : 'text-slate-500'}>
+                            {diff > 0 ? `+${diff}` : diff}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-left font-mono font-bold">
+                          <span className={valDiff < 0 ? 'text-rose-600' : valDiff > 0 ? 'text-emerald-600' : 'text-slate-500'}>
+                            {valDiff > 0 ? `+${valDiff.toFixed(2)}` : valDiff.toFixed(2)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="p-3 bg-amber-50/70 rounded-xl text-xs text-amber-900 border border-amber-200">
+              بعد حفظ العد، سيتحول أمر الجرد إلى حالة <b>تم العد (COUNTED)</b> ليقوم المدير المالي أو مدير العمليات بمراجعة الفروقات واعتماد التسوية.
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setSelectedStocktakeForCount(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveStocktakeCount}
+                className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium shadow-xs hover:bg-indigo-700"
+              >
+                حفظ نتائج العد الفعلي
+              </button>
+            </div>
           </div>
         </div>
       )}

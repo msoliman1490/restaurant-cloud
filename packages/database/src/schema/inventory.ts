@@ -1,7 +1,13 @@
 import { pgTable, uuid, varchar, timestamp, numeric, boolean, text, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { tenants, legalEntities, warehouses } from './tenants.js';
 import { items, unitsOfMeasure } from './catalog.js';
-import { TransferStatus, AdjustmentReason } from '@restaurant-cloud/domain-kernel';
+import {
+  TransferStatus,
+  AdjustmentReason,
+  StocktakeType,
+  StocktakeFrequency,
+  StocktakeStatus,
+} from '@restaurant-cloud/domain-kernel';
 
 // 1. Storage Locations within Warehouses (Aisles, Shelves, Cold Rooms)
 export const storageLocations = pgTable(
@@ -34,11 +40,22 @@ export const stockTransfers = pgTable(
     destinationWarehouseId: uuid('destination_warehouse_id').notNull().references(() => warehouses.id),
     status: varchar('status', { length: 30 }).notNull().default(TransferStatus.DRAFT),
     requestedBy: uuid('requested_by'),
+    approvedBy: uuid('approved_by'),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    rejectedBy: uuid('rejected_by'),
+    rejectedAt: timestamp('rejected_at', { withTimezone: true }),
+    rejectionReason: text('rejection_reason'),
     dispatchedBy: uuid('dispatched_by'),
-    receivedBy: uuid('received_by'),
-    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
     dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    receivedBy: uuid('received_by'),
     receivedAt: timestamp('received_at', { withTimezone: true }),
+    closedBy: uuid('closed_by'),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    totalShippedQty: numeric('total_shipped_qty', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    totalReceivedQty: numeric('total_received_qty', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    totalDamagedQty: numeric('total_damaged_qty', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    totalLostQty: numeric('total_lost_qty', { precision: 14, scale: 4 }).notNull().default('0.0000'),
     notes: text('notes'),
   },
   (table) => [
@@ -58,8 +75,12 @@ export const stockTransferLines = pgTable(
     itemId: uuid('item_id').notNull().references(() => items.id),
     uomId: uuid('uom_id').notNull().references(() => unitsOfMeasure.id),
     quantity: numeric('quantity', { precision: 14, scale: 4 }).notNull(),
-    unitCost: numeric('unit_cost', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    dispatchedQuantity: numeric('dispatched_quantity', { precision: 14, scale: 4 }).notNull().default('0.0000'),
     receivedQuantity: numeric('received_quantity', { precision: 14, scale: 4 }),
+    damagedQuantity: numeric('damaged_quantity', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    lostQuantity: numeric('lost_quantity', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    varianceNotes: text('variance_notes'),
+    unitCost: numeric('unit_cost', { precision: 14, scale: 4 }).notNull().default('0.0000'),
   },
   (table) => [
     index('idx_transfer_lines_transfer_id').on(table.transferId),
@@ -106,5 +127,64 @@ export const stockAdjustmentLines = pgTable(
   (table) => [
     index('idx_adjustment_lines_adjustment_id').on(table.adjustmentId),
     index('idx_adjustment_lines_item_id').on(table.itemId),
+  ]
+);
+
+// 6. Stocktake Orders (Physical Stock Counting Engine: Full, Partial, Periodic, Surprise)
+export const stocktakeOrders = pgTable(
+  'stocktake_orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    legalEntityId: uuid('legal_entity_id').notNull().references(() => legalEntities.id),
+    warehouseId: uuid('warehouse_id').notNull().references(() => warehouses.id),
+    orderNumber: varchar('order_number', { length: 50 }).notNull(),
+    stocktakeType: varchar('stocktake_type', { length: 30 }).notNull().default(StocktakeType.FULL),
+    countFrequency: varchar('count_frequency', { length: 30 }).notNull().default(StocktakeFrequency.PERIODIC),
+    status: varchar('status', { length: 30 }).notNull().default(StocktakeStatus.DRAFT),
+    freezeMovements: boolean('freeze_movements').notNull().default(false),
+    notes: text('notes'),
+    createdBy: uuid('created_by'),
+    startedBy: uuid('started_by'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    countedBy: uuid('counted_by'),
+    countedAt: timestamp('counted_at', { withTimezone: true }),
+    approvedBy: uuid('approved_by'),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    rejectedBy: uuid('rejected_by'),
+    rejectedAt: timestamp('rejected_at', { withTimezone: true }),
+    rejectionReason: text('rejection_reason'),
+    adjustmentId: uuid('adjustment_id').references(() => stockAdjustments.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_stocktake_orders_tenant_id').on(table.tenantId),
+    index('idx_stocktake_orders_warehouse_id').on(table.warehouseId),
+    uniqueIndex('idx_stocktake_orders_entity_number').on(table.legalEntityId, table.orderNumber),
+  ]
+);
+
+// 7. Stocktake Lines
+export const stocktakeLines = pgTable(
+  'stocktake_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    stocktakeId: uuid('stocktake_id').notNull().references(() => stocktakeOrders.id, { onDelete: 'cascade' }),
+    itemId: uuid('item_id').notNull().references(() => items.id),
+    uomId: uuid('uom_id').notNull().references(() => unitsOfMeasure.id),
+    systemQuantity: numeric('system_quantity', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    countedQuantity: numeric('counted_quantity', { precision: 14, scale: 4 }),
+    differenceQuantity: numeric('difference_quantity', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    unitCost: numeric('unit_cost', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    varianceAmount: numeric('variance_amount', { precision: 14, scale: 4 }).notNull().default('0.0000'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_stocktake_lines_tenant_id').on(table.tenantId),
+    index('idx_stocktake_lines_stocktake_id').on(table.stocktakeId),
+    index('idx_stocktake_lines_item_id').on(table.itemId),
   ]
 );

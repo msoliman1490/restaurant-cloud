@@ -43,6 +43,13 @@
       "when": 1794192000000,
       "tag": "0005_advanced_inventory_wms_phase_a",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794210000000,
+      "tag": "0006_advanced_wms_phase_b_transfers_stocktake",
+      "breakpoints": true
     }
   ]
 }

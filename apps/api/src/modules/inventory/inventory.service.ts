@@ -14,6 +14,8 @@ import {
   stockTransferLines,
   stockAdjustments,
   stockAdjustmentLines,
+  stocktakeOrders,
+  stocktakeLines,
   warehouses,
   items,
   unitsOfMeasure,
@@ -21,9 +23,17 @@ import {
 } from '@restaurant-cloud/database';
 import {
   CreateStockTransferRequest,
+  ApproveStockTransferRequest,
+  RejectStockTransferRequest,
+  CloseStockTransferRequest,
   DispatchTransferRequest,
   ReceiveTransferRequest,
   CreateStockAdjustmentRequest,
+  CreateStocktakeOrderRequest,
+  RecordStocktakeCountRequest,
+  ApproveStocktakeOrderRequest,
+  RejectStocktakeOrderRequest,
+  StocktakeOrderQuery,
   StockBalanceQuery,
   InventoryMovementQuery,
   CreateWarehouseRequest,
@@ -39,6 +49,10 @@ import {
   MovementDirection,
   WarehouseType,
   CostingMethod,
+  StocktakeType,
+  StocktakeFrequency,
+  StocktakeStatus,
+  AdjustmentReason,
 } from '@restaurant-cloud/domain-kernel';
 import { eq, and, sql, desc, asc } from 'drizzle-orm';
 
@@ -175,18 +189,18 @@ export class InventoryService {
   }
 
   // ==================================================================
-  // 3. Stock Transfers Workflow (Draft -> In Transit -> Received)
+  // 3. Stock Transfers Workflow (Phase B: Draft -> Approved -> In Transit -> Received / Partial / Closed)
   // ==================================================================
 
   async createTransfer(context: TenantContext, dto: CreateStockTransferRequest) {
     if (dto.sourceWarehouseId === dto.destinationWarehouseId) {
-      throw new BadRequestException('Source and destination warehouses cannot be the same');
+      throw new BadRequestException('المستودع المصدر والمستودع الوجهة لا يمكن أن يكونا متطابقين');
     }
 
     return await this.dbService.withTenantContext(context, async (tx) => {
-      // Validate warehouses exist
+      // Validate source warehouse
       const [sourceWh] = await tx
-        .select({ id: warehouses.id })
+        .select()
         .from(warehouses)
         .where(
           and(
@@ -197,11 +211,18 @@ export class InventoryService {
         .limit(1);
 
       if (!sourceWh) {
-        throw new NotFoundException(`Source warehouse '${dto.sourceWarehouseId}' not found`);
+        throw new NotFoundException(`المستودع المصدر '${dto.sourceWarehouseId}' غير موجود`);
+      }
+      if (sourceWh.status !== 'ACTIVE') {
+        throw new BadRequestException('المستودع المصدر غير نشط حالياً');
+      }
+      if (!sourceWh.allowTransfer) {
+        throw new BadRequestException('إعدادات المستودع المصدر تمنع مناقلة المخزون');
       }
 
+      // Validate destination warehouse
       const [destWh] = await tx
-        .select({ id: warehouses.id })
+        .select()
         .from(warehouses)
         .where(
           and(
@@ -212,7 +233,13 @@ export class InventoryService {
         .limit(1);
 
       if (!destWh) {
-        throw new NotFoundException(`Destination warehouse '${dto.destinationWarehouseId}' not found`);
+        throw new NotFoundException(`مستودع الوجهة '${dto.destinationWarehouseId}' غير موجود`);
+      }
+      if (destWh.status !== 'ACTIVE') {
+        throw new BadRequestException('مستودع الوجهة غير نشط حالياً');
+      }
+      if (!destWh.allowTransfer && !destWh.allowReceiving) {
+        throw new BadRequestException('إعدادات مستودع الوجهة تمنع استقبال المناقلات');
       }
 
       // Check transferNumber uniqueness for legal entity
@@ -229,7 +256,35 @@ export class InventoryService {
         .limit(1);
 
       if (existingNumber) {
-        throw new ConflictException(`Transfer number '${dto.transferNumber}' already exists in this legal entity`);
+        throw new ConflictException(`رقم المناقلة '${dto.transferNumber}' مسجل مسبقاً في هذه المنشأة`);
+      }
+
+      // Validate available stock for each line at source
+      for (const line of dto.lines) {
+        const [bal] = await tx
+          .select()
+          .from(inventoryBalances)
+          .where(
+            and(
+              eq(inventoryBalances.tenantId, context.tenantId),
+              eq(inventoryBalances.warehouseId, dto.sourceWarehouseId),
+              eq(inventoryBalances.itemId, line.itemId)
+            )
+          )
+          .limit(1);
+
+        const onHand = bal ? parseFloat(bal.onHandQty) : 0;
+        const reserved = bal ? parseFloat(bal.reservedQty) : 0;
+        const damaged = bal ? parseFloat(bal.damagedQty || '0') : 0;
+        const inspection = bal ? parseFloat(bal.underInspectionQty || '0') : 0;
+        const available = onHand - reserved - damaged - inspection;
+        const reqQty = parseFloat(line.quantity);
+
+        if (available < reqQty) {
+          throw new BadRequestException(
+            `الرصيد المتاح للصنف '${line.itemId}' في المستودع المصدر غير كافٍ لإنشاء المناقلة. المتاح: ${available.toFixed(4)}، المطلوب: ${reqQty.toFixed(4)}`
+          );
+        }
       }
 
       // Insert Header
@@ -247,7 +302,7 @@ export class InventoryService {
         })
         .returning();
 
-      if (!transfer) throw new Error('Failed to create stock transfer');
+      if (!transfer) throw new Error('فشل إنشاء طلب مناقلة المخزون');
 
       // Insert Lines
       const lineValues = dto.lines.map((l) => ({
@@ -255,6 +310,7 @@ export class InventoryService {
         itemId: l.itemId,
         uomId: l.uomId,
         quantity: l.quantity,
+        dispatchedQuantity: '0.0000',
         unitCost: l.unitCost ?? '0.0000',
       }));
 
@@ -279,6 +335,290 @@ export class InventoryService {
     });
   }
 
+  async getTransfers(
+    context: TenantContext,
+    query?: {
+      warehouseId?: string;
+      status?: TransferStatus;
+      limit?: number;
+      offset?: number;
+    }
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const conditions = [eq(stockTransfers.tenantId, context.tenantId)];
+
+      if (query?.warehouseId) {
+        conditions.push(
+          sql`(${stockTransfers.sourceWarehouseId} = ${query.warehouseId} OR ${stockTransfers.destinationWarehouseId} = ${query.warehouseId})`
+        );
+      }
+
+      if (query?.status) {
+        conditions.push(eq(stockTransfers.status, query.status));
+      }
+
+      const limit = query?.limit ?? 50;
+      const offset = query?.offset ?? 0;
+
+      return await tx
+        .select()
+        .from(stockTransfers)
+        .where(and(...conditions))
+        .orderBy(desc(stockTransfers.requestedAt))
+        .limit(limit)
+        .offset(offset);
+    });
+  }
+
+  async getTransferById(context: TenantContext, transferId: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [transfer] = await tx
+        .select()
+        .from(stockTransfers)
+        .where(
+          and(
+            eq(stockTransfers.tenantId, context.tenantId),
+            eq(stockTransfers.id, transferId)
+          )
+        )
+        .limit(1);
+
+      if (!transfer) {
+        throw new NotFoundException(`طلب المناقلة رقم '${transferId}' غير موجود`);
+      }
+
+      const lines = await tx
+        .select({
+          id: stockTransferLines.id,
+          transferId: stockTransferLines.transferId,
+          itemId: stockTransferLines.itemId,
+          uomId: stockTransferLines.uomId,
+          quantity: stockTransferLines.quantity,
+          dispatchedQuantity: stockTransferLines.dispatchedQuantity,
+          receivedQuantity: stockTransferLines.receivedQuantity,
+          damagedQuantity: stockTransferLines.damagedQuantity,
+          lostQuantity: stockTransferLines.lostQuantity,
+          varianceNotes: stockTransferLines.varianceNotes,
+          unitCost: stockTransferLines.unitCost,
+          itemName: items.nameAr,
+          itemSku: items.sku,
+          uomName: unitsOfMeasure.nameAr,
+        })
+        .from(stockTransferLines)
+        .innerJoin(items, eq(stockTransferLines.itemId, items.id))
+        .innerJoin(unitsOfMeasure, eq(stockTransferLines.uomId, unitsOfMeasure.id))
+        .where(eq(stockTransferLines.transferId, transferId));
+
+      return {
+        ...transfer,
+        lines,
+      };
+    });
+  }
+
+  async approveTransfer(
+    context: TenantContext,
+    transferId: string,
+    dto?: ApproveStockTransferRequest
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [transfer] = await tx
+        .select()
+        .from(stockTransfers)
+        .where(
+          and(
+            eq(stockTransfers.tenantId, context.tenantId),
+            eq(stockTransfers.id, transferId)
+          )
+        )
+        .for('update');
+
+      if (!transfer) {
+        throw new NotFoundException(`طلب المناقلة '${transferId}' غير موجود`);
+      }
+
+      if (transfer.status !== TransferStatus.DRAFT && transfer.status !== TransferStatus.SUBMITTED) {
+        throw new BadRequestException(`لا يمكن اعتماد مناقلة بحالة '${transfer.status}'. الاعتماد متاح فقط لحالات المسودة والتقديم.`);
+      }
+
+      const lines = await tx
+        .select()
+        .from(stockTransferLines)
+        .where(eq(stockTransferLines.transferId, transferId));
+
+      if (lines.length === 0) {
+        throw new BadRequestException('لا يمكن اعتماد طلب مناقلة لا يحتوي على أصناف');
+      }
+
+      // Reserve required stock in source warehouse with row locking
+      for (const line of lines) {
+        const [balance] = await tx
+          .select()
+          .from(inventoryBalances)
+          .where(
+            and(
+              eq(inventoryBalances.tenantId, context.tenantId),
+              eq(inventoryBalances.warehouseId, transfer.sourceWarehouseId),
+              eq(inventoryBalances.itemId, line.itemId)
+            )
+          )
+          .for('update');
+
+        const onHand = balance ? parseFloat(balance.onHandQty) : 0;
+        const currentReserved = balance ? parseFloat(balance.reservedQty) : 0;
+        const currentDamaged = balance ? parseFloat(balance.damagedQty || '0') : 0;
+        const currentInspection = balance ? parseFloat(balance.underInspectionQty || '0') : 0;
+        const available = onHand - currentReserved - currentDamaged - currentInspection;
+        const requestedQty = parseFloat(line.quantity);
+
+        if (!balance || available < requestedQty) {
+          throw new BadRequestException(
+            `الرصيد المتاح للصنف '${line.itemId}' في المستودع المصدر غير كافٍ لحجز المناقلة. المتاح: ${available.toFixed(4)}، المطلوب: ${requestedQty.toFixed(4)}`
+          );
+        }
+
+        const newReserved = (currentReserved + requestedQty).toFixed(4);
+        await tx
+          .update(inventoryBalances)
+          .set({
+            reservedQty: newReserved,
+            version: balance.version + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(inventoryBalances.id, balance.id));
+      }
+
+      // Update transfer status to APPROVED
+      const [updated] = await tx
+        .update(stockTransfers)
+        .set({
+          status: TransferStatus.APPROVED,
+          approvedBy: context.userId,
+          approvedAt: new Date(),
+          notes: dto?.approvalNotes
+            ? `${transfer.notes ?? ''}\nملاحظة الاعتماد: ${dto.approvalNotes}`.trim()
+            : transfer.notes,
+        })
+        .where(eq(stockTransfers.id, transferId))
+        .returning();
+
+      if (!updated) {
+        throw new BadRequestException('فشل تحديث المناقلة');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'STOCK_TRANSFER_APPROVED',
+          entityType: 'stock_transfer',
+          entityId: transferId,
+          afterState: updated,
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  async rejectTransfer(
+    context: TenantContext,
+    transferId: string,
+    dto: RejectStockTransferRequest
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [transfer] = await tx
+        .select()
+        .from(stockTransfers)
+        .where(
+          and(
+            eq(stockTransfers.tenantId, context.tenantId),
+            eq(stockTransfers.id, transferId)
+          )
+        )
+        .for('update');
+
+      if (!transfer) {
+        throw new NotFoundException(`طلب المناقلة '${transferId}' غير موجود`);
+      }
+
+      if (
+        transfer.status === TransferStatus.IN_TRANSIT ||
+        transfer.status === TransferStatus.RECEIVED ||
+        transfer.status === TransferStatus.CLOSED
+      ) {
+        throw new BadRequestException(`لا يمكن رفض مناقلة بحالة '${transfer.status}'`);
+      }
+
+      // If it was APPROVED, release the reserved stock at source
+      if (transfer.status === TransferStatus.APPROVED) {
+        const lines = await tx
+          .select()
+          .from(stockTransferLines)
+          .where(eq(stockTransferLines.transferId, transferId));
+
+        for (const line of lines) {
+          const [balance] = await tx
+            .select()
+            .from(inventoryBalances)
+            .where(
+              and(
+                eq(inventoryBalances.tenantId, context.tenantId),
+                eq(inventoryBalances.warehouseId, transfer.sourceWarehouseId),
+                eq(inventoryBalances.itemId, line.itemId)
+              )
+            )
+            .for('update');
+
+          if (balance) {
+            const currentReserved = parseFloat(balance.reservedQty);
+            const lineQty = parseFloat(line.quantity);
+            const newReserved = Math.max(0, currentReserved - lineQty).toFixed(4);
+
+            await tx
+              .update(inventoryBalances)
+              .set({
+                reservedQty: newReserved,
+                version: balance.version + 1,
+                updatedAt: new Date(),
+              })
+              .where(eq(inventoryBalances.id, balance.id));
+          }
+        }
+      }
+
+      const [updated] = await tx
+        .update(stockTransfers)
+        .set({
+          status: TransferStatus.REJECTED,
+          rejectedBy: context.userId,
+          rejectedAt: new Date(),
+          rejectionReason: dto.rejectionReason,
+        })
+        .where(eq(stockTransfers.id, transferId))
+        .returning();
+
+      if (!updated) {
+        throw new BadRequestException('فشل رفض المناقلة');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'STOCK_TRANSFER_REJECTED',
+          entityType: 'stock_transfer',
+          entityId: transferId,
+          afterState: updated,
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
   async dispatchTransfer(
     context: TenantContext,
     transferId: string,
@@ -294,14 +634,14 @@ export class InventoryService {
             eq(stockTransfers.id, transferId)
           )
         )
-        .limit(1);
+        .for('update');
 
       if (!transfer) {
-        throw new NotFoundException(`Stock transfer '${transferId}' not found`);
+        throw new NotFoundException(`طلب المناقلة '${transferId}' غير موجود`);
       }
 
-      if (transfer.status !== TransferStatus.DRAFT) {
-        throw new BadRequestException(`Cannot dispatch transfer with status '${transfer.status}'`);
+      if (transfer.status !== TransferStatus.APPROVED && transfer.status !== TransferStatus.DRAFT) {
+        throw new BadRequestException(`لا يمكن شحن المناقلة بحالتها الحالية '${transfer.status}'. يجب أن تكون معتمدة (APPROVED) أولاً.`);
       }
 
       const lines = await tx
@@ -310,11 +650,25 @@ export class InventoryService {
         .where(eq(stockTransferLines.transferId, transferId));
 
       if (lines.length === 0) {
-        throw new BadRequestException('Cannot dispatch transfer with no lines');
+        throw new BadRequestException('لا يمكن شحن طلب مناقلة فارغ من الأصناف');
       }
 
-      // Deduct stock from source warehouse and record TRANSFER_OUT movements
+      let totalShipped = 0;
+      const dispatchMap = new Map(
+        dto.dispatchedLines?.map((d) => [d.itemId, parseFloat(d.dispatchedQuantity)]) ?? []
+      );
+
+      // Deduct stock from source warehouse, clear reservation, increment in-transit, and record TRANSFER_OUT
       for (const line of lines) {
+        const reqQty = parseFloat(line.quantity);
+        const dispatchedQty = dispatchMap.has(line.itemId)
+          ? dispatchMap.get(line.itemId)!
+          : reqQty;
+
+        if (isNaN(dispatchedQty) || dispatchedQty <= 0) {
+          throw new BadRequestException(`كمية الشحن للصنف '${line.itemId}' غير صالحة`);
+        }
+
         const [currentBalance] = await tx
           .select()
           .from(inventoryBalances)
@@ -322,52 +676,102 @@ export class InventoryService {
             and(
               eq(inventoryBalances.tenantId, context.tenantId),
               eq(inventoryBalances.warehouseId, transfer.sourceWarehouseId),
-              eq(inventoryBalances.itemId, line.itemId),
-              sql`${inventoryBalances.lotId} IS NULL`
+              eq(inventoryBalances.itemId, line.itemId)
             )
           )
-          .limit(1);
+          .for('update');
 
-        const onHand = parseFloat(currentBalance?.onHandQty ?? '0');
-        const transferQty = parseFloat(line.quantity);
+        if (!currentBalance) {
+          throw new BadRequestException(`لا يوجد رصيد مسجل للصنف '${line.itemId}' في المستودع المصدر`);
+        }
 
-        if (onHand < transferQty) {
+        const onHand = parseFloat(currentBalance.onHandQty);
+        const reserved = parseFloat(currentBalance.reservedQty);
+        const inTransit = parseFloat(currentBalance.inTransitQty || '0');
+
+        if (onHand < dispatchedQty) {
           throw new BadRequestException(
-            `Insufficient stock for item '${line.itemId}' in source warehouse (Available: ${onHand}, Requested: ${transferQty})`
+            `الرصيد الفعلي غير كافٍ لشحن الصنف '${line.itemId}'. الفعلي: ${onHand.toFixed(4)}، المطلوب شحنه: ${dispatchedQty.toFixed(4)}`
           );
         }
 
-        const newOnHand = (onHand - transferQty).toFixed(4);
+        // Release reservation (if it was approved)
+        const newReserved = transfer.status === TransferStatus.APPROVED
+          ? Math.max(0, reserved - reqQty).toFixed(4)
+          : reserved.toFixed(4);
+        const newOnHand = (onHand - dispatchedQty).toFixed(4);
+        const newInTransit = (inTransit + dispatchedQty).toFixed(4);
 
-        if (currentBalance) {
-          await tx
-            .update(inventoryBalances)
-            .set({
-              onHandQty: newOnHand,
-              version: currentBalance.version + 1,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(inventoryBalances.id, currentBalance.id),
-                eq(inventoryBalances.version, currentBalance.version)
-              )
-            );
+        await tx
+          .update(inventoryBalances)
+          .set({
+            onHandQty: newOnHand,
+            reservedQty: newReserved,
+            inTransitQty: newInTransit,
+            version: currentBalance.version + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(inventoryBalances.id, currentBalance.id));
+
+        // Costing: Consume FIFO layers if item uses FIFO, otherwise use current WAC
+        const [item] = await tx
+          .select({ costingMethod: items.costingMethod, defaultCost: items.defaultCost })
+          .from(items)
+          .where(and(eq(items.tenantId, context.tenantId), eq(items.id, line.itemId)))
+          .limit(1);
+
+        let effectiveUnitCost: number;
+        let totalCostNum: number;
+
+        if (item && item.costingMethod === CostingMethod.FIFO) {
+          const fifoRes = await this.consumeCostLayersFifo(tx, {
+            tenantId: context.tenantId,
+            legalEntityOwnerId: transfer.legalEntityId,
+            warehouseId: transfer.sourceWarehouseId,
+            itemId: line.itemId,
+            quantityToConsume: dispatchedQty,
+          });
+          effectiveUnitCost = fifoRes.unitCost;
+          totalCostNum = fifoRes.totalCost;
+        } else {
+          effectiveUnitCost = parseFloat(currentBalance.wacCost) || parseFloat(item?.defaultCost || '0');
+          totalCostNum = dispatchedQty * effectiveUnitCost;
         }
 
         // Record TRANSFER_OUT movement
+        const movNumber = `MOV-TR-OUT-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
         await tx.insert(inventoryMovements).values({
           tenantId: context.tenantId,
           legalEntityOwnerId: transfer.legalEntityId,
           warehouseId: transfer.sourceWarehouseId,
+          sourceWarehouseId: transfer.sourceWarehouseId,
+          destinationWarehouseId: transfer.destinationWarehouseId,
           itemId: line.itemId,
+          movementNumber: movNumber,
           movementType: MovementType.TRANSFER_OUT,
           direction: MovementDirection.OUT,
-          quantity: line.quantity,
-          unitCost: line.unitCost,
-          sourceType: 'stock_transfer',
+          uomId: line.uomId,
+          quantity: dispatchedQty.toFixed(4),
+          unitCost: effectiveUnitCost.toFixed(4),
+          totalCost: totalCostNum.toFixed(4),
+          sourceType: 'STOCK_TRANSFER',
           sourceId: transfer.id,
+          sourceDocumentNumber: transfer.transferNumber,
+          performedBy: context.userId || null,
+          status: 'COMPLETED',
+          notes: `شحن مناقلة رقم ${transfer.transferNumber} إلى المستودع الوجهة`,
         });
+
+        // Update dispatchedQuantity on line
+        await tx
+          .update(stockTransferLines)
+          .set({
+            dispatchedQuantity: dispatchedQty.toFixed(4),
+            unitCost: effectiveUnitCost.toFixed(4),
+          })
+          .where(eq(stockTransferLines.id, line.id));
+
+        totalShipped += dispatchedQty;
       }
 
       // Update transfer status to IN_TRANSIT
@@ -377,10 +781,17 @@ export class InventoryService {
           status: TransferStatus.IN_TRANSIT,
           dispatchedBy: context.userId,
           dispatchedAt: new Date(),
-          notes: dto.dispatchedNotes ? `${transfer.notes ?? ''}\nDispatch: ${dto.dispatchedNotes}`.trim() : transfer.notes,
+          totalShippedQty: totalShipped.toFixed(4),
+          notes: dto.dispatchedNotes
+            ? `${transfer.notes ?? ''}\nملاحظة الشحن: ${dto.dispatchedNotes}`.trim()
+            : transfer.notes,
         })
         .where(eq(stockTransfers.id, transferId))
         .returning();
+
+      if (!updated) {
+        throw new BadRequestException('فشل شحن المناقلة');
+      }
 
       await this.auditService.log(
         {
@@ -413,14 +824,19 @@ export class InventoryService {
             eq(stockTransfers.id, transferId)
           )
         )
-        .limit(1);
+        .for('update');
 
       if (!transfer) {
-        throw new NotFoundException(`Stock transfer '${transferId}' not found`);
+        throw new NotFoundException(`طلب المناقلة '${transferId}' غير موجود`);
       }
 
-      if (transfer.status !== TransferStatus.IN_TRANSIT) {
-        throw new BadRequestException(`Cannot receive transfer with status '${transfer.status}'. Transfer must be IN_TRANSIT.`);
+      if (
+        transfer.status !== TransferStatus.IN_TRANSIT &&
+        transfer.status !== TransferStatus.PARTIALLY_RECEIVED
+      ) {
+        throw new BadRequestException(
+          `لا يمكن استلام مناقلة بحالة '${transfer.status}'. يجب أن تكون الشحنة تحت النقل (IN_TRANSIT أو PARTIALLY_RECEIVED).`
+        );
       }
 
       const lines = await tx
@@ -428,19 +844,61 @@ export class InventoryService {
         .from(stockTransferLines)
         .where(eq(stockTransferLines.transferId, transferId));
 
-      const receivedMap = new Map(dto.receivedLines.map((r) => [r.itemId, r.receivedQuantity]));
+      const receivedMap = new Map(dto.receivedLines.map((r) => [r.itemId, r]));
+
+      let totalReceived = parseFloat(transfer.totalReceivedQty || '0');
+      let totalDamaged = parseFloat(transfer.totalDamagedQty || '0');
+      let totalLost = parseFloat(transfer.totalLostQty || '0');
 
       for (const line of lines) {
-        const receivedQtyStr = receivedMap.get(line.itemId) ?? line.quantity;
-        const receivedQty = parseFloat(receivedQtyStr);
+        const rItem = receivedMap.get(line.itemId);
+        if (!rItem) continue;
 
-        // Update receivedQuantity on line
-        await tx
-          .update(stockTransferLines)
-          .set({ receivedQuantity: receivedQtyStr })
-          .where(eq(stockTransferLines.id, line.id));
+        const dispatchedQty = parseFloat(line.dispatchedQuantity) > 0
+          ? parseFloat(line.dispatchedQuantity)
+          : parseFloat(line.quantity);
 
-        // Credit destination warehouse balance
+        const currentLineReceived = parseFloat(line.receivedQuantity || '0');
+        const incomingReceivedQty = parseFloat(rItem.receivedQuantity);
+        const incomingDamagedQty = parseFloat(rItem.damagedQuantity || '0');
+        const incomingLostQty = parseFloat(rItem.lostQuantity || '0');
+        const totalAccountedForThisBatch = incomingReceivedQty + incomingDamagedQty + incomingLostQty;
+
+        // Prevent over-receiving: cannot exceed dispatched quantity
+        if (currentLineReceived + totalAccountedForThisBatch > dispatchedQty + 0.0001) {
+          throw new BadRequestException(
+            `الكمية المستلمة مع التوالف والمفقودات (${(currentLineReceived + totalAccountedForThisBatch).toFixed(4)}) تتجاوز الكمية المشحونة (${dispatchedQty.toFixed(4)}) للصنف '${line.itemId}'`
+          );
+        }
+
+        // 1. Decrement in_transit_qty at source warehouse
+        const [sourceBal] = await tx
+          .select()
+          .from(inventoryBalances)
+          .where(
+            and(
+              eq(inventoryBalances.tenantId, context.tenantId),
+              eq(inventoryBalances.warehouseId, transfer.sourceWarehouseId),
+              eq(inventoryBalances.itemId, line.itemId)
+            )
+          )
+          .for('update');
+
+        if (sourceBal) {
+          const currentInTransit = parseFloat(sourceBal.inTransitQty || '0');
+          const newInTransit = Math.max(0, currentInTransit - totalAccountedForThisBatch).toFixed(4);
+
+          await tx
+            .update(inventoryBalances)
+            .set({
+              inTransitQty: newInTransit,
+              version: sourceBal.version + 1,
+              updatedAt: new Date(),
+            })
+            .where(eq(inventoryBalances.id, sourceBal.id));
+        }
+
+        // 2. Increment stock at destination warehouse
         const [destBalance] = await tx
           .select()
           .from(inventoryBalances)
@@ -448,67 +906,147 @@ export class InventoryService {
             and(
               eq(inventoryBalances.tenantId, context.tenantId),
               eq(inventoryBalances.warehouseId, transfer.destinationWarehouseId),
-              eq(inventoryBalances.itemId, line.itemId),
-              sql`${inventoryBalances.lotId} IS NULL`
+              eq(inventoryBalances.itemId, line.itemId)
             )
           )
-          .limit(1);
+          .for('update');
+
+        const inCost = parseFloat(line.unitCost);
+        const newLineReceived = currentLineReceived + incomingReceivedQty;
+        const currentLineDamaged = parseFloat(line.damagedQuantity || '0') + incomingDamagedQty;
+        const currentLineLost = parseFloat(line.lostQuantity || '0') + incomingLostQty;
 
         if (destBalance) {
           const currentOnHand = parseFloat(destBalance.onHandQty);
-          const newOnHand = (currentOnHand + receivedQty).toFixed(4);
+          const currentWac = parseFloat(destBalance.wacCost);
+          const destDamaged = parseFloat(destBalance.damagedQty || '0');
+
+          // Recalculate WAC on destination warehouse
+          let newWac: number;
+          if (currentOnHand + incomingReceivedQty <= 0) {
+            newWac = inCost;
+          } else {
+            const oldVal = currentOnHand * currentWac;
+            const incomingVal = incomingReceivedQty * inCost;
+            newWac = (oldVal + incomingVal) / (currentOnHand + incomingReceivedQty);
+          }
+
+          const newOnHand = (currentOnHand + incomingReceivedQty).toFixed(4);
+          const newDestDamaged = (destDamaged + incomingDamagedQty).toFixed(4);
 
           await tx
             .update(inventoryBalances)
             .set({
               onHandQty: newOnHand,
+              damagedQty: newDestDamaged,
+              wacCost: newWac.toFixed(4),
               version: destBalance.version + 1,
               updatedAt: new Date(),
             })
-            .where(
-              and(
-                eq(inventoryBalances.id, destBalance.id),
-                eq(inventoryBalances.version, destBalance.version)
-              )
-            );
+            .where(eq(inventoryBalances.id, destBalance.id));
         } else {
           await tx.insert(inventoryBalances).values({
             tenantId: context.tenantId,
             legalEntityOwnerId: transfer.legalEntityId,
             warehouseId: transfer.destinationWarehouseId,
             itemId: line.itemId,
-            onHandQty: receivedQty.toFixed(4),
+            onHandQty: incomingReceivedQty.toFixed(4),
             reservedQty: '0.0000',
+            damagedQty: incomingDamagedQty.toFixed(4),
+            inTransitQty: '0.0000',
+            wacCost: inCost.toFixed(4),
             version: 1,
           });
         }
 
-        // Record TRANSFER_IN movement
+        // 3. FIFO Layer creation at destination warehouse
+        const [item] = await tx
+          .select({ costingMethod: items.costingMethod })
+          .from(items)
+          .where(and(eq(items.tenantId, context.tenantId), eq(items.id, line.itemId)))
+          .limit(1);
+
+        if (item && item.costingMethod === CostingMethod.FIFO && incomingReceivedQty > 0) {
+          await tx.insert(inventoryCostLayers).values({
+            tenantId: context.tenantId,
+            legalEntityOwnerId: transfer.legalEntityId,
+            warehouseId: transfer.destinationWarehouseId,
+            itemId: line.itemId,
+            quantityReceived: incomingReceivedQty.toFixed(4),
+            quantityRemaining: incomingReceivedQty.toFixed(4),
+            unitCost: inCost.toFixed(4),
+            sourceType: 'TRANSFER_RECEIPT',
+            sourceId: transfer.id,
+            createdAt: new Date(),
+          });
+        }
+
+        // 4. Record TRANSFER_IN movement
+        const movNumber = `MOV-TR-IN-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
         await tx.insert(inventoryMovements).values({
           tenantId: context.tenantId,
           legalEntityOwnerId: transfer.legalEntityId,
           warehouseId: transfer.destinationWarehouseId,
+          sourceWarehouseId: transfer.sourceWarehouseId,
+          destinationWarehouseId: transfer.destinationWarehouseId,
           itemId: line.itemId,
+          movementNumber: movNumber,
           movementType: MovementType.TRANSFER_IN,
           direction: MovementDirection.IN,
-          quantity: receivedQtyStr,
-          unitCost: line.unitCost,
-          sourceType: 'stock_transfer',
+          uomId: line.uomId,
+          quantity: incomingReceivedQty.toFixed(4),
+          unitCost: inCost.toFixed(4),
+          totalCost: (incomingReceivedQty * inCost).toFixed(4),
+          sourceType: 'STOCK_TRANSFER',
           sourceId: transfer.id,
+          sourceDocumentNumber: transfer.transferNumber,
+          performedBy: context.userId || null,
+          status: 'COMPLETED',
+          notes: incomingDamagedQty > 0 || incomingLostQty > 0
+            ? `استلام مناقلة رقم ${transfer.transferNumber} مع تسجيل فروقات (تالف: ${incomingDamagedQty}, مفقود: ${incomingLostQty})`
+            : `استلام مناقلة رقم ${transfer.transferNumber}`,
         });
+
+        // 5. Update line status
+        await tx
+          .update(stockTransferLines)
+          .set({
+            receivedQuantity: newLineReceived.toFixed(4),
+            damagedQuantity: currentLineDamaged.toFixed(4),
+            lostQuantity: currentLineLost.toFixed(4),
+            varianceNotes: rItem.varianceNotes || line.varianceNotes || null,
+          })
+          .where(eq(stockTransferLines.id, line.id));
+
+        totalReceived += incomingReceivedQty;
+        totalDamaged += incomingDamagedQty;
+        totalLost += incomingLostQty;
       }
 
-      // Update transfer status to RECEIVED
+      // Check if all lines are fully accounted for
+      const totalShipped = parseFloat(transfer.totalShippedQty || '0');
+      const isFullyAccounted = (totalReceived + totalDamaged + totalLost) >= (totalShipped - 0.0001);
+      const newStatus = isFullyAccounted ? TransferStatus.RECEIVED : TransferStatus.PARTIALLY_RECEIVED;
+
       const [updated] = await tx
         .update(stockTransfers)
         .set({
-          status: TransferStatus.RECEIVED,
+          status: newStatus,
           receivedBy: context.userId,
           receivedAt: new Date(),
-          notes: dto.receivedNotes ? `${transfer.notes ?? ''}\nReceipt: ${dto.receivedNotes}`.trim() : transfer.notes,
+          totalReceivedQty: totalReceived.toFixed(4),
+          totalDamagedQty: totalDamaged.toFixed(4),
+          totalLostQty: totalLost.toFixed(4),
+          notes: dto.receivedNotes
+            ? `${transfer.notes ?? ''}\nملاحظة الاستلام: ${dto.receivedNotes}`.trim()
+            : transfer.notes,
         })
         .where(eq(stockTransfers.id, transferId))
         .returning();
+
+      if (!updated) {
+        throw new BadRequestException('فشل استلام المناقلة');
+      }
 
       await this.auditService.log(
         {
@@ -526,8 +1064,745 @@ export class InventoryService {
     });
   }
 
+  async closeTransfer(
+    context: TenantContext,
+    transferId: string,
+    dto?: CloseStockTransferRequest
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [transfer] = await tx
+        .select()
+        .from(stockTransfers)
+        .where(
+          and(
+            eq(stockTransfers.tenantId, context.tenantId),
+            eq(stockTransfers.id, transferId)
+          )
+        )
+        .for('update');
+
+      if (!transfer) {
+        throw new NotFoundException(`طلب المناقلة '${transferId}' غير موجود`);
+      }
+
+      if (
+        transfer.status !== TransferStatus.PARTIALLY_RECEIVED &&
+        transfer.status !== TransferStatus.IN_TRANSIT
+      ) {
+        throw new BadRequestException(
+          `لا يمكن إغلاق مناقلة بحالة '${transfer.status}'. الإغلاق متاح للمناقلات المستلمة جزئياً أو التي تحت النقل.`
+        );
+      }
+
+      // Clear any remaining in-transit quantities at source warehouse for unreceived lines
+      const lines = await tx
+        .select()
+        .from(stockTransferLines)
+        .where(eq(stockTransferLines.transferId, transferId));
+
+      for (const line of lines) {
+        const dispatched = parseFloat(line.dispatchedQuantity);
+        const received = parseFloat(line.receivedQuantity || '0');
+        const damaged = parseFloat(line.damagedQuantity || '0');
+        const lost = parseFloat(line.lostQuantity || '0');
+        const unreceivedRemaining = Math.max(0, dispatched - received - damaged - lost);
+
+        if (unreceivedRemaining > 0.0001) {
+          const [sourceBal] = await tx
+            .select()
+            .from(inventoryBalances)
+            .where(
+              and(
+                eq(inventoryBalances.tenantId, context.tenantId),
+                eq(inventoryBalances.warehouseId, transfer.sourceWarehouseId),
+                eq(inventoryBalances.itemId, line.itemId)
+              )
+            )
+            .for('update');
+
+          if (sourceBal) {
+            const currentInTransit = parseFloat(sourceBal.inTransitQty || '0');
+            const newInTransit = Math.max(0, currentInTransit - unreceivedRemaining).toFixed(4);
+
+            await tx
+              .update(inventoryBalances)
+              .set({
+                inTransitQty: newInTransit,
+                version: sourceBal.version + 1,
+                updatedAt: new Date(),
+              })
+              .where(eq(inventoryBalances.id, sourceBal.id));
+          }
+        }
+      }
+
+      const [updated] = await tx
+        .update(stockTransfers)
+        .set({
+          status: TransferStatus.CLOSED,
+          closedBy: context.userId,
+          closedAt: new Date(),
+          notes: dto?.closingNotes
+            ? `${transfer.notes ?? ''}\nملاحظة الإغلاق: ${dto.closingNotes}`.trim()
+            : transfer.notes,
+        })
+        .where(eq(stockTransfers.id, transferId))
+        .returning();
+
+      if (!updated) {
+        throw new BadRequestException('فشل إغلاق المناقلة');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'STOCK_TRANSFER_CLOSED',
+          entityType: 'stock_transfer',
+          entityId: transferId,
+          afterState: updated,
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
   // ==================================================================
-  // 4. Stock Adjustments (Physical count variance, damage, waste)
+  // 4. Stocktake & Physical Inventory Counting Engine (Phase B)
+  // ==================================================================
+
+  async createStocktakeOrder(
+    context: TenantContext,
+    dto: CreateStocktakeOrderRequest
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      // Validate warehouse
+      const [warehouse] = await tx
+        .select()
+        .from(warehouses)
+        .where(
+          and(
+            eq(warehouses.tenantId, context.tenantId),
+            eq(warehouses.id, dto.warehouseId)
+          )
+        )
+        .limit(1);
+
+      if (!warehouse) {
+        throw new NotFoundException(`المستودع '${dto.warehouseId}' غير موجود`);
+      }
+      if (warehouse.status !== 'ACTIVE') {
+        throw new BadRequestException('المستودع المحدد غير نشط حالياً');
+      }
+
+      // Check orderNumber uniqueness for legal entity
+      const [existing] = await tx
+        .select({ id: stocktakeOrders.id })
+        .from(stocktakeOrders)
+        .where(
+          and(
+            eq(stocktakeOrders.tenantId, context.tenantId),
+            eq(stocktakeOrders.legalEntityId, dto.legalEntityId),
+            eq(stocktakeOrders.orderNumber, dto.orderNumber)
+          )
+        )
+        .limit(1);
+
+      if (existing) {
+        throw new ConflictException(`أمر الجرد رقم '${dto.orderNumber}' مسجل مسبقاً في هذه المنشأة`);
+      }
+
+      const [order] = await tx
+        .insert(stocktakeOrders)
+        .values({
+          tenantId: context.tenantId,
+          legalEntityId: dto.legalEntityId,
+          warehouseId: dto.warehouseId,
+          orderNumber: dto.orderNumber,
+          stocktakeType: dto.stocktakeType || StocktakeType.FULL,
+          countFrequency: dto.countFrequency || StocktakeFrequency.PERIODIC,
+          freezeMovements: dto.freezeMovements || false,
+          status: StocktakeStatus.DRAFT,
+          createdBy: context.userId,
+          notes: dto.notes || null,
+        })
+        .returning();
+
+      if (!order) {
+        throw new BadRequestException('فشل إنشاء أمر الجرد');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'STOCKTAKE_ORDER_CREATED',
+          entityType: 'stocktake_order',
+          entityId: order.id,
+          afterState: order,
+        },
+        tx
+      );
+
+      return order;
+    });
+  }
+
+  async startStocktake(context: TenantContext, orderId: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(stocktakeOrders)
+        .where(
+          and(
+            eq(stocktakeOrders.tenantId, context.tenantId),
+            eq(stocktakeOrders.id, orderId)
+          )
+        )
+        .for('update');
+
+      if (!order) {
+        throw new NotFoundException(`أمر الجرد '${orderId}' غير موجود`);
+      }
+
+      if (order.status !== StocktakeStatus.DRAFT) {
+        throw new BadRequestException(`لا يمكن بدء جرد بحالة '${order.status}'. يجب أن يكون في حالة مسودة (DRAFT).`);
+      }
+
+      // Take System Snapshot of current inventory balances in the warehouse
+      const balances = await tx
+        .select({
+          itemId: inventoryBalances.itemId,
+          onHandQty: inventoryBalances.onHandQty,
+          wacCost: inventoryBalances.wacCost,
+          baseUomId: items.baseUomId,
+          defaultCost: items.defaultCost,
+        })
+        .from(inventoryBalances)
+        .innerJoin(items, eq(inventoryBalances.itemId, items.id))
+        .where(
+          and(
+            eq(inventoryBalances.tenantId, context.tenantId),
+            eq(inventoryBalances.warehouseId, order.warehouseId)
+          )
+        );
+
+      if (balances.length === 0) {
+        // Fallback: fetch all active inventory items if warehouse balance table is empty
+        const allItems = await tx
+          .select({
+            itemId: items.id,
+            baseUomId: items.baseUomId,
+            defaultCost: items.defaultCost,
+          })
+          .from(items)
+          .where(
+            and(
+              eq(items.tenantId, context.tenantId),
+              eq(items.legalEntityOwnerId, order.legalEntityId)
+            )
+          );
+
+        for (const it of allItems) {
+          await tx.insert(stocktakeLines).values({
+            tenantId: context.tenantId,
+            stocktakeId: order.id,
+            itemId: it.itemId,
+            uomId: it.baseUomId,
+            systemQuantity: '0.0000',
+            countedQuantity: null,
+            differenceQuantity: '0.0000',
+            unitCost: it.defaultCost,
+            varianceAmount: '0.0000',
+          });
+        }
+      } else {
+        for (const bal of balances) {
+          const unitCost = parseFloat(bal.wacCost) > 0 ? bal.wacCost : bal.defaultCost;
+          await tx.insert(stocktakeLines).values({
+            tenantId: context.tenantId,
+            stocktakeId: order.id,
+            itemId: bal.itemId,
+            uomId: bal.baseUomId,
+            systemQuantity: bal.onHandQty,
+            countedQuantity: null,
+            differenceQuantity: '0.0000',
+            unitCost,
+            varianceAmount: '0.0000',
+          });
+        }
+      }
+
+      const [updated] = await tx
+        .update(stocktakeOrders)
+        .set({
+          status: StocktakeStatus.IN_PROGRESS,
+          startedBy: context.userId,
+          startedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(stocktakeOrders.id, orderId))
+        .returning();
+
+      if (!order) {
+        throw new BadRequestException('فشل إنشاء أمر الجرد');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'STOCKTAKE_STARTED',
+          entityType: 'stocktake_order',
+          entityId: orderId,
+          afterState: updated,
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  async recordStocktakeCounts(
+    context: TenantContext,
+    orderId: string,
+    dto: RecordStocktakeCountRequest
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(stocktakeOrders)
+        .where(
+          and(
+            eq(stocktakeOrders.tenantId, context.tenantId),
+            eq(stocktakeOrders.id, orderId)
+          )
+        )
+        .for('update');
+
+      if (!order) {
+        throw new NotFoundException(`أمر الجرد '${orderId}' غير موجود`);
+      }
+
+      if (
+        order.status !== StocktakeStatus.IN_PROGRESS &&
+        order.status !== StocktakeStatus.COUNTED
+      ) {
+        throw new BadRequestException(
+          `لا يمكن تسجيل أعداد الجرد بحالة '${order.status}'. يجب أن يكون الجرد قيد التنفيذ (IN_PROGRESS).`
+        );
+      }
+
+      for (const count of dto.counts) {
+        const [line] = await tx
+          .select()
+          .from(stocktakeLines)
+          .where(
+            and(
+              eq(stocktakeLines.tenantId, context.tenantId),
+              eq(stocktakeLines.stocktakeId, orderId),
+              eq(stocktakeLines.itemId, count.itemId)
+            )
+          )
+          .for('update');
+
+        if (!line) continue;
+
+        const systemQty = parseFloat(line.systemQuantity);
+        const countedQty = parseFloat(count.countedQuantity);
+        const diffQty = countedQty - systemQty;
+        const unitCost = parseFloat(line.unitCost);
+        const varianceVal = diffQty * unitCost;
+
+        await tx
+          .update(stocktakeLines)
+          .set({
+            countedQuantity: countedQty.toFixed(4),
+            differenceQuantity: diffQty.toFixed(4),
+            varianceAmount: varianceVal.toFixed(4),
+            notes: count.notes || null,
+          })
+          .where(eq(stocktakeLines.id, line.id));
+      }
+
+      const [updated] = await tx
+        .update(stocktakeOrders)
+        .set({
+          status: StocktakeStatus.COUNTED,
+          countedBy: context.userId,
+          countedAt: new Date(),
+          notes: dto.notes ? `${order.notes ?? ''}\nملاحظة العد: ${dto.notes}`.trim() : order.notes,
+          updatedAt: new Date(),
+        })
+        .where(eq(stocktakeOrders.id, orderId))
+        .returning();
+
+      if (!order) {
+        throw new BadRequestException('فشل إنشاء أمر الجرد');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'STOCKTAKE_COUNTS_RECORDED',
+          entityType: 'stocktake_order',
+          entityId: orderId,
+          afterState: updated,
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  async approveStocktakeVariance(
+    context: TenantContext,
+    orderId: string,
+    dto?: ApproveStocktakeOrderRequest
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(stocktakeOrders)
+        .where(
+          and(
+            eq(stocktakeOrders.tenantId, context.tenantId),
+            eq(stocktakeOrders.id, orderId)
+          )
+        )
+        .for('update');
+
+      if (!order) {
+        throw new NotFoundException(`أمر الجرد '${orderId}' غير موجود`);
+      }
+
+      if (order.status !== StocktakeStatus.COUNTED) {
+        throw new BadRequestException(
+          `لا يمكن اعتماد تسوية جرد بحالة '${order.status}'. يجب تسجيل الأعداد أولاً (COUNTED).`
+        );
+      }
+
+      const lines = await tx
+        .select()
+        .from(stocktakeLines)
+        .where(
+          and(
+            eq(stocktakeLines.tenantId, context.tenantId),
+            eq(stocktakeLines.stocktakeId, orderId)
+          )
+        );
+
+      // Create master stockAdjustment record
+      const adjNumber = `ADJ-STK-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+      const [adjustment] = await tx
+        .insert(stockAdjustments)
+        .values({
+          tenantId: context.tenantId,
+          legalEntityId: order.legalEntityId,
+          warehouseId: order.warehouseId,
+          adjustmentNumber: adjNumber,
+          reason: AdjustmentReason.PHYSICAL_COUNT,
+          notes: `تسوية معتمدة ناتجة عن أمر الجرد رقم ${order.orderNumber}`,
+          adjustedBy: context.userId,
+        })
+        .returning();
+
+      if (!adjustment) {
+        throw new BadRequestException('فشل إنشاء تسوية الجرد');
+      }
+
+      // Process variances for each line
+      for (const line of lines) {
+        const diffQty = parseFloat(line.differenceQuantity);
+        if (Math.abs(diffQty) <= 0.00001) continue;
+
+        const [balance] = await tx
+          .select()
+          .from(inventoryBalances)
+          .where(
+            and(
+              eq(inventoryBalances.tenantId, context.tenantId),
+              eq(inventoryBalances.warehouseId, order.warehouseId),
+              eq(inventoryBalances.itemId, line.itemId)
+            )
+          )
+          .for('update');
+
+        const [item] = await tx
+          .select({ costingMethod: items.costingMethod })
+          .from(items)
+          .where(and(eq(items.tenantId, context.tenantId), eq(items.id, line.itemId)))
+          .limit(1);
+
+        const countedQty = parseFloat(line.countedQuantity!);
+        const unitCost = parseFloat(line.unitCost);
+
+        if (balance) {
+          await tx
+            .update(inventoryBalances)
+            .set({
+              onHandQty: countedQty.toFixed(4),
+              version: balance.version + 1,
+              updatedAt: new Date(),
+            })
+            .where(eq(inventoryBalances.id, balance.id));
+        } else {
+          await tx.insert(inventoryBalances).values({
+            tenantId: context.tenantId,
+            legalEntityOwnerId: order.legalEntityId,
+            warehouseId: order.warehouseId,
+            itemId: line.itemId,
+            onHandQty: countedQty.toFixed(4),
+            reservedQty: '0.0000',
+            version: 1,
+          });
+        }
+
+        // Insert stockAdjustmentLines
+        await tx.insert(stockAdjustmentLines).values({
+          adjustmentId: adjustment.id,
+          itemId: line.itemId,
+          uomId: line.uomId,
+          systemQuantity: line.systemQuantity,
+          countedQuantity: line.countedQuantity!,
+          differenceQuantity: line.differenceQuantity,
+          unitCost: line.unitCost,
+          totalVarianceAmount: Math.abs(parseFloat(line.varianceAmount)).toFixed(4),
+        });
+
+        // Insert inventoryMovements
+        const direction = diffQty > 0 ? MovementDirection.IN : MovementDirection.OUT;
+        const movNumber = `MOV-ADJ-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+
+        await tx.insert(inventoryMovements).values({
+          tenantId: context.tenantId,
+          legalEntityOwnerId: order.legalEntityId,
+          warehouseId: order.warehouseId,
+          itemId: line.itemId,
+          movementNumber: movNumber,
+          movementType: MovementType.STOCK_ADJUSTMENT,
+          direction,
+          uomId: line.uomId,
+          quantity: Math.abs(diffQty).toFixed(4),
+          unitCost: line.unitCost,
+          totalCost: Math.abs(parseFloat(line.varianceAmount)).toFixed(4),
+          sourceType: 'STOCKTAKE_ADJUSTMENT',
+          sourceId: order.id,
+          sourceDocumentNumber: order.orderNumber,
+          performedBy: context.userId || null,
+          status: 'COMPLETED',
+          notes: diffQty > 0
+            ? `تسوية زيادة مخزنية ناتجة عن جرد ${order.orderNumber}`
+            : `تسوية عجز مخزني ناتج عن جرد ${order.orderNumber}`,
+        });
+
+        // FIFO layer handling for adjustments
+        if (item && item.costingMethod === CostingMethod.FIFO) {
+          if (diffQty > 0) {
+            // Surplus: Create a cost layer for the found stock
+            await tx.insert(inventoryCostLayers).values({
+              tenantId: context.tenantId,
+              legalEntityOwnerId: order.legalEntityId,
+              warehouseId: order.warehouseId,
+              itemId: line.itemId,
+              quantityReceived: diffQty.toFixed(4),
+              quantityRemaining: diffQty.toFixed(4),
+              unitCost: line.unitCost,
+              sourceType: 'STOCKTAKE_SURPLUS',
+              sourceId: order.id,
+              createdAt: new Date(),
+            });
+          } else if (diffQty < 0) {
+            // Shortage: Consume from cost layers
+            await this.consumeCostLayersFifo(tx, {
+              tenantId: context.tenantId,
+              legalEntityOwnerId: order.legalEntityId,
+              warehouseId: order.warehouseId,
+              itemId: line.itemId,
+              quantityToConsume: Math.abs(diffQty),
+            });
+          }
+        }
+      }
+
+      // Update stocktake order status to APPROVED
+      const [updated] = await tx
+        .update(stocktakeOrders)
+        .set({
+          status: StocktakeStatus.APPROVED,
+          approvedBy: context.userId,
+          approvedAt: new Date(),
+          adjustmentId: adjustment.id,
+          notes: dto?.approvalNotes
+            ? `${order.notes ?? ''}\nملاحظة اعتماد التسوية: ${dto.approvalNotes}`.trim()
+            : order.notes,
+          updatedAt: new Date(),
+        })
+        .where(eq(stocktakeOrders.id, orderId))
+        .returning();
+
+      if (!order) {
+        throw new BadRequestException('فشل إنشاء أمر الجرد');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'STOCKTAKE_VARIANCE_APPROVED',
+          entityType: 'stocktake_order',
+          entityId: orderId,
+          afterState: { order: updated, adjustment },
+        },
+        tx
+      );
+
+      return {
+        order: updated,
+        adjustment,
+      };
+    });
+  }
+
+  async rejectStocktakeVariance(
+    context: TenantContext,
+    orderId: string,
+    dto: RejectStocktakeOrderRequest
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(stocktakeOrders)
+        .where(
+          and(
+            eq(stocktakeOrders.tenantId, context.tenantId),
+            eq(stocktakeOrders.id, orderId)
+          )
+        )
+        .for('update');
+
+      if (!order) {
+        throw new NotFoundException(`أمر الجرد '${orderId}' غير موجود`);
+      }
+
+      if (order.status !== StocktakeStatus.COUNTED) {
+        throw new BadRequestException(
+          `لا يمكن رفض تسوية جرد بحالة '${order.status}'. الرفض متاح فقط لحالة (COUNTED).`
+        );
+      }
+
+      const [updated] = await tx
+        .update(stocktakeOrders)
+        .set({
+          status: StocktakeStatus.REJECTED,
+          rejectedBy: context.userId,
+          rejectedAt: new Date(),
+          rejectionReason: dto.rejectionReason,
+          updatedAt: new Date(),
+        })
+        .where(eq(stocktakeOrders.id, orderId))
+        .returning();
+
+      if (!order) {
+        throw new BadRequestException('فشل إنشاء أمر الجرد');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'STOCKTAKE_VARIANCE_REJECTED',
+          entityType: 'stocktake_order',
+          entityId: orderId,
+          afterState: updated,
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  async getStocktakeOrders(
+    context: TenantContext,
+    query?: StocktakeOrderQuery
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const conditions = [eq(stocktakeOrders.tenantId, context.tenantId)];
+
+      if (query?.warehouseId) {
+        conditions.push(eq(stocktakeOrders.warehouseId, query.warehouseId));
+      }
+
+      if (query?.status) {
+        conditions.push(eq(stocktakeOrders.status, query.status));
+      }
+
+      const limit = query?.limit ?? 50;
+      const offset = query?.offset ?? 0;
+
+      return await tx
+        .select()
+        .from(stocktakeOrders)
+        .where(and(...conditions))
+        .orderBy(desc(stocktakeOrders.createdAt))
+        .limit(limit)
+        .offset(offset);
+    });
+  }
+
+  async getStocktakeOrderById(context: TenantContext, orderId: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(stocktakeOrders)
+        .where(
+          and(
+            eq(stocktakeOrders.tenantId, context.tenantId),
+            eq(stocktakeOrders.id, orderId)
+          )
+        )
+        .limit(1);
+
+      if (!order) {
+        throw new NotFoundException(`أمر الجرد '${orderId}' غير موجود`);
+      }
+
+      const lines = await tx
+        .select({
+          id: stocktakeLines.id,
+          stocktakeId: stocktakeLines.stocktakeId,
+          itemId: stocktakeLines.itemId,
+          uomId: stocktakeLines.uomId,
+          systemQuantity: stocktakeLines.systemQuantity,
+          countedQuantity: stocktakeLines.countedQuantity,
+          differenceQuantity: stocktakeLines.differenceQuantity,
+          unitCost: stocktakeLines.unitCost,
+          varianceAmount: stocktakeLines.varianceAmount,
+          notes: stocktakeLines.notes,
+          itemName: items.nameAr,
+          itemSku: items.sku,
+          uomName: unitsOfMeasure.nameAr,
+        })
+        .from(stocktakeLines)
+        .innerJoin(items, eq(stocktakeLines.itemId, items.id))
+        .innerJoin(unitsOfMeasure, eq(stocktakeLines.uomId, unitsOfMeasure.id))
+        .where(eq(stocktakeLines.stocktakeId, orderId));
+
+      return {
+        ...order,
+        lines,
+      };
+    });
+  }
+
+  // ==================================================================
+  // 4.5 Direct Stock Adjustments (Physical count variance, damage, waste)
   // ==================================================================
 
   async createAdjustment(context: TenantContext, dto: CreateStockAdjustmentRequest) {

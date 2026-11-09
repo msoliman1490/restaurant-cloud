@@ -76,9 +76,33 @@ export interface StockTransfer {
   transferNumber: string;
   sourceWarehouseName: string;
   destinationWarehouseName: string;
-  status: 'DRAFT' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCELLED';
+  status: 'DRAFT' | 'APPROVED' | 'IN_TRANSIT' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'REJECTED' | 'CANCELLED' | 'CLOSED';
   itemCount: number;
+  totalShippedQty?: number;
+  totalReceivedQty?: number;
+  totalDamagedQty?: number;
+  totalLostQty?: number;
   requestedAt: string;
+  approvedAt?: string;
+  notes?: string;
+}
+
+export interface StocktakeOrder {
+  id: string;
+  orderNumber: string;
+  warehouseName: string;
+  stocktakeType: 'FULL' | 'PARTIAL';
+  countFrequency: 'PERIODIC' | 'SURPRISE';
+  status: 'DRAFT' | 'IN_PROGRESS' | 'COUNTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  freezeMovements: boolean;
+  itemCount: number;
+  countedCount: number;
+  totalVarianceQty: number;
+  totalVarianceAmount: number;
+  createdAt: string;
+  countedAt?: string;
+  approvedAt?: string;
+  notes?: string;
 }
 
 export interface InventoryMovementRow {

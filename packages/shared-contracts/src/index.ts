@@ -40,6 +40,9 @@ import {
   ReceiptVoucherType,
   DefaultAccountMappingKey,
   WarehouseType,
+  StocktakeType,
+  StocktakeFrequency,
+  StocktakeStatus,
 } from '@restaurant-cloud/domain-kernel';
 
 // ====================================================================
@@ -550,7 +553,28 @@ export const CreateStockTransferRequestSchema = z.object({
 });
 export type CreateStockTransferRequest = z.infer<typeof CreateStockTransferRequestSchema>;
 
+export const ApproveStockTransferRequestSchema = z.object({
+  approvalNotes: z.string().max(500).optional(),
+});
+export type ApproveStockTransferRequest = z.infer<typeof ApproveStockTransferRequestSchema>;
+
+export const RejectStockTransferRequestSchema = z.object({
+  rejectionReason: z.string().min(3).max(500),
+});
+export type RejectStockTransferRequest = z.infer<typeof RejectStockTransferRequestSchema>;
+
+export const CloseStockTransferRequestSchema = z.object({
+  closingNotes: z.string().max(500).optional(),
+});
+export type CloseStockTransferRequest = z.infer<typeof CloseStockTransferRequestSchema>;
+
+export const DispatchTransferLineSchema = z.object({
+  itemId: z.string().uuid(),
+  dispatchedQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
+});
+
 export const DispatchTransferRequestSchema = z.object({
+  dispatchedLines: z.array(DispatchTransferLineSchema).optional(),
   dispatchedNotes: z.string().max(500).optional(),
 });
 export type DispatchTransferRequest = z.infer<typeof DispatchTransferRequestSchema>;
@@ -558,6 +582,9 @@ export type DispatchTransferRequest = z.infer<typeof DispatchTransferRequestSche
 export const ReceiveTransferLineSchema = z.object({
   itemId: z.string().uuid(),
   receivedQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  damagedQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
+  lostQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
+  varianceNotes: z.string().max(255).optional(),
 });
 
 export const ReceiveTransferRequestSchema = z.object({
@@ -565,6 +592,50 @@ export const ReceiveTransferRequestSchema = z.object({
   receivedNotes: z.string().max(500).optional(),
 });
 export type ReceiveTransferRequest = z.infer<typeof ReceiveTransferRequestSchema>;
+
+// Stocktake Engine Contracts (Phase B)
+export const CreateStocktakeOrderRequestSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  warehouseId: z.string().uuid(),
+  orderNumber: z.string().min(2).max(50),
+  stocktakeType: z.nativeEnum(StocktakeType).default(StocktakeType.FULL),
+  countFrequency: z.nativeEnum(StocktakeFrequency).default(StocktakeFrequency.PERIODIC),
+  freezeMovements: z.boolean().default(false),
+  itemIds: z.array(z.string().uuid()).optional(),
+  notes: z.string().max(500).optional(),
+});
+export type CreateStocktakeOrderRequest = z.infer<typeof CreateStocktakeOrderRequestSchema>;
+
+export const RecordStocktakeCountLineSchema = z.object({
+  itemId: z.string().uuid(),
+  countedQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  notes: z.string().max(255).optional(),
+});
+export type RecordStocktakeCountLine = z.infer<typeof RecordStocktakeCountLineSchema>;
+
+export const RecordStocktakeCountRequestSchema = z.object({
+  counts: z.array(RecordStocktakeCountLineSchema).min(1),
+  notes: z.string().max(500).optional(),
+});
+export type RecordStocktakeCountRequest = z.infer<typeof RecordStocktakeCountRequestSchema>;
+
+export const ApproveStocktakeOrderRequestSchema = z.object({
+  approvalNotes: z.string().max(500).optional(),
+});
+export type ApproveStocktakeOrderRequest = z.infer<typeof ApproveStocktakeOrderRequestSchema>;
+
+export const RejectStocktakeOrderRequestSchema = z.object({
+  rejectionReason: z.string().min(3).max(500),
+});
+export type RejectStocktakeOrderRequest = z.infer<typeof RejectStocktakeOrderRequestSchema>;
+
+export const StocktakeOrderQuerySchema = z.object({
+  warehouseId: z.string().uuid().optional(),
+  status: z.nativeEnum(StocktakeStatus).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type StocktakeOrderQuery = z.infer<typeof StocktakeOrderQuerySchema>;
 
 // Stock Adjustment Contracts
 export const StockAdjustmentLineSchema = z.object({

@@ -15,9 +15,17 @@ import { RequirePermissions } from '../../common/decorators/permissions.decorato
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
   CreateStockTransferRequestSchema,
+  ApproveStockTransferRequestSchema,
+  RejectStockTransferRequestSchema,
+  CloseStockTransferRequestSchema,
   DispatchTransferRequestSchema,
   ReceiveTransferRequestSchema,
   CreateStockAdjustmentRequestSchema,
+  CreateStocktakeOrderRequestSchema,
+  RecordStocktakeCountRequestSchema,
+  ApproveStocktakeOrderRequestSchema,
+  RejectStocktakeOrderRequestSchema,
+  StocktakeOrderQuerySchema,
   StockBalanceQuerySchema,
   InventoryMovementQuerySchema,
   CreateWarehouseRequestSchema,
@@ -26,7 +34,7 @@ import {
   IssueStockRequestSchema,
   ReverseInventoryMovementSchema,
 } from '@restaurant-cloud/shared-contracts';
-import { TenantContext } from '@restaurant-cloud/domain-kernel';
+import { TenantContext, TransferStatus, StocktakeStatus } from '@restaurant-cloud/domain-kernel';
 
 @Controller('api/v1/inventory')
 @UseGuards(TenantContextGuard, PermissionsGuard)
@@ -100,6 +108,56 @@ export class InventoryController {
     return { success: true, data };
   }
 
+  @Get('transfers')
+  async getTransfers(
+    @CurrentContext() context: TenantContext,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('status') status?: TransferStatus,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string
+  ) {
+    const data = await this.inventoryService.getTransfers(context, {
+      warehouseId,
+      status,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined,
+    });
+    return { success: true, data };
+  }
+
+  @Get('transfers/:id')
+  async getTransferById(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.inventoryService.getTransferById(context, id);
+    return { success: true, data };
+  }
+
+  @Post('transfers/:id/approve')
+  @RequirePermissions('inventory.transfer.approve')
+  async approveTransfer(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = body ? ApproveStockTransferRequestSchema.parse(body) : undefined;
+    const data = await this.inventoryService.approveTransfer(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Post('transfers/:id/reject')
+  @RequirePermissions('inventory.transfer.approve')
+  async rejectTransfer(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = RejectStockTransferRequestSchema.parse(body);
+    const data = await this.inventoryService.rejectTransfer(context, id, validatedDto);
+    return { success: true, data };
+  }
+
   @Post('transfers/:id/dispatch')
   @RequirePermissions('inventory.transfer.dispatch')
   async dispatchTransfer(
@@ -121,6 +179,98 @@ export class InventoryController {
   ) {
     const validatedDto = ReceiveTransferRequestSchema.parse(body);
     const data = await this.inventoryService.receiveTransfer(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Post('transfers/:id/close')
+  @RequirePermissions('inventory.transfer.close')
+  async closeTransfer(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = body ? CloseStockTransferRequestSchema.parse(body) : undefined;
+    const data = await this.inventoryService.closeTransfer(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  // ==================================================================
+  // Stocktake & Inventory Counting (Phase B)
+  // ==================================================================
+
+  @Post('stocktakes')
+  @RequirePermissions('inventory.stocktake.create')
+  async createStocktakeOrder(
+    @CurrentContext() context: TenantContext,
+    @Body() body: unknown
+  ) {
+    const validatedDto = CreateStocktakeOrderRequestSchema.parse(body);
+    const data = await this.inventoryService.createStocktakeOrder(context, validatedDto);
+    return { success: true, data };
+  }
+
+  @Get('stocktakes')
+  async getStocktakeOrders(
+    @CurrentContext() context: TenantContext,
+    @Query() query: unknown
+  ) {
+    const validated = StocktakeOrderQuerySchema.parse(query);
+    const data = await this.inventoryService.getStocktakeOrders(context, validated);
+    return { success: true, data };
+  }
+
+  @Get('stocktakes/:id')
+  async getStocktakeOrderById(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.inventoryService.getStocktakeOrderById(context, id);
+    return { success: true, data };
+  }
+
+  @Post('stocktakes/:id/start')
+  @RequirePermissions('inventory.stocktake.start')
+  async startStocktake(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.inventoryService.startStocktake(context, id);
+    return { success: true, data };
+  }
+
+  @Post('stocktakes/:id/count')
+  @RequirePermissions('inventory.stocktake.count')
+  async recordStocktakeCounts(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = RecordStocktakeCountRequestSchema.parse(body);
+    const data = await this.inventoryService.recordStocktakeCounts(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Post('stocktakes/:id/approve')
+  @RequirePermissions('inventory.stocktake.approve')
+  async approveStocktakeVariance(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = body ? ApproveStocktakeOrderRequestSchema.parse(body) : undefined;
+    const data = await this.inventoryService.approveStocktakeVariance(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Post('stocktakes/:id/reject')
+  @RequirePermissions('inventory.stocktake.approve')
+  async rejectStocktakeVariance(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = RejectStocktakeOrderRequestSchema.parse(body);
+    const data = await this.inventoryService.rejectStocktakeVariance(context, id, validatedDto);
     return { success: true, data };
   }
 

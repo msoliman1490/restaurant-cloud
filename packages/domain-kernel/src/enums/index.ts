@@ -172,6 +172,25 @@ export enum AdjustmentReason {
   INITIAL_BALANCE = 'INITIAL_BALANCE',
 }
 
+export enum StocktakeType {
+  FULL = 'FULL',
+  PARTIAL = 'PARTIAL',
+}
+
+export enum StocktakeFrequency {
+  PERIODIC = 'PERIODIC',
+  SURPRISE = 'SURPRISE',
+}
+
+export enum StocktakeStatus {
+  DRAFT = 'DRAFT',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COUNTED = 'COUNTED',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
+}
+
 // 3. Sales & Orders
 export enum OrderType {
   DINE_IN = 'DINE_IN',

@@ -72,6 +72,11 @@ describe('Restaurant Cloud — Advanced Inventory & Warehouse Management (Phase 
         name: 'فرع الإمداد المركزي - الرياض',
         businessType: 'RESTAURANT' as any,
       },
+      initialAdminUser: {
+        email: `wms-admin-${tenantCode}@restaurantcloud.sa`,
+        displayName: 'مدير المستودعات المركزي',
+        password: 'Password123!',
+      },
     });
 
     legalEntityId = tenantResult.legalEntity.id;
@@ -79,7 +84,7 @@ describe('Restaurant Cloud — Advanced Inventory & Warehouse Management (Phase 
 
     tenantContext = {
       tenantId: tenantResult.tenant.id,
-      userId: tenantResult.adminUser.id,
+      userId: tenantResult.user.id,
       legalEntityId,
       branchId,
       scopes: ['*'],

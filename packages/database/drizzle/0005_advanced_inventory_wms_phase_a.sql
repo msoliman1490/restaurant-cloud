@@ -76,6 +76,27 @@ ALTER TABLE "inventory_movements" ADD COLUMN IF NOT EXISTS "reversal_of_id" uuid
 CREATE INDEX IF NOT EXISTS "idx_inventory_movements_movement_num" ON "inventory_movements" ("movement_number");
 --> statement-breakpoint
 
+-- 4. Inventory Cost Layers (FIFO / Tracking)
+CREATE TABLE IF NOT EXISTS "inventory_cost_layers" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "tenant_id" uuid NOT NULL REFERENCES "tenants"("id"),
+  "legal_entity_owner_id" uuid NOT NULL REFERENCES "legal_entities"("id"),
+  "warehouse_id" uuid NOT NULL REFERENCES "warehouses"("id"),
+  "item_id" uuid NOT NULL,
+  "lot_id" uuid,
+  "quantity_received" numeric(14, 4) NOT NULL,
+  "quantity_remaining" numeric(14, 4) NOT NULL,
+  "unit_cost" numeric(14, 4) NOT NULL,
+  "source_type" varchar(50) NOT NULL,
+  "source_id" uuid NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_cost_layers_tenant_id" ON "inventory_cost_layers" ("tenant_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_cost_layers_lookup" ON "inventory_cost_layers" ("tenant_id", "legal_entity_owner_id", "warehouse_id", "item_id", "created_at");
+--> statement-breakpoint
+
 -- Grant rc_app_user permissions
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO rc_app_user;
 --> statement-breakpoint

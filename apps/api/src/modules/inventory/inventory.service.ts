@@ -38,6 +38,7 @@ import {
   MovementType,
   MovementDirection,
   WarehouseType,
+  CostingMethod,
 } from '@restaurant-cloud/domain-kernel';
 import { eq, and, sql, desc, asc } from 'drizzle-orm';
 
@@ -151,6 +152,25 @@ export class InventoryService {
         .orderBy(desc(inventoryMovements.occurredAt))
         .limit(limit)
         .offset(offset);
+    });
+  }
+
+  async getCostLayers(
+    context: TenantContext,
+    params: { warehouseId: string; itemId: string }
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      return await tx
+        .select()
+        .from(inventoryCostLayers)
+        .where(
+          and(
+            eq(inventoryCostLayers.tenantId, context.tenantId),
+            eq(inventoryCostLayers.warehouseId, params.warehouseId),
+            eq(inventoryCostLayers.itemId, params.itemId)
+          )
+        )
+        .orderBy(asc(inventoryCostLayers.createdAt));
     });
   }
 
@@ -726,7 +746,8 @@ export class InventoryService {
           sql`CAST(${inventoryCostLayers.quantityRemaining} AS NUMERIC) > 0`
         )
       )
-      .orderBy(asc(inventoryCostLayers.createdAt));
+      .orderBy(asc(inventoryCostLayers.createdAt))
+      .for('update');
 
     let remainingQtyToDeduct = data.quantityToConsume;
     let totalCostConsumed = 0;
@@ -1312,7 +1333,37 @@ export class InventoryService {
         throw new BadRequestException('سعر وحدة الاستلام يجب أن يكون مساوياً أو أكبر من الصفر');
       }
 
-      // 3. Fetch current balance
+      // 2.5 Idempotency protection: return existing movement if sourceDocumentNumber is re-submitted
+      if (dto.sourceDocumentNumber) {
+        const [existing] = await tx
+          .select()
+          .from(inventoryMovements)
+          .where(
+            and(
+              eq(inventoryMovements.tenantId, context.tenantId),
+              eq(inventoryMovements.warehouseId, dto.warehouseId),
+              eq(inventoryMovements.itemId, dto.itemId),
+              eq(inventoryMovements.sourceDocumentNumber, dto.sourceDocumentNumber),
+              eq(inventoryMovements.direction, MovementDirection.IN)
+            )
+          );
+
+        if (existing) {
+          const [currentBal] = await tx
+            .select()
+            .from(inventoryBalances)
+            .where(
+              and(
+                eq(inventoryBalances.tenantId, context.tenantId),
+                eq(inventoryBalances.warehouseId, dto.warehouseId),
+                eq(inventoryBalances.itemId, dto.itemId)
+              )
+            );
+          return { movement: existing, balance: currentBal };
+        }
+      }
+
+      // 3. Fetch current balance with row-level lock
       const [currentBalance] = await tx
         .select()
         .from(inventoryBalances)
@@ -1322,7 +1373,8 @@ export class InventoryService {
             eq(inventoryBalances.warehouseId, dto.warehouseId),
             eq(inventoryBalances.itemId, dto.itemId)
           )
-        );
+        )
+        .for('update');
 
       const existingOnHand = currentBalance ? parseFloat(currentBalance.onHandQty) : 0;
       const existingWac = currentBalance ? parseFloat(currentBalance.wacCost) : 0;
@@ -1488,7 +1540,37 @@ export class InventoryService {
         throw new BadRequestException('كمية الصرف يجب أن تكون أكبر من الصفر');
       }
 
-      // 3. Current balance and strict availability check
+      // 2.5 Idempotency protection: return existing movement if sourceDocumentNumber is re-submitted
+      if (dto.sourceDocumentNumber) {
+        const [existing] = await tx
+          .select()
+          .from(inventoryMovements)
+          .where(
+            and(
+              eq(inventoryMovements.tenantId, context.tenantId),
+              eq(inventoryMovements.warehouseId, dto.warehouseId),
+              eq(inventoryMovements.itemId, dto.itemId),
+              eq(inventoryMovements.sourceDocumentNumber, dto.sourceDocumentNumber),
+              eq(inventoryMovements.direction, MovementDirection.OUT)
+            )
+          );
+
+        if (existing) {
+          const [currentBal] = await tx
+            .select()
+            .from(inventoryBalances)
+            .where(
+              and(
+                eq(inventoryBalances.tenantId, context.tenantId),
+                eq(inventoryBalances.warehouseId, dto.warehouseId),
+                eq(inventoryBalances.itemId, dto.itemId)
+              )
+            );
+          return { movement: existing, balance: currentBal };
+        }
+      }
+
+      // 3. Current balance and strict availability check with row-level lock
       const [currentBalance] = await tx
         .select()
         .from(inventoryBalances)
@@ -1498,7 +1580,8 @@ export class InventoryService {
             eq(inventoryBalances.warehouseId, dto.warehouseId),
             eq(inventoryBalances.itemId, dto.itemId)
           )
-        );
+        )
+        .for('update');
 
       if (!currentBalance) {
         throw new BadRequestException('لا يوجد رصيد مسجل لهذا الصنف في هذا المستودع');
@@ -1516,10 +1599,28 @@ export class InventoryService {
         );
       }
 
-      // 4. Issue at Current WAC
-      const currentWac = parseFloat(currentBalance.wacCost) || parseFloat(item.defaultCost) || 0;
+      // 4. Calculate cost: FIFO layer depletion vs. Weighted Average Cost
+      let effectiveUnitCost: number;
+      let totalCostNum: number;
+
+      if (item.costingMethod === CostingMethod.FIFO) {
+        const fifoResult = await this.consumeCostLayersFifo(tx, {
+          tenantId: context.tenantId,
+          legalEntityOwnerId: currentBalance.legalEntityOwnerId,
+          warehouseId: dto.warehouseId,
+          itemId: dto.itemId,
+          quantityToConsume: issueQty,
+        });
+        effectiveUnitCost = fifoResult.unitCost;
+        totalCostNum = fifoResult.totalCost;
+      } else {
+        const currentWac = parseFloat(currentBalance.wacCost) || parseFloat(item.defaultCost) || 0;
+        effectiveUnitCost = currentWac;
+        totalCostNum = issueQty * currentWac;
+      }
+
       const newOnHand = onHand - issueQty;
-      const totalCost = (issueQty * currentWac).toFixed(4);
+      const totalCost = totalCostNum.toFixed(4);
 
       const [updatedBalance] = await tx
         .update(inventoryBalances)
@@ -1547,7 +1648,7 @@ export class InventoryService {
           direction: MovementDirection.OUT,
           uomId: dto.uomId,
           quantity: issueQty.toFixed(4),
-          unitCost: currentWac.toFixed(4),
+          unitCost: effectiveUnitCost.toFixed(4),
           totalCost,
           batchNumber: dto.batchNumber || null,
           sourceType: dto.sourceType || 'MANUAL_ISSUE',
@@ -1591,7 +1692,7 @@ export class InventoryService {
 
   async reverseMovement(context: TenantContext, dto: ReverseInventoryMovementRequest) {
     return await this.dbService.withTenantContext(context, async (tx) => {
-      // 1. Fetch original movement
+      // 1. Fetch original movement with row-level lock to prevent concurrent double reversal
       const [original] = await tx
         .select()
         .from(inventoryMovements)
@@ -1600,7 +1701,8 @@ export class InventoryService {
             eq(inventoryMovements.tenantId, context.tenantId),
             eq(inventoryMovements.id, dto.movementId)
           )
-        );
+        )
+        .for('update');
 
       if (!original) {
         throw new NotFoundException('حركة المخزون المطلوب عكسها غير موجودة');
@@ -1613,7 +1715,7 @@ export class InventoryService {
       const moveQty = parseFloat(original.quantity);
       const moveCost = parseFloat(original.unitCost);
 
-      // 2. Fetch current balance
+      // 2. Fetch current balance with row-level lock
       const [balance] = await tx
         .select()
         .from(inventoryBalances)
@@ -1623,7 +1725,8 @@ export class InventoryService {
             eq(inventoryBalances.warehouseId, original.warehouseId),
             eq(inventoryBalances.itemId, original.itemId)
           )
-        );
+        )
+        .for('update');
 
       if (!balance) {
         throw new BadRequestException('لا يوجد رصيد حالي مسجل لهذا الصنف في هذا المستودع');
@@ -1691,14 +1794,14 @@ export class InventoryService {
           movementNumber: reversalNumber,
           movementType: original.movementType,
           direction: newDirection,
-          uomId: original.uomId,
+          uomId: original.uomId ?? null,
           quantity: moveQty.toFixed(4),
           unitCost: moveCost.toFixed(4),
-          totalCost: original.totalCost,
+          totalCost: original.totalCost ?? '0.0000',
           sourceType: 'REVERSAL',
           sourceId: original.id,
-          sourceDocumentNumber: original.movementNumber || original.id,
-          performedBy: context.userId || null,
+          sourceDocumentNumber: original.movementNumber || original.id || null,
+          performedBy: context.userId ?? null,
           notes: `عكس الحركة رقم ${original.movementNumber || original.id}: ${dto.reversalReason}`,
           status: 'COMPLETED',
           isReversed: false,
@@ -1706,6 +1809,42 @@ export class InventoryService {
           occurredAt: new Date(),
         })
         .returning();
+
+      // 5.5 Handle FIFO Cost Layers for reversal if item uses FIFO
+      const [revItem] = await tx
+        .select({ costingMethod: items.costingMethod })
+        .from(items)
+        .where(and(eq(items.tenantId, context.tenantId), eq(items.id, original.itemId)))
+        .limit(1);
+
+      if (revItem && revItem.costingMethod === CostingMethod.FIFO) {
+        if (original.direction === MovementDirection.OUT) {
+          // Reversing an OUT movement restores stock: re-insert cost layer
+          await tx
+            .insert(inventoryCostLayers)
+            .values({
+              tenantId: context.tenantId,
+              legalEntityOwnerId: original.legalEntityOwnerId,
+              warehouseId: original.warehouseId,
+              itemId: original.itemId,
+              quantityReceived: original.quantity,
+              quantityRemaining: original.quantity,
+              unitCost: original.unitCost,
+              sourceType: 'REVERSAL_RETURN',
+              sourceId: original.id,
+              createdAt: new Date(),
+            });
+        } else if (original.direction === MovementDirection.IN) {
+          // Reversing an IN movement deducts stock: consume from layers
+          await this.consumeCostLayersFifo(tx, {
+            tenantId: context.tenantId,
+            legalEntityOwnerId: original.legalEntityOwnerId,
+            warehouseId: original.warehouseId,
+            itemId: original.itemId,
+            quantityToConsume: moveQty,
+          });
+        }
+      }
 
       // 6. Audit log
       await this.auditService.log(

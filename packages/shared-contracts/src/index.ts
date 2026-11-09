@@ -35,6 +35,11 @@ import {
   IndustryPackStatus,
   SubscriptionPlanCode,
   SubscriptionStatus,
+  VoucherStatus,
+  PaymentVoucherType,
+  ReceiptVoucherType,
+  DefaultAccountMappingKey,
+  WarehouseType,
 } from '@restaurant-cloud/domain-kernel';
 
 // ====================================================================
@@ -99,6 +104,16 @@ export const CreateLegalEntityRequestSchema = z.object({
 
 export type CreateLegalEntityRequest = z.infer<typeof CreateLegalEntityRequestSchema>;
 
+export const UpdateLegalEntityRequestSchema = z.object({
+  legalName: z.string().min(2).max(255).optional(),
+  commercialName: z.string().max(255).optional(),
+  crNumber: z.string().optional(),
+  vatNumber: z.string().regex(/^\d{15}$/, 'Saudi VAT number must be 15 digits').optional(),
+  timezone: z.string().optional(),
+});
+
+export type UpdateLegalEntityRequest = z.infer<typeof UpdateLegalEntityRequestSchema>;
+
 export const CreateBranchRequestSchema = z.object({
   legalEntityId: z.string().uuid(),
   code: z.string().min(2).max(50),
@@ -109,13 +124,45 @@ export const CreateBranchRequestSchema = z.object({
 
 export type CreateBranchRequest = z.infer<typeof CreateBranchRequestSchema>;
 
+export const UpdateBranchRequestSchema = z.object({
+  name: z.string().min(2).max(255).optional(),
+  code: z.string().min(2).max(50).optional(),
+  businessType: z.nativeEnum(BusinessType).optional(),
+  timezone: z.string().optional(),
+});
+
+export type UpdateBranchRequest = z.infer<typeof UpdateBranchRequestSchema>;
+
 export const CreateWarehouseRequestSchema = z.object({
-  branchId: z.string().uuid().optional(),
+  legalEntityId: z.string().uuid().optional(),
+  branchId: z.string().uuid().optional().nullable(),
   code: z.string().min(2).max(50),
   name: z.string().min(2).max(255),
+  nameAr: z.string().min(2).max(255).optional(),
+  nameEn: z.string().max(255).optional(),
+  warehouseType: z.nativeEnum(WarehouseType).default(WarehouseType.BRANCH),
+  managerId: z.string().uuid().optional().nullable(),
+  address: z.string().max(500).optional(),
+  allowReceiving: z.boolean().default(true),
+  allowIssuing: z.boolean().default(true),
+  allowTransfer: z.boolean().default(true),
 });
 
 export type CreateWarehouseRequest = z.infer<typeof CreateWarehouseRequestSchema>;
+
+export const UpdateWarehouseRequestSchema = z.object({
+  name: z.string().min(2).max(255).optional(),
+  nameAr: z.string().min(2).max(255).optional(),
+  nameEn: z.string().max(255).optional(),
+  managerId: z.string().uuid().optional().nullable(),
+  address: z.string().max(500).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  allowReceiving: z.boolean().optional(),
+  allowIssuing: z.boolean().optional(),
+  allowTransfer: z.boolean().optional(),
+});
+
+export type UpdateWarehouseRequest = z.infer<typeof UpdateWarehouseRequestSchema>;
 
 export const RegisterDeviceRequestSchema = z.object({
   branchId: z.string().uuid(),
@@ -149,6 +196,50 @@ export const CreateUserRequestSchema = z.object({
 });
 
 export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
+
+export const UpdateUserStatusRequestSchema = z.object({
+  status: z.enum(['ACTIVE', 'SUSPENDED']),
+});
+
+export type UpdateUserStatusRequest = z.infer<typeof UpdateUserStatusRequestSchema>;
+
+export const UpdateUserScopesRequestSchema = z.object({
+  roleId: z.string().uuid().optional(),
+  scopes: z.array(
+    z.object({
+      scopeType: z.nativeEnum(ScopeType),
+      scopeId: z.string().uuid(),
+    })
+  ),
+});
+
+export type UpdateUserScopesRequest = z.infer<typeof UpdateUserScopesRequestSchema>;
+
+export const CreateRoleRequestSchema = z.object({
+  code: z.string().min(2).max(50),
+  name: z.string().min(2).max(255),
+  permissionIds: z.array(z.string().uuid()).min(1),
+});
+
+export type CreateRoleRequest = z.infer<typeof CreateRoleRequestSchema>;
+
+export const UpdateTenantSettingsRequestSchema = z.object({
+  displayName: z.string().min(2).max(255).optional(),
+  primaryLocale: z.string().max(10).optional(),
+  timezone: z.string().max(50).optional(),
+});
+
+export type UpdateTenantSettingsRequest = z.infer<typeof UpdateTenantSettingsRequestSchema>;
+
+export const AuditLogQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  entityType: z.string().optional(),
+  action: z.string().optional(),
+  actorId: z.string().uuid().optional(),
+});
+
+export type AuditLogQuery = z.infer<typeof AuditLogQuerySchema>;
 
 // ====================================================================
 // 2. Order Contracts
@@ -293,39 +384,105 @@ export const CreateUomConversionRequestSchema = z.object({
 export type CreateUomConversionRequest = z.infer<typeof CreateUomConversionRequestSchema>;
 
 // Product / Item Contracts
+export const ItemBarcodeSchema = z.object({
+  barcode: z.string().min(1).max(100),
+  barcodeType: z.string().max(50).default('CODE128'),
+  isPrimary: z.boolean().default(false),
+});
+export type ItemBarcode = z.infer<typeof ItemBarcodeSchema>;
+
 export const CreateItemRequestSchema = z.object({
   legalEntityOwnerId: z.string().uuid(),
   categoryId: z.string().uuid().optional().nullable(),
   baseUomId: z.string().uuid(),
   sku: z.string().min(2).max(50),
   barcode: z.string().max(100).optional().nullable(),
+  barcodes: z.array(ItemBarcodeSchema).optional(),
   nameAr: z.string().min(2).max(255),
   nameEn: z.string().min(2).max(255),
+  description: z.string().max(2000).optional().nullable(),
   productType: z.nativeEnum(ProductType).default(ProductType.STOCKED),
   trackingPolicy: z.nativeEnum(TrackingPolicy).default(TrackingPolicy.NONE),
   costingMethod: z.nativeEnum(CostingMethod).default(CostingMethod.WEIGHTED_AVERAGE),
   defaultCost: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
   defaultPrice: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
   taxRate: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.1500'),
+  minStockLevel: z.string().regex(/^\d+(\.\d{1,4})?$/).optional().nullable(),
+  maxStockLevel: z.string().regex(/^\d+(\.\d{1,4})?$/).optional().nullable(),
   isSold: z.boolean().default(true),
   isPurchased: z.boolean().default(true),
+  isRecipeIngredient: z.boolean().default(false),
   isActive: z.boolean().default(true),
+  primaryImageUrl: z.string().optional().nullable(),
+  mediaFileIds: z.array(z.string().uuid()).optional(),
+  branchPrices: z.array(z.object({
+    branchId: z.string().uuid(),
+    price: z.string().regex(/^\d+(\.\d{1,4})?$/),
+    costOverride: z.string().regex(/^\d+(\.\d{1,4})?$/).optional().nullable(),
+  })).optional(),
 });
 export type CreateItemRequest = z.infer<typeof CreateItemRequestSchema>;
 
 export const UpdateItemRequestSchema = CreateItemRequestSchema.partial().omit({ legalEntityOwnerId: true });
 export type UpdateItemRequest = z.infer<typeof UpdateItemRequestSchema>;
 
+export const ChangeItemPriceRequestSchema = z.object({
+  defaultPrice: z.string().regex(/^\d+(\.\d{1,4})?$/, 'Must be valid price decimal'),
+  branchPrices: z.array(z.object({
+    branchId: z.string().uuid(),
+    price: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  })).optional(),
+  reason: z.string().max(255).optional(),
+});
+export type ChangeItemPriceRequest = z.infer<typeof ChangeItemPriceRequestSchema>;
+
+export const ChangeItemCostRequestSchema = z.object({
+  defaultCost: z.string().regex(/^\d+(\.\d{1,4})?$/, 'Must be valid cost decimal'),
+  reason: z.string().max(255).optional(),
+});
+export type ChangeItemCostRequest = z.infer<typeof ChangeItemCostRequestSchema>;
+
+export const ArchiveItemRequestSchema = z.object({
+  reason: z.string().max(255).optional(),
+});
+export type ArchiveItemRequest = z.infer<typeof ArchiveItemRequestSchema>;
+
 export const ItemListQuerySchema = z.object({
   categoryId: z.string().uuid().optional(),
   legalEntityOwnerId: z.string().uuid().optional(),
-  search: z.string().optional(),
+  productType: z.nativeEnum(ProductType).optional(),
   isSold: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  isArchived: z.preprocess((val) => val === 'true' ? true : val === 'false' ? false : val, z.boolean().optional()),
+  search: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
 export type ItemListQuery = z.infer<typeof ItemListQuerySchema>;
+
+// Media Contracts
+export const MediaFileResponseSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  entityType: z.string().nullable(),
+  entityId: z.string().uuid().nullable(),
+  fileName: z.string(),
+  originalName: z.string(),
+  mimeType: z.string(),
+  fileSize: z.number().int(),
+  publicUrl: z.string(),
+  isPrimary: z.boolean(),
+  createdAt: z.string(),
+});
+export type MediaFileResponse = z.infer<typeof MediaFileResponseSchema>;
+
+export const AttachMediaRequestSchema = z.object({
+  entityType: z.string().min(1).max(50),
+  entityId: z.string().uuid(),
+  mediaFileIds: z.array(z.string().uuid()),
+  primaryMediaId: z.string().uuid().optional(),
+});
+export type AttachMediaRequest = z.infer<typeof AttachMediaRequestSchema>;
 
 // Item Variant Contracts
 export const CreateItemVariantRequestSchema = z.object({
@@ -438,6 +595,7 @@ export const StockBalanceQuerySchema = z.object({
 export type StockBalanceQuery = z.infer<typeof StockBalanceQuerySchema>;
 
 export const InventoryMovementQuerySchema = z.object({
+  legalEntityId: z.string().uuid().optional(),
   warehouseId: z.string().uuid().optional(),
   itemId: z.string().uuid().optional(),
   movementType: z.nativeEnum(MovementType).optional(),
@@ -446,6 +604,45 @@ export const InventoryMovementQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 export type InventoryMovementQuery = z.infer<typeof InventoryMovementQuerySchema>;
+
+// Stock Receiving & Issuing Contracts (Phase A WMS)
+export const ReceiveStockRequestSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  warehouseId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  uomId: z.string().uuid(),
+  quantity: z.string().regex(/^\d+(\.\d{1,4})?$/, 'Quantity must be positive'),
+  unitCost: z.string().regex(/^\d+(\.\d{1,4})?$/, 'Unit cost must be positive'),
+  movementType: z.nativeEnum(MovementType).default(MovementType.PURCHASE_RECEIPT),
+  sourceType: z.string().default('PURCHASE_INVOICE'),
+  sourceId: z.string().uuid().optional(),
+  sourceDocumentNumber: z.string().max(100).optional(),
+  batchNumber: z.string().max(100).optional(),
+  notes: z.string().max(500).optional(),
+});
+export type ReceiveStockRequest = z.infer<typeof ReceiveStockRequestSchema>;
+
+export const IssueStockRequestSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  warehouseId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  uomId: z.string().uuid(),
+  quantity: z.string().regex(/^\d+(\.\d{1,4})?$/, 'Quantity must be positive'),
+  movementType: z.nativeEnum(MovementType).default(MovementType.INTERNAL_CONSUMPTION),
+  sourceType: z.string().default('MANUAL_ISSUE'),
+  sourceId: z.string().uuid().optional(),
+  sourceDocumentNumber: z.string().max(100).optional(),
+  batchNumber: z.string().max(100).optional(),
+  notes: z.string().max(500).optional(),
+});
+export type IssueStockRequest = z.infer<typeof IssueStockRequestSchema>;
+
+export const ReverseInventoryMovementSchema = z.object({
+  movementId: z.string().uuid(),
+  reversalReason: z.string().min(3).max(255),
+  newMovementNumber: z.string().min(2).max(50).optional(),
+});
+export type ReverseInventoryMovementRequest = z.infer<typeof ReverseInventoryMovementSchema>;
 
 // ====================================================================
 // 9. Purchasing Engine Contracts
@@ -662,16 +859,33 @@ export const CreateChartOfAccountSchema = z.object({
   legalEntityId: z.string().uuid(),
   accountCode: z.string().min(1).max(50),
   name: z.string().min(2).max(255),
+  nameAr: z.string().min(2).max(255).optional(),
+  nameEn: z.string().max(255).optional(),
+  description: z.string().optional(),
   accountType: z.nativeEnum(AccountType).default(AccountType.ASSET),
   normalBalance: z.nativeEnum(NormalBalance).default(NormalBalance.DEBIT),
   parentId: z.string().uuid().optional().nullable(),
+  level: z.number().int().min(1).default(1),
   isPostable: z.boolean().default(true),
+  currency: z.string().length(3).default('SAR'),
 });
 export type CreateChartOfAccount = z.infer<typeof CreateChartOfAccountSchema>;
+
+export const UpdateChartOfAccountSchema = z.object({
+  name: z.string().min(2).max(255).optional(),
+  nameAr: z.string().min(2).max(255).optional(),
+  nameEn: z.string().max(255).optional(),
+  description: z.string().optional(),
+  parentId: z.string().uuid().optional().nullable(),
+  isPostable: z.boolean().optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+});
+export type UpdateChartOfAccountRequest = z.infer<typeof UpdateChartOfAccountSchema>;
 
 export const JournalLineCreateSchema = z.object({
   accountId: z.string().uuid(),
   branchId: z.string().uuid().optional().nullable(),
+  costCenterId: z.string().uuid().optional().nullable(),
   debit: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
   credit: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
   currency: z.string().length(3).default('SAR'),
@@ -680,10 +894,14 @@ export const JournalLineCreateSchema = z.object({
 
 export const CreateJournalEntrySchema = z.object({
   legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
   journalNumber: z.string().min(2).max(50),
   journalType: z.nativeEnum(JournalType).default(JournalType.GENERAL),
   sourceType: z.string().min(2).max(50),
   sourceId: z.string().uuid(),
+  description: z.string().max(500).optional(),
+  notes: z.string().max(1000).optional(),
+  entryDate: z.string().datetime().optional(),
   lines: z.array(JournalLineCreateSchema).min(2),
 }).refine(
   (data) => {
@@ -822,6 +1040,221 @@ export const ReverseJournalEntrySchema = z.object({
   newJournalNumber: z.string().min(2).max(50),
 });
 export type ReverseJournalEntryRequest = z.infer<typeof ReverseJournalEntrySchema>;
+
+// ====================================================================
+// 17. Cost Centers & Financial Dimensions
+// ====================================================================
+
+export const CreateCostCenterSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  code: z.string().min(1).max(50),
+  nameAr: z.string().min(2).max(255),
+  nameEn: z.string().max(255).optional(),
+  parentId: z.string().uuid().optional().nullable(),
+});
+export type CreateCostCenterRequest = z.infer<typeof CreateCostCenterSchema>;
+
+export const UpdateCostCenterSchema = z.object({
+  nameAr: z.string().min(2).max(255).optional(),
+  nameEn: z.string().max(255).optional(),
+  parentId: z.string().uuid().optional().nullable(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+});
+export type UpdateCostCenterRequest = z.infer<typeof UpdateCostCenterSchema>;
+
+// ====================================================================
+// 18. Default Account Mappings
+// ====================================================================
+
+export const SetAccountMappingSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  mappingKey: z.string().min(1).max(50),
+  accountId: z.string().uuid(),
+  description: z.string().max(255).optional(),
+});
+export type SetAccountMappingRequest = z.infer<typeof SetAccountMappingSchema>;
+
+// ====================================================================
+// 19. Cash Vaults & Safes
+// ====================================================================
+
+export const CreateCashVaultSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
+  code: z.string().min(1).max(50),
+  nameAr: z.string().min(2).max(255),
+  nameEn: z.string().max(255).optional(),
+  accountId: z.string().uuid(),
+  custodianId: z.string().uuid().optional().nullable(),
+});
+export type CreateCashVaultRequest = z.infer<typeof CreateCashVaultSchema>;
+
+export const UpdateCashVaultSchema = z.object({
+  nameAr: z.string().min(2).max(255).optional(),
+  nameEn: z.string().max(255).optional(),
+  custodianId: z.string().uuid().optional().nullable(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+});
+export type UpdateCashVaultRequest = z.infer<typeof UpdateCashVaultSchema>;
+
+export const VaultTransferSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  fromVaultId: z.string().uuid(),
+  toVaultId: z.string().uuid(),
+  amount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  notes: z.string().max(500).optional(),
+});
+export type VaultTransferRequest = z.infer<typeof VaultTransferSchema>;
+
+export const VaultPhysicalCountSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  vaultId: z.string().uuid(),
+  actualAmount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  notes: z.string().max(500).optional(),
+});
+export type VaultPhysicalCountRequest = z.infer<typeof VaultPhysicalCountSchema>;
+
+// ====================================================================
+// 20. Bank Accounts & Reconciliations
+// ====================================================================
+
+export const CreateBankAccountSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  bankName: z.string().min(2).max(255),
+  accountNumber: z.string().min(2).max(100),
+  iban: z.string().max(50).optional(),
+  swiftCode: z.string().max(50).optional(),
+  currency: z.string().length(3).default('SAR'),
+  accountId: z.string().uuid(),
+});
+export type CreateBankAccountRequest = z.infer<typeof CreateBankAccountSchema>;
+
+export const UpdateBankAccountSchema = z.object({
+  bankName: z.string().min(2).max(255).optional(),
+  iban: z.string().max(50).optional(),
+  swiftCode: z.string().max(50).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+});
+export type UpdateBankAccountRequest = z.infer<typeof UpdateBankAccountSchema>;
+
+export const BankReconciliationSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  bankAccountId: z.string().uuid(),
+  statementDate: z.string().datetime(),
+  statementEndingBalance: z.string().regex(/^-?\d+(\.\d{1,4})?$/),
+  notes: z.string().max(500).optional(),
+});
+export type BankReconciliationRequest = z.infer<typeof BankReconciliationSchema>;
+
+// ====================================================================
+// 21. Payment Vouchers (سندات الصرف)
+// ====================================================================
+
+export const CreatePaymentVoucherSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
+  voucherNumber: z.string().min(1).max(50),
+  voucherDate: z.string().datetime().optional(),
+  voucherType: z.nativeEnum(PaymentVoucherType).default(PaymentVoucherType.VENDOR_PAYMENT),
+  beneficiaryType: z.string().default('VENDOR'),
+  beneficiaryId: z.string().uuid().optional().nullable(),
+  beneficiaryName: z.string().min(2).max(255),
+  sourceType: z.enum(['VAULT', 'BANK']).default('VAULT'),
+  sourceId: z.string().uuid(),
+  accountId: z.string().uuid(),
+  costCenterId: z.string().uuid().optional().nullable(),
+  paymentMethod: z.string().default('CASH'),
+  amount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  currency: z.string().length(3).default('SAR'),
+  exchangeRate: z.string().regex(/^\d+(\.\d{1,6})?$/).default('1.000000'),
+  notes: z.string().max(500).optional(),
+});
+export type CreatePaymentVoucherRequest = z.infer<typeof CreatePaymentVoucherSchema>;
+
+// ====================================================================
+// 22. Receipt Vouchers (سندات القبض)
+// ====================================================================
+
+export const CreateReceiptVoucherSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
+  voucherNumber: z.string().min(1).max(50),
+  voucherDate: z.string().datetime().optional(),
+  voucherType: z.nativeEnum(ReceiptVoucherType).default(ReceiptVoucherType.CUSTOMER_PAYMENT),
+  payerType: z.string().default('CUSTOMER'),
+  payerId: z.string().uuid().optional().nullable(),
+  payerName: z.string().min(2).max(255),
+  destinationType: z.enum(['VAULT', 'BANK']).default('VAULT'),
+  destinationId: z.string().uuid(),
+  accountId: z.string().uuid(),
+  paymentMethod: z.string().default('CASH'),
+  amount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  currency: z.string().length(3).default('SAR'),
+  exchangeRate: z.string().regex(/^\d+(\.\d{1,6})?$/).default('1.000000'),
+  notes: z.string().max(500).optional(),
+});
+export type CreateReceiptVoucherRequest = z.infer<typeof CreateReceiptVoucherSchema>;
+
+// ====================================================================
+// 23. Expenses (المصروفات التشغيلية)
+// ====================================================================
+
+export const CreateExpenseSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
+  costCenterId: z.string().uuid().optional().nullable(),
+  expenseNumber: z.string().min(1).max(50),
+  expenseDate: z.string().datetime().optional(),
+  category: z.string().min(2).max(100),
+  accountId: z.string().uuid(),
+  vendorName: z.string().max(255).optional(),
+  subtotal: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  taxRate: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.1500'),
+  notes: z.string().max(500).optional(),
+  paymentVoucherId: z.string().uuid().optional().nullable(),
+});
+export type CreateExpenseRequest = z.infer<typeof CreateExpenseSchema>;
+
+// ====================================================================
+// 24. Year-End Closing & Fiscal Operations
+// ====================================================================
+
+export const YearEndClosingSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  closingFiscalYear: z.string().min(4).max(10),
+  retainedEarningsAccountId: z.string().uuid(),
+  closingJournalNumber: z.string().min(1).max(50),
+  notes: z.string().max(500).optional(),
+});
+export type YearEndClosingRequest = z.infer<typeof YearEndClosingSchema>;
+
+// ====================================================================
+// 25. Financial Reports & Tax Queries
+// ====================================================================
+
+export const FinancialReportQuerySchema = z.object({
+  legalEntityId: z.string().uuid(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+  branchId: z.string().uuid().optional(),
+  costCenterId: z.string().uuid().optional(),
+});
+export type FinancialReportQuery = z.infer<typeof FinancialReportQuerySchema>;
+
+export const VatReturnReportQuerySchema = z.object({
+  legalEntityId: z.string().uuid(),
+  startDate: z.string().datetime(),
+  endDate: z.string().datetime(),
+});
+export type VatReturnReportQuery = z.infer<typeof VatReturnReportQuerySchema>;
+
+export const AgingReportQuerySchema = z.object({
+  legalEntityId: z.string().uuid(),
+  asOfDate: z.string().datetime().optional(),
+  entityType: z.enum(['CUSTOMER', 'SUPPLIER']).default('CUSTOMER'),
+});
+export type AgingReportQuery = z.infer<typeof AgingReportQuerySchema>;
+
 
 
 

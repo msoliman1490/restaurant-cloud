@@ -12,15 +12,19 @@ import { ProductionModule } from './modules/production/production.module';
 import { DiningModule } from './modules/dining/dining.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { SalesModule } from './modules/sales/sales.module';
+import { MediaModule } from './modules/media/media.module';
+import { OperationsFrameworkModule } from './common/operations/operations-framework.module';
 import { TenantContextService } from './common/context/tenant-context.service';
 
 @Module({
   imports: [
     DatabaseModule,
     AuditModule,
+    OperationsFrameworkModule,
     IamModule,
     TenantModule,
     CatalogModule,
+    MediaModule,
     InventoryModule,
     PurchasingModule,
     ProductionModule,

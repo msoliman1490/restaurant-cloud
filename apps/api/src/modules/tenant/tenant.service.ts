@@ -34,6 +34,9 @@ import {
   ActivateIndustryPackRequest,
   DeactivateIndustryPackRequest,
   UpdateSubscriptionPlanRequest,
+  UpdateLegalEntityRequest,
+  UpdateBranchRequest,
+  UpdateTenantSettingsRequest,
 } from '@restaurant-cloud/shared-contracts';
 import {
   TenantContext,
@@ -45,7 +48,7 @@ import {
   SubscriptionStatus,
   INDUSTRY_CAPABILITIES,
 } from '@restaurant-cloud/domain-kernel';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -74,12 +77,19 @@ export class TenantService {
     }
 
     const hashedPassword = await CryptoUtil.hashPassword(dto.initialAdminUser.password);
+    const newTenantId = randomUUID();
 
     return await db.transaction(async (tx) => {
+      // Set session tenant context for RLS policy enforcement
+      await tx.execute(
+        sql`SELECT set_config('app.current_tenant_id', ${newTenantId}, true);`
+      );
+
       // 1. Create Tenant
       const [newTenant] = await tx
         .insert(tenants)
         .values({
+          id: newTenantId,
           code: dto.code,
           displayName: dto.displayName,
           deploymentMode: dto.deploymentMode,
@@ -320,6 +330,67 @@ export class TenantService {
   }
 
   /**
+   * Lists all legal entities for the current tenant
+   */
+  async listLegalEntities(context: TenantContext) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      return await tx
+        .select()
+        .from(legalEntities)
+        .where(eq(legalEntities.tenantId, context.tenantId));
+    });
+  }
+
+  /**
+   * Retrieves a single legal entity by ID
+   */
+  async getLegalEntity(context: TenantContext, id: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [entity] = await tx
+        .select()
+        .from(legalEntities)
+        .where(and(eq(legalEntities.id, id), eq(legalEntities.tenantId, context.tenantId)))
+        .limit(1);
+
+      if (!entity) throw new NotFoundException(`Legal entity '${id}' not found`);
+      return entity;
+    });
+  }
+
+  /**
+   * Updates a legal entity's details
+   */
+  async updateLegalEntity(context: TenantContext, id: string, dto: UpdateLegalEntityRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(legalEntities)
+        .where(and(eq(legalEntities.id, id), eq(legalEntities.tenantId, context.tenantId)))
+        .limit(1);
+
+      if (!existing) throw new NotFoundException(`Legal entity '${id}' not found`);
+
+      const [updated] = await tx
+        .update(legalEntities)
+        .set(dto)
+        .where(and(eq(legalEntities.id, id), eq(legalEntities.tenantId, context.tenantId)))
+        .returning();
+
+      await this.auditService.log({
+        tenantId: context.tenantId,
+        actorId: context.userId,
+        action: 'LEGAL_ENTITY_UPDATED',
+        entityType: 'legal_entity',
+        entityId: id,
+        beforeState: existing,
+        afterState: updated,
+      }, tx);
+
+      return updated;
+    });
+  }
+
+  /**
    * Adds an operational branch under a specific legal entity
    */
   async createBranch(context: TenantContext, dto: CreateBranchRequest) {
@@ -348,6 +419,141 @@ export class TenantService {
       }, tx);
 
       return branch;
+    });
+  }
+
+  /**
+   * Lists operational branches for the tenant, optionally filtered by legalEntityId
+   */
+  async listBranches(context: TenantContext, legalEntityId?: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      if (legalEntityId) {
+        return await tx
+          .select()
+          .from(branches)
+          .where(and(eq(branches.tenantId, context.tenantId), eq(branches.legalEntityId, legalEntityId)));
+      }
+      return await tx
+        .select()
+        .from(branches)
+        .where(eq(branches.tenantId, context.tenantId));
+    });
+  }
+
+  /**
+   * Retrieves a single branch by ID
+   */
+  async getBranch(context: TenantContext, id: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [branch] = await tx
+        .select()
+        .from(branches)
+        .where(and(eq(branches.id, id), eq(branches.tenantId, context.tenantId)))
+        .limit(1);
+
+      if (!branch) throw new NotFoundException(`Branch '${id}' not found`);
+      return branch;
+    });
+  }
+
+  /**
+   * Updates an existing operational branch
+   */
+  async updateBranch(context: TenantContext, id: string, dto: UpdateBranchRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(branches)
+        .where(and(eq(branches.id, id), eq(branches.tenantId, context.tenantId)))
+        .limit(1);
+
+      if (!existing) throw new NotFoundException(`Branch '${id}' not found`);
+
+      const [updated] = await tx
+        .update(branches)
+        .set(dto)
+        .where(and(eq(branches.id, id), eq(branches.tenantId, context.tenantId)))
+        .returning();
+
+      await this.auditService.log({
+        tenantId: context.tenantId,
+        actorId: context.userId,
+        action: 'BRANCH_UPDATED',
+        entityType: 'branch',
+        entityId: id,
+        beforeState: existing,
+        afterState: updated,
+      }, tx);
+
+      return updated;
+    });
+  }
+
+  /**
+   * Retrieves tenant configuration and settings
+   */
+  async getTenantSettings(context: TenantContext) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [tenant] = await tx
+        .select()
+        .from(tenants)
+        .where(eq(tenants.id, context.tenantId))
+        .limit(1);
+
+      if (!tenant) throw new NotFoundException(`Tenant '${context.tenantId}' not found`);
+
+      const packs = await tx
+        .select()
+        .from(tenantIndustryPacks)
+        .where(eq(tenantIndustryPacks.tenantId, context.tenantId));
+
+      const [subscription] = await tx
+        .select()
+        .from(tenantSubscriptions)
+        .where(eq(tenantSubscriptions.tenantId, context.tenantId))
+        .limit(1);
+
+      return {
+        tenant,
+        industryPacks: packs,
+        subscription,
+      };
+    });
+  }
+
+  /**
+   * Updates tenant configuration and settings
+   */
+  async updateTenantSettings(context: TenantContext, dto: UpdateTenantSettingsRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(tenants)
+        .where(eq(tenants.id, context.tenantId))
+        .limit(1);
+
+      if (!existing) throw new NotFoundException(`Tenant '${context.tenantId}' not found`);
+
+      const [updated] = await tx
+        .update(tenants)
+        .set({
+          ...dto,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.id, context.tenantId))
+        .returning();
+
+      await this.auditService.log({
+        tenantId: context.tenantId,
+        actorId: context.userId,
+        action: 'TENANT_SETTINGS_UPDATED',
+        entityType: 'tenant',
+        entityId: context.tenantId,
+        beforeState: existing,
+        afterState: updated,
+      }, tx);
+
+      return updated;
     });
   }
 

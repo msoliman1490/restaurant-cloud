@@ -14,11 +14,22 @@ export class CryptoUtil {
   private static readonly AUDIENCE = 'restaurant-cloud-api';
 
   private static getSecret(): string {
-    const secret = process.env.JWT_SECRET || 'restaurant_cloud_secure_dev_jwt_key_2026_min_32_chars';
-    if (process.env.NODE_ENV === 'production' && secret.length < 32) {
-      throw new Error('JWT_SECRET must be at least 32 characters in production.');
+    const isProduction = process.env.NODE_ENV === 'production';
+    const secret = process.env.JWT_SECRET;
+
+    if (isProduction) {
+      if (!secret || secret === 'restaurant_cloud_secure_dev_jwt_key_2026_min_32_chars') {
+        throw new Error(
+          '[FATAL SECURITY ERROR] Mandatory JWT_SECRET environment variable is missing or set to insecure default in production.'
+        );
+      }
+      if (secret.length < 32) {
+        throw new Error('JWT_SECRET must be at least 32 characters in production.');
+      }
+      return secret;
     }
-    return secret;
+
+    return secret || 'restaurant_cloud_secure_dev_jwt_key_2026_min_32_chars';
   }
 
   private static getPreviousSecret(): string | undefined {

@@ -16,9 +16,17 @@ out/
 
 # Environment
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+
+# Uploads and media
+uploads/
+**/uploads/
+
+# Backups and database dumps
+*.dump
+*.dump.*
+*.bak
 
 # OS files
 .DS_Store

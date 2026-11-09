@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
+import { OperationsFrameworkService } from '../../common/operations/operations-framework.service';
 import {
   categories,
   unitsOfMeasure,
@@ -14,6 +15,9 @@ import {
   itemVariants,
   branchItemPrices,
   suppliers,
+  itemBarcodes,
+  mediaFiles,
+  orderLines,
 } from '@restaurant-cloud/database';
 import {
   CreateCategoryRequest,
@@ -23,6 +27,9 @@ import {
   CreateUomConversionRequest,
   CreateItemRequest,
   UpdateItemRequest,
+  ChangeItemPriceRequest,
+  ChangeItemCostRequest,
+  ArchiveItemRequest,
   ItemListQuery,
   CreateItemVariantRequest,
   UpdateItemVariantRequest,
@@ -32,12 +39,14 @@ import {
 } from '@restaurant-cloud/shared-contracts';
 import { TenantContext } from '@restaurant-cloud/domain-kernel';
 import { eq, and, sql, or, ilike, desc, asc } from 'drizzle-orm';
+import * as fs from 'fs';
 
 @Injectable()
 export class CatalogService {
   constructor(
     private readonly dbService: DatabaseService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly opsFramework: OperationsFrameworkService
   ) {}
 
   // ==================================================================
@@ -46,7 +55,6 @@ export class CatalogService {
 
   async createCategory(context: TenantContext, dto: CreateCategoryRequest) {
     return await this.dbService.withTenantContext(context, async (tx) => {
-      // Check code uniqueness within tenant
       const [existing] = await tx
         .select({ id: categories.id })
         .from(categories)
@@ -59,7 +67,7 @@ export class CatalogService {
         .limit(1);
 
       if (existing) {
-        throw new ConflictException(`Category code '${dto.code}' already exists in this tenant`);
+        throw new ConflictException(`Category code '${dto.code}' already exists`);
       }
 
       if (dto.parentId) {
@@ -75,7 +83,7 @@ export class CatalogService {
           .limit(1);
 
         if (!parent) {
-          throw new NotFoundException(`Parent category '${dto.parentId}' not found`);
+          throw new NotFoundException(`Parent category '${dto.parentId}' does not exist`);
         }
       }
 
@@ -167,16 +175,61 @@ export class CatalogService {
     });
   }
 
+  async deleteCategory(context: TenantContext, id: string) {
+    // Assert reference integrity via central operations framework
+    await this.opsFramework.assertCanDelete(context, 'category', id);
+
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(categories)
+        .where(
+          and(
+            eq(categories.tenantId, context.tenantId),
+            eq(categories.id, id)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        throw new NotFoundException(`Category '${id}' not found`);
+      }
+
+      await tx
+        .delete(categories)
+        .where(
+          and(
+            eq(categories.tenantId, context.tenantId),
+            eq(categories.id, id)
+          )
+        );
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'CATEGORY_DELETED',
+          entityType: 'category',
+          entityId: id,
+          beforeState: existing,
+        },
+        tx
+      );
+
+      return { success: true, deletedId: id };
+    });
+  }
+
   async getCategories(context: TenantContext, query?: CategoryListQuery) {
     return await this.dbService.withTenantContext(context, async (tx) => {
       const conditions = [eq(categories.tenantId, context.tenantId)];
 
       if (query?.parentId !== undefined) {
-        if (query.parentId === null) {
-          conditions.push(sql`${categories.parentId} IS NULL`);
-        } else {
-          conditions.push(eq(categories.parentId, query.parentId));
-        }
+        conditions.push(
+          query.parentId === null
+            ? sql`${categories.parentId} IS NULL`
+            : eq(categories.parentId, query.parentId)
+        );
       }
 
       if (query?.isActive !== undefined) {
@@ -318,6 +371,8 @@ export class CatalogService {
         throw new ConflictException(`Item with SKU '${dto.sku}' already exists in this tenant`);
       }
 
+      let primaryImageUrl = dto.primaryImageUrl || null;
+
       const [newItem] = await tx
         .insert(items)
         .values({
@@ -326,22 +381,99 @@ export class CatalogService {
           categoryId: dto.categoryId || null,
           baseUomId: dto.baseUomId,
           sku: dto.sku,
-          barcode: dto.barcode || null,
+          barcode: dto.barcode || (dto.barcodes?.[0]?.barcode ?? null),
           nameAr: dto.nameAr,
           nameEn: dto.nameEn,
+          description: dto.description || null,
           productType: dto.productType,
           trackingPolicy: dto.trackingPolicy,
           costingMethod: dto.costingMethod,
           defaultCost: dto.defaultCost ?? '0.0000',
           defaultPrice: dto.defaultPrice ?? '0.0000',
           taxRate: dto.taxRate ?? '0.1500',
+          minStockLevel: dto.minStockLevel ?? '0.0000',
+          maxStockLevel: dto.maxStockLevel || null,
           isSold: dto.isSold ?? true,
           isPurchased: dto.isPurchased ?? true,
+          isRecipeIngredient: dto.isRecipeIngredient ?? false,
           isActive: dto.isActive ?? true,
+          isArchived: false,
+          primaryImageUrl,
         })
         .returning();
 
       if (!newItem) throw new Error('Failed to create item');
+
+      // Save additional barcodes
+      if (dto.barcodes && dto.barcodes.length > 0) {
+        for (const b of dto.barcodes) {
+          await tx
+            .insert(itemBarcodes)
+            .values({
+              tenantId: context.tenantId,
+              itemId: newItem.id,
+              barcode: b.barcode,
+              barcodeType: b.barcodeType || 'CODE128',
+              isPrimary: b.isPrimary ?? false,
+            })
+            .onConflictDoNothing();
+        }
+      }
+
+      // Associate pre-uploaded media files
+      if (dto.mediaFileIds && dto.mediaFileIds.length > 0) {
+        for (let i = 0; i < dto.mediaFileIds.length; i++) {
+          const fileId = dto.mediaFileIds[i];
+          if (!fileId) continue;
+          const isPrimary = i === 0 && !primaryImageUrl;
+
+          const [updatedMedia] = await tx
+            .update(mediaFiles)
+            .set({
+              entityType: 'item',
+              entityId: newItem.id,
+              isPrimary,
+            })
+            .where(
+              and(
+                eq(mediaFiles.id, fileId),
+                eq(mediaFiles.tenantId, context.tenantId)
+              )
+            )
+            .returning();
+
+          if (isPrimary && updatedMedia) {
+            primaryImageUrl = updatedMedia.publicUrl;
+            await tx
+              .update(items)
+              .set({ primaryImageUrl })
+              .where(eq(items.id, newItem.id));
+          }
+        }
+      }
+
+      // Save branch price overrides if provided
+      if (dto.branchPrices && dto.branchPrices.length > 0) {
+        for (const bp of dto.branchPrices) {
+          await tx
+            .insert(branchItemPrices)
+            .values({
+              tenantId: context.tenantId,
+              branchId: bp.branchId,
+              itemId: newItem.id,
+              price: bp.price,
+              costOverride: bp.costOverride || null,
+            })
+            .onConflictDoUpdate({
+              target: [branchItemPrices.branchId, branchItemPrices.itemId],
+              set: {
+                price: bp.price,
+                costOverride: bp.costOverride || null,
+                updatedAt: new Date(),
+              },
+            });
+        }
+      }
 
       await this.auditService.log(
         {
@@ -402,15 +534,22 @@ export class CatalogService {
       if (dto.barcode !== undefined) updateValues.barcode = dto.barcode;
       if (dto.nameAr !== undefined) updateValues.nameAr = dto.nameAr;
       if (dto.nameEn !== undefined) updateValues.nameEn = dto.nameEn;
+      if (dto.description !== undefined) updateValues.description = dto.description;
       if (dto.productType !== undefined) updateValues.productType = dto.productType;
       if (dto.trackingPolicy !== undefined) updateValues.trackingPolicy = dto.trackingPolicy;
       if (dto.costingMethod !== undefined) updateValues.costingMethod = dto.costingMethod;
-      if (dto.defaultCost !== undefined) updateValues.defaultCost = dto.defaultCost;
-      if (dto.defaultPrice !== undefined) updateValues.defaultPrice = dto.defaultPrice;
+      if (dto.minStockLevel !== undefined) updateValues.minStockLevel = dto.minStockLevel;
+      if (dto.maxStockLevel !== undefined) updateValues.maxStockLevel = dto.maxStockLevel;
       if (dto.taxRate !== undefined) updateValues.taxRate = dto.taxRate;
       if (dto.isSold !== undefined) updateValues.isSold = dto.isSold;
       if (dto.isPurchased !== undefined) updateValues.isPurchased = dto.isPurchased;
+      if (dto.isRecipeIngredient !== undefined) updateValues.isRecipeIngredient = dto.isRecipeIngredient;
       if (dto.isActive !== undefined) updateValues.isActive = dto.isActive;
+      if (dto.primaryImageUrl !== undefined) updateValues.primaryImageUrl = dto.primaryImageUrl;
+
+      // Notice: defaultPrice and defaultCost changes require dedicated endpoints with item.change_price / item.change_cost permissions
+      // However if supplied by an admin through this endpoint without malicious intent, we can permit or ignore.
+      // Strict rule: do not overwrite price/cost from generic update if not provided.
 
       const [updated] = await tx
         .update(items)
@@ -423,6 +562,31 @@ export class CatalogService {
         )
         .returning();
 
+      // Sync barcodes if provided
+      if (dto.barcodes) {
+        await tx
+          .delete(itemBarcodes)
+          .where(
+            and(
+              eq(itemBarcodes.tenantId, context.tenantId),
+              eq(itemBarcodes.itemId, id)
+            )
+          );
+
+        for (const b of dto.barcodes) {
+          await tx
+            .insert(itemBarcodes)
+            .values({
+              tenantId: context.tenantId,
+              itemId: id,
+              barcode: b.barcode,
+              barcodeType: b.barcodeType || 'CODE128',
+              isPrimary: b.isPrimary ?? false,
+            })
+            .onConflictDoNothing();
+        }
+      }
+
       await this.auditService.log(
         {
           tenantId: context.tenantId,
@@ -432,6 +596,347 @@ export class CatalogService {
           entityId: id,
           beforeState: existing,
           afterState: updated,
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * Dedicated Price Change with full audit logging and optional branch overrides
+   */
+  async changeItemPrice(context: TenantContext, id: string, dto: ChangeItemPriceRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(items)
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        throw new NotFoundException(`Item '${id}' not found`);
+      }
+
+      const [updated] = await tx
+        .update(items)
+        .set({
+          defaultPrice: dto.defaultPrice,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .returning();
+
+      if (dto.branchPrices && dto.branchPrices.length > 0) {
+        for (const bp of dto.branchPrices) {
+          await tx
+            .insert(branchItemPrices)
+            .values({
+              tenantId: context.tenantId,
+              branchId: bp.branchId,
+              itemId: id,
+              price: bp.price,
+            })
+            .onConflictDoUpdate({
+              target: [branchItemPrices.branchId, branchItemPrices.itemId],
+              set: {
+                price: bp.price,
+                updatedAt: new Date(),
+              },
+            });
+        }
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'ITEM_PRICE_CHANGED',
+          entityType: 'item',
+          entityId: id,
+          beforeState: { defaultPrice: existing.defaultPrice },
+          afterState: { defaultPrice: dto.defaultPrice, reason: dto.reason, branchPrices: dto.branchPrices },
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * Dedicated Cost Change with full audit logging
+   */
+  async changeItemCost(context: TenantContext, id: string, dto: ChangeItemCostRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(items)
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        throw new NotFoundException(`Item '${id}' not found`);
+      }
+
+      const [updated] = await tx
+        .update(items)
+        .set({
+          defaultCost: dto.defaultCost,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .returning();
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'ITEM_COST_CHANGED',
+          entityType: 'item',
+          entityId: id,
+          beforeState: { defaultCost: existing.defaultCost },
+          afterState: { defaultCost: dto.defaultCost, reason: dto.reason },
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * Conditional Deletion vs Archiving:
+   * Hard delete is blocked if item is referenced in sales, purchases, inventory, recipes, or production orders.
+   */
+  async deleteItem(context: TenantContext, id: string) {
+    // Assert reference integrity via central operations framework
+    await this.opsFramework.assertCanDelete(context, 'item', id);
+
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(items)
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        throw new NotFoundException(`Item '${id}' not found`);
+      }
+
+      // Unreferenced: Safe to hard delete attached records and item
+      await tx
+        .delete(itemBarcodes)
+        .where(
+          and(
+            eq(itemBarcodes.tenantId, context.tenantId),
+            eq(itemBarcodes.itemId, id)
+          )
+        );
+
+      await tx
+        .delete(branchItemPrices)
+        .where(
+          and(
+            eq(branchItemPrices.tenantId, context.tenantId),
+            eq(branchItemPrices.itemId, id)
+          )
+        );
+
+      await tx
+        .delete(itemVariants)
+        .where(
+          and(
+            eq(itemVariants.tenantId, context.tenantId),
+            eq(itemVariants.itemId, id)
+          )
+        );
+
+      // Clean up attached media files
+      const attachedMedia = await tx
+        .select()
+        .from(mediaFiles)
+        .where(
+          and(
+            eq(mediaFiles.tenantId, context.tenantId),
+            eq(mediaFiles.entityType, 'item'),
+            eq(mediaFiles.entityId, id)
+          )
+        );
+
+      for (const m of attachedMedia) {
+        if (fs.existsSync(m.storagePath)) {
+          try {
+            fs.unlinkSync(m.storagePath);
+          } catch {}
+        }
+      }
+
+      await tx
+        .delete(mediaFiles)
+        .where(
+          and(
+            eq(mediaFiles.tenantId, context.tenantId),
+            eq(mediaFiles.entityType, 'item'),
+            eq(mediaFiles.entityId, id)
+          )
+        );
+
+      await tx
+        .delete(items)
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        );
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'ITEM_DELETED',
+          entityType: 'item',
+          entityId: id,
+          beforeState: existing,
+        },
+        tx
+      );
+
+      return { success: true, deletedId: id };
+    });
+  }
+
+  /**
+   * Archive Item (Non-destructive soft deprecation)
+   */
+  async archiveItem(context: TenantContext, id: string, dto?: ArchiveItemRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(items)
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        throw new NotFoundException(`Item '${id}' not found`);
+      }
+
+      if (existing.isArchived) {
+        throw new BadRequestException(`الصنف '${existing.nameAr}' مؤرشف بالفعل`);
+      }
+
+      const [updated] = await tx
+        .update(items)
+        .set({
+          isArchived: true,
+          isActive: false,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .returning();
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'ITEM_ARCHIVED',
+          entityType: 'item',
+          entityId: id,
+          beforeState: { isArchived: false, isActive: existing.isActive },
+          afterState: { isArchived: true, isActive: false, reason: dto?.reason },
+        },
+        tx
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * Restore Archived Item
+   */
+  async restoreItem(context: TenantContext, id: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(items)
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        throw new NotFoundException(`Item '${id}' not found`);
+      }
+
+      if (!existing.isArchived) {
+        throw new BadRequestException(`الصنف '${existing.nameAr}' ليس في حالة الأرشفة`);
+      }
+
+      const [updated] = await tx
+        .update(items)
+        .set({
+          isArchived: false,
+          isActive: true,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, id)
+          )
+        )
+        .returning();
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'ITEM_RESTORED',
+          entityType: 'item',
+          entityId: id,
+          beforeState: { isArchived: true, isActive: existing.isActive },
+          afterState: { isArchived: false, isActive: true },
         },
         tx
       );
@@ -457,7 +962,44 @@ export class CatalogService {
         throw new NotFoundException(`Item '${id}' not found`);
       }
 
-      return item;
+      const barcodes = await tx
+        .select()
+        .from(itemBarcodes)
+        .where(
+          and(
+            eq(itemBarcodes.tenantId, context.tenantId),
+            eq(itemBarcodes.itemId, id)
+          )
+        );
+
+      const media = await tx
+        .select()
+        .from(mediaFiles)
+        .where(
+          and(
+            eq(mediaFiles.tenantId, context.tenantId),
+            eq(mediaFiles.entityType, 'item'),
+            eq(mediaFiles.entityId, id)
+          )
+        )
+        .orderBy(desc(mediaFiles.isPrimary), asc(mediaFiles.createdAt));
+
+      const branchPrices = await tx
+        .select()
+        .from(branchItemPrices)
+        .where(
+          and(
+            eq(branchItemPrices.tenantId, context.tenantId),
+            eq(branchItemPrices.itemId, id)
+          )
+        );
+
+      return {
+        ...item,
+        barcodes,
+        mediaFiles: media,
+        branchPrices,
+      };
     });
   }
 
@@ -473,12 +1015,20 @@ export class CatalogService {
         conditions.push(eq(items.legalEntityOwnerId, query.legalEntityOwnerId));
       }
 
+      if (query?.productType) {
+        conditions.push(eq(items.productType, query.productType));
+      }
+
       if (query?.isSold !== undefined) {
         conditions.push(eq(items.isSold, query.isSold));
       }
 
       if (query?.isActive !== undefined) {
         conditions.push(eq(items.isActive, query.isActive));
+      }
+
+      if (query?.isArchived !== undefined) {
+        conditions.push(eq(items.isArchived, query.isArchived));
       }
 
       if (query?.search) {
@@ -569,45 +1119,32 @@ export class CatalogService {
             eq(itemVariants.tenantId, context.tenantId),
             eq(itemVariants.itemId, itemId)
           )
-        )
-        .orderBy(asc(itemVariants.variantCode));
+        );
     });
   }
 
   // ==================================================================
-  // 5. Branch Pricing
+  // 5. Branch Specific Pricing
   // ==================================================================
 
   async setBranchPrice(context: TenantContext, dto: SetBranchPriceRequest) {
     return await this.dbService.withTenantContext(context, async (tx) => {
-      // Upsert branch item price
-      const [existing] = await tx
-        .select()
-        .from(branchItemPrices)
+      const [item] = await tx
+        .select({ id: items.id })
+        .from(items)
         .where(
           and(
-            eq(branchItemPrices.branchId, dto.branchId),
-            eq(branchItemPrices.itemId, dto.itemId)
+            eq(items.tenantId, context.tenantId),
+            eq(items.id, dto.itemId)
           )
         )
         .limit(1);
 
-      if (existing) {
-        const [updated] = await tx
-          .update(branchItemPrices)
-          .set({
-            price: dto.price,
-            costOverride: dto.costOverride || null,
-            isAvailable: dto.isAvailable ?? true,
-            updatedAt: new Date(),
-          })
-          .where(eq(branchItemPrices.id, existing.id))
-          .returning();
-
-        return updated;
+      if (!item) {
+        throw new NotFoundException(`Item '${dto.itemId}' not found`);
       }
 
-      const [created] = await tx
+      const [record] = await tx
         .insert(branchItemPrices)
         .values({
           tenantId: context.tenantId,
@@ -617,9 +1154,18 @@ export class CatalogService {
           costOverride: dto.costOverride || null,
           isAvailable: dto.isAvailable ?? true,
         })
+        .onConflictDoUpdate({
+          target: [branchItemPrices.branchId, branchItemPrices.itemId],
+          set: {
+            price: dto.price,
+            costOverride: dto.costOverride || null,
+            isAvailable: dto.isAvailable ?? true,
+            updatedAt: new Date(),
+          },
+        })
         .returning();
 
-      return created;
+      return record;
     });
   }
 

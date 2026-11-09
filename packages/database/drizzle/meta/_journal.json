@@ -15,6 +15,34 @@
       "when": 1794123837353,
       "tag": "0001_common_mordo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794132149897,
+      "tag": "0002_multi_industry_saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794172350000,
+      "tag": "0003_global_crud_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794185000000,
+      "tag": "0004_advanced_financial_engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794192000000,
+      "tag": "0005_advanced_inventory_wms_phase_a",
+      "breakpoints": true
     }
   ]
 }

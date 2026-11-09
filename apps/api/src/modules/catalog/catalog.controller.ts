@@ -3,6 +3,8 @@ import {
   Post,
   Get,
   Put,
+  Patch,
+  Delete,
   Param,
   Query,
   Body,
@@ -21,6 +23,9 @@ import {
   CreateUomConversionRequestSchema,
   CreateItemRequestSchema,
   UpdateItemRequestSchema,
+  ChangeItemPriceRequestSchema,
+  ChangeItemCostRequestSchema,
+  ArchiveItemRequestSchema,
   ItemListQuerySchema,
   CreateItemVariantRequestSchema,
   UpdateItemVariantRequestSchema,
@@ -39,7 +44,7 @@ export class CatalogController {
   // ==================================================================
 
   @Post('categories')
-  @RequirePermissions('catalog.category.create')
+  @RequirePermissions('category.create')
   async createCategory(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -50,7 +55,7 @@ export class CatalogController {
   }
 
   @Put('categories/:id')
-  @RequirePermissions('catalog.category.update')
+  @RequirePermissions('category.update')
   async updateCategory(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string,
@@ -61,7 +66,18 @@ export class CatalogController {
     return { success: true, data };
   }
 
+  @Delete('categories/:id')
+  @RequirePermissions('category.delete')
+  async deleteCategory(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.catalogService.deleteCategory(context, id);
+    return { success: true, data };
+  }
+
   @Get('categories')
+  @RequirePermissions('category.view')
   async getCategories(
     @CurrentContext() context: TenantContext,
     @Query() query: unknown
@@ -72,6 +88,7 @@ export class CatalogController {
   }
 
   @Get('categories/:id')
+  @RequirePermissions('category.view')
   async getCategoryById(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string
@@ -85,7 +102,7 @@ export class CatalogController {
   // ==================================================================
 
   @Post('uom')
-  @RequirePermissions('catalog.uom.create')
+  @RequirePermissions('uom.create')
   async createUom(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -96,13 +113,14 @@ export class CatalogController {
   }
 
   @Get('uom')
+  @RequirePermissions('uom.view')
   async getUoms(@CurrentContext() context: TenantContext) {
     const data = await this.catalogService.getUoms(context);
     return { success: true, data };
   }
 
   @Post('uom-conversions')
-  @RequirePermissions('catalog.uom.create')
+  @RequirePermissions('uom.create')
   async createUomConversion(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -113,6 +131,7 @@ export class CatalogController {
   }
 
   @Get('uom-conversions')
+  @RequirePermissions('uom.view')
   async getUomConversions(@CurrentContext() context: TenantContext) {
     const data = await this.catalogService.getUomConversions(context);
     return { success: true, data };
@@ -123,7 +142,7 @@ export class CatalogController {
   // ==================================================================
 
   @Post('items')
-  @RequirePermissions('catalog.item.create')
+  @RequirePermissions('item.create')
   async createItem(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -134,8 +153,8 @@ export class CatalogController {
   }
 
   @Put('items/:id')
-  @RequirePermissions('catalog.item.update')
-  async updateItem(
+  @RequirePermissions('item.update')
+  async updateItemPut(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string,
     @Body() body: unknown
@@ -145,7 +164,76 @@ export class CatalogController {
     return { success: true, data };
   }
 
+  @Patch('items/:id')
+  @RequirePermissions('item.update')
+  async updateItemPatch(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = UpdateItemRequestSchema.parse(body);
+    const data = await this.catalogService.updateItem(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Patch('items/:id/price')
+  @RequirePermissions('item.change_price')
+  async changeItemPrice(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = ChangeItemPriceRequestSchema.parse(body);
+    const data = await this.catalogService.changeItemPrice(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Patch('items/:id/cost')
+  @RequirePermissions('item.change_cost')
+  async changeItemCost(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = ChangeItemCostRequestSchema.parse(body);
+    const data = await this.catalogService.changeItemCost(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Delete('items/:id')
+  @RequirePermissions('item.delete')
+  async deleteItem(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.catalogService.deleteItem(context, id);
+    return { success: true, data };
+  }
+
+  @Post('items/:id/archive')
+  @RequirePermissions('item.archive')
+  async archiveItem(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = ArchiveItemRequestSchema.optional().parse(body || {});
+    const data = await this.catalogService.archiveItem(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Post('items/:id/restore')
+  @RequirePermissions('item.restore')
+  async restoreItem(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.catalogService.restoreItem(context, id);
+    return { success: true, data };
+  }
+
   @Get('items')
+  @RequirePermissions('item.view')
   async getItems(
     @CurrentContext() context: TenantContext,
     @Query() query: unknown
@@ -156,6 +244,7 @@ export class CatalogController {
   }
 
   @Get('items/:id')
+  @RequirePermissions('item.view')
   async getItemById(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string
@@ -169,7 +258,7 @@ export class CatalogController {
   // ==================================================================
 
   @Post('variants')
-  @RequirePermissions('catalog.item.update')
+  @RequirePermissions('item.update')
   async createVariant(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -180,6 +269,7 @@ export class CatalogController {
   }
 
   @Get('items/:id/variants')
+  @RequirePermissions('item.view')
   async getVariantsByItem(
     @CurrentContext() context: TenantContext,
     @Param('id') itemId: string
@@ -193,7 +283,7 @@ export class CatalogController {
   // ==================================================================
 
   @Post('branch-prices')
-  @RequirePermissions('catalog.pricing.manage')
+  @RequirePermissions('item.change_price')
   async setBranchPrice(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -204,6 +294,7 @@ export class CatalogController {
   }
 
   @Get('branches/:branchId/prices')
+  @RequirePermissions('item.view')
   async getBranchPrices(
     @CurrentContext() context: TenantContext,
     @Param('branchId') branchId: string
@@ -213,6 +304,7 @@ export class CatalogController {
   }
 
   @Get('branches/:branchId/items/:itemId/effective-price')
+  @RequirePermissions('item.view')
   async getEffectiveItemPrice(
     @CurrentContext() context: TenantContext,
     @Param('branchId') branchId: string,
@@ -227,7 +319,7 @@ export class CatalogController {
   // ==================================================================
 
   @Post('suppliers')
-  @RequirePermissions('catalog.supplier.create')
+  @RequirePermissions('purchase.create')
   async createSupplier(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -238,6 +330,7 @@ export class CatalogController {
   }
 
   @Get('suppliers')
+  @RequirePermissions('purchase.approve')
   async getSuppliers(@CurrentContext() context: TenantContext) {
     const data = await this.catalogService.getSuppliers(context);
     return { success: true, data };

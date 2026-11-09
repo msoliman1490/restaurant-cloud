@@ -1,11 +1,19 @@
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import fastifyMultipart from '@fastify/multipart';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap() {
   const fastifyAdapter = new FastifyAdapter({
     logger: process.env.NODE_ENV !== 'production',
+  });
+
+  await fastifyAdapter.register(fastifyMultipart as any, {
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB limit
+      files: 5,
+    },
   });
 
   // Native Fastify Security Headers Hook (Defense-in-Depth without extra dependencies)

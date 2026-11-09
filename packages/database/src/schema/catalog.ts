@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, numeric, boolean, integer, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, numeric, boolean, integer, text, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { tenants, legalEntities, branches } from './tenants.js';
 import { ProductType, TrackingPolicy, CostingMethod, UomCategory } from '@restaurant-cloud/domain-kernel';
 
@@ -81,7 +81,13 @@ export const items = pgTable(
     taxRate: numeric('tax_rate', { precision: 5, scale: 4 }).notNull().default('0.1500'), // 15% VAT standard in Saudi Arabia
     isSold: boolean('is_sold').notNull().default(true),
     isPurchased: boolean('is_purchased').notNull().default(true),
+    isRecipeIngredient: boolean('is_recipe_ingredient').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
+    isArchived: boolean('is_archived').notNull().default(false),
+    description: text('description'),
+    minStockLevel: numeric('min_stock_level', { precision: 12, scale: 4 }).default('0.0000'),
+    maxStockLevel: numeric('max_stock_level', { precision: 12, scale: 4 }),
+    primaryImageUrl: text('primary_image_url'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -155,5 +161,47 @@ export const suppliers = pgTable(
   (table) => [
     index('idx_suppliers_tenant_id').on(table.tenantId),
     uniqueIndex('idx_suppliers_tenant_code').on(table.tenantId, table.code),
+  ]
+);
+
+// 8. Media Files (Centralized Media Storage metadata)
+export const mediaFiles = pgTable(
+  'media_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    entityType: varchar('entity_type', { length: 50 }).notNull(), // 'item', 'legal_entity', etc.
+    entityId: uuid('entity_id').notNull(),
+    fileName: varchar('file_name', { length: 255 }).notNull(),
+    originalName: varchar('original_name', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 100 }).notNull(),
+    fileSize: integer('file_size').notNull(),
+    storagePath: text('storage_path').notNull(),
+    publicUrl: text('public_url').notNull(),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_media_files_tenant_id').on(table.tenantId),
+    index('idx_media_files_entity').on(table.tenantId, table.entityType, table.entityId),
+  ]
+);
+
+// 9. Additional Item Barcodes
+export const itemBarcodes = pgTable(
+  'item_barcodes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    itemId: uuid('item_id').notNull().references(() => items.id),
+    barcode: varchar('barcode', { length: 100 }).notNull(),
+    barcodeType: varchar('barcode_type', { length: 30 }).notNull().default('CODE128'),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_item_barcodes_tenant_id').on(table.tenantId),
+    index('idx_item_barcodes_item_id').on(table.tenantId, table.itemId),
+    uniqueIndex('idx_item_barcodes_tenant_barcode').on(table.tenantId, table.barcode),
   ]
 );

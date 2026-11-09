@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
@@ -10,8 +11,16 @@ import { DiningView } from './components/DiningView';
 import { AccountingView } from './components/AccountingView';
 import { PosView } from './components/PosView';
 import { IndustryPacksView } from './components/IndustryPacksView';
+import { CompaniesView } from './components/CompaniesView';
+import { UsersView } from './components/UsersView';
+import { RolesView } from './components/RolesView';
+import { SettingsView } from './components/SettingsView';
+import { AuditLogsView } from './components/AuditLogsView';
+import { LoginView } from './components/LoginView';
+import { Loader2 } from 'lucide-react';
 
-export default function App() {
+const AppContent: React.FC = () => {
+  const { isAuthenticated, isLoading } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [isPosFullscreen, setIsPosFullscreen] = useState(false);
   const [activeIndustries, setActiveIndustries] = useState<string[]>(['RESTAURANT', 'CAFE']);
@@ -24,7 +33,22 @@ export default function App() {
     );
   };
 
-  // Dedicated Cashier Fullscreen Mode: remove all navigation bars for pure cashier experience
+  // 1. Initial Authentication Check Loading State
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white" dir="rtl">
+        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-4" />
+        <p className="text-sm text-slate-400">جارٍ تهيئة الجلسة الآمنة وفحص بيانات الاعتماد...</p>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated: Display Login Screen
+  if (!isAuthenticated) {
+    return <LoginView />;
+  }
+
+  // 3. Dedicated Cashier Fullscreen Mode: Pure cashier terminal without navigation chrome
   if (currentTab === 'pos' && isPosFullscreen) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased p-8" dir="rtl">
@@ -36,9 +60,10 @@ export default function App() {
     );
   }
 
+  // 4. Authenticated Main Unified SaaS Application
   return (
     <div className="min-h-screen bg-slate-100 flex flex-row-reverse text-slate-900 font-sans antialiased" dir="rtl">
-      {/* Sidebar with dynamic industry packs filtering */}
+      {/* Sidebar with dynamic industry and permissions filtering */}
       <Sidebar
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
@@ -75,23 +100,22 @@ export default function App() {
                 onToggleIndustry={handleToggleIndustry}
               />
             )}
-            {currentTab === 'entities' && (
-              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-                <h2 className="text-xl font-bold mb-2">إدارة الكيانات القانونية والفروع</h2>
-                <p className="text-sm text-slate-500 mb-6">
-                  هيكل المنشأة مسجل تحت عزل Multi-Tenant RLS الكامل مع دعم المستودعات المشتركة لعدة شركات.
-                </p>
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-sm space-y-2">
-                  <p><strong>الكيان القانوني 1:</strong> شركة الضيافة الفندقية المحدودة (الرقم الضريبي: 310123456700003)</p>
-                  <p><strong>الكيان القانوني 2:</strong> شركة المطاعم السريعة المبتكرة (الرقم الضريبي: 310987654300003)</p>
-                  <p><strong>المستودع اللوجستي المشترك:</strong> مستودع الملز المركزي (مخزون منفصل لكل شركة بحسابات تكلفة FIFO مستقلة)</p>
-                  <p><strong>الفروع:</strong> الرياض - العليا، الرياض - الملقا، جدة - الروضة، الخبر - الكورنيش</p>
-                </div>
-              </div>
-            )}
+            {currentTab === 'entities' && <CompaniesView />}
+            {currentTab === 'users' && <UsersView />}
+            {currentTab === 'roles' && <RolesView />}
+            {currentTab === 'settings' && <SettingsView />}
+            {currentTab === 'audit' && <AuditLogsView />}
           </div>
         </main>
       </div>
     </div>
+  );
+};
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

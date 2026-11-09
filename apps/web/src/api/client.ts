@@ -78,6 +78,28 @@ class ApiClient {
 
       // Handle 401 Unauthorized
       if (response.status === 401) {
+        if (cleanEndpoint === '/auth/login') {
+          let errorMsg = 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
+          try {
+            const errJson = await response.json();
+            if (errJson.error?.message) {
+              const msg = Array.isArray(errJson.error.message)
+                ? errJson.error.message.join('، ')
+                : errJson.error.message;
+              if (msg === 'Invalid email or password') {
+                errorMsg = 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
+              } else {
+                errorMsg = msg;
+              }
+            } else if (errJson.message) {
+              errorMsg = errJson.message;
+            }
+          } catch {
+            // Fallback to errorMsg
+          }
+          throw new ApiError(401, errorMsg);
+        }
+
         if (this.onUnauthorized) {
           this.onUnauthorized();
         }

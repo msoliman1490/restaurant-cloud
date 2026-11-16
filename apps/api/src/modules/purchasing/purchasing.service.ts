@@ -57,8 +57,27 @@ export class PurchasingService {
   // 1. Purchase Requests
   // ==================================================================
 
-  async createPurchaseRequest(context: TenantContext, dto: CreatePurchaseRequest) {
+  async createPurchaseRequest(
+    context: TenantContext,
+    dto: CreatePurchaseRequest & { saveAsDraft?: boolean; idempotencyKey?: string }
+  ) {
     return await this.dbService.withTenantContext(context, async (tx) => {
+      if (dto.idempotencyKey) {
+        const [existingIdemp] = await tx
+          .select()
+          .from(purchaseRequests)
+          .where(
+            and(
+              eq(purchaseRequests.tenantId, context.tenantId),
+              eq(purchaseRequests.idempotencyKey, dto.idempotencyKey)
+            )
+          )
+          .limit(1);
+        if (existingIdemp) {
+          return existingIdemp;
+        }
+      }
+
       const [existing] = await tx
         .select({ id: purchaseRequests.id })
         .from(purchaseRequests)
@@ -82,10 +101,11 @@ export class PurchasingService {
           legalEntityId: dto.legalEntityId,
           warehouseId: dto.warehouseId,
           requestNumber: dto.requestNumber,
-          status: PurchaseRequestStatus.SUBMITTED,
+          status: dto.saveAsDraft ? PurchaseRequestStatus.DRAFT : PurchaseRequestStatus.SUBMITTED,
           requestedBy: context.userId,
           neededByDate: dto.neededByDate ? new Date(dto.neededByDate) : null,
           notes: dto.notes || null,
+          idempotencyKey: dto.idempotencyKey || null,
         })
         .returning();
 
@@ -119,6 +139,118 @@ export class PurchasingService {
       );
 
       return { ...pr, lines };
+    });
+  }
+
+  /**
+   * Server-side Draft Persistence with Optimistic Locking (expectedVersion -> 409 Conflict).
+   * Enables cross-device draft recovery without overwriting concurrent edits.
+   */
+  async updatePurchaseRequestDraft(
+    context: TenantContext,
+    requestId: string,
+    dto: {
+      expectedVersion: number;
+      notes?: string;
+      neededByDate?: string | null;
+      submit?: boolean;
+      lines?: Array<{
+        itemId: string;
+        uomId: string;
+        requestedQty: string;
+        estimatedUnitCost?: string;
+        notes?: string;
+      }>;
+    }
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [pr] = await tx
+        .select()
+        .from(purchaseRequests)
+        .where(
+          and(
+            eq(purchaseRequests.tenantId, context.tenantId),
+            eq(purchaseRequests.id, requestId)
+          )
+        )
+        .for('update')
+        .limit(1);
+
+      if (!pr) {
+        throw new NotFoundException(`Purchase request '${requestId}' not found`);
+      }
+
+      if (pr.status !== PurchaseRequestStatus.DRAFT) {
+        throw new ConflictException(
+          `Purchase request '${pr.requestNumber}' is in status '${pr.status}' and can no longer be edited as a draft`
+        );
+      }
+
+      if ((pr.version ?? 1) !== dto.expectedVersion) {
+        throw new ConflictException(
+          `Draft conflict: expected version ${dto.expectedVersion}, but current server version is ${pr.version}`
+        );
+      }
+
+      const nextStatus = dto.submit ? PurchaseRequestStatus.SUBMITTED : PurchaseRequestStatus.DRAFT;
+      const nextVersion = (pr.version ?? 1) + 1;
+
+      const [updated] = await tx
+        .update(purchaseRequests)
+        .set({
+          notes: dto.notes !== undefined ? dto.notes : pr.notes,
+          neededByDate:
+            dto.neededByDate !== undefined
+              ? dto.neededByDate
+                ? new Date(dto.neededByDate)
+                : null
+              : pr.neededByDate,
+          status: nextStatus,
+          version: nextVersion,
+        })
+        .where(eq(purchaseRequests.id, pr.id))
+        .returning();
+
+      let updatedLines;
+      if (dto.lines && dto.lines.length > 0) {
+        await tx
+          .delete(purchaseRequestLines)
+          .where(eq(purchaseRequestLines.requestId, pr.id));
+        updatedLines = await tx
+          .insert(purchaseRequestLines)
+          .values(
+            dto.lines.map((l) => ({
+              tenantId: context.tenantId,
+              requestId: pr.id,
+              itemId: l.itemId,
+              uomId: l.uomId,
+              requestedQty: l.requestedQty,
+              estimatedUnitCost: l.estimatedUnitCost || '0.0000',
+              notes: l.notes || null,
+            }))
+          )
+          .returning();
+      } else {
+        updatedLines = await tx
+          .select()
+          .from(purchaseRequestLines)
+          .where(eq(purchaseRequestLines.requestId, pr.id));
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'PURCHASE_REQUEST_DRAFT_UPDATED',
+          entityType: 'purchase_request',
+          entityId: pr.id,
+          beforeState: { version: pr.version, status: pr.status, notes: pr.notes },
+          afterState: { version: nextVersion, status: nextStatus, notes: updated?.notes },
+        },
+        tx
+      );
+
+      return { ...updated, lines: updatedLines };
     });
   }
 

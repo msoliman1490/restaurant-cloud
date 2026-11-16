@@ -4,7 +4,9 @@ import {
   ExecutionContext,
   CallHandler,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Observable, from, of, throwError } from 'rxjs';
 import { catchError, mergeMap, switchMap } from 'rxjs/operators';
 import { createHash } from 'crypto';
@@ -12,14 +14,19 @@ import { and, eq } from 'drizzle-orm';
 import { idempotencyKeys } from '@restaurant-cloud/database';
 import { TenantContext } from '@restaurant-cloud/domain-kernel';
 import { DatabaseService } from '../../database/database.service';
+import { REQUIRE_IDEMPOTENCY_KEY } from '../decorators/require-idempotency.decorator';
 
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
-  constructor(private readonly dbService: DatabaseService) {}
+  constructor(
+    private readonly dbService: DatabaseService,
+    private readonly reflector: Reflector
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const http = context.switchToHttp();
     const request = http.getRequest();
+    const reply = http.getResponse();
     if (!request) return next.handle();
 
     const method = String(request.method || 'GET').toUpperCase();
@@ -42,6 +49,21 @@ export class IdempotencyInterceptor implements NestInterceptor {
     const idempotencyKey = rawKey.trim();
 
     if (!idempotencyKey || idempotencyKey.length < 3 || idempotencyKey.length > 255) {
+      const isRequired = this.reflector.getAllAndOverride<boolean>(REQUIRE_IDEMPOTENCY_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]);
+      if (isRequired) {
+        const strictHeader = String(request.headers?.['x-idempotency-mode'] || '').toLowerCase();
+        if (strictHeader === 'strict' || process.env.STRICT_IDEMPOTENCY === 'true') {
+          throw new BadRequestException(
+            'Idempotency-Key header is required for this sensitive financial operation.'
+          );
+        }
+        if (typeof reply?.header === 'function') {
+          reply.header('X-Idempotency-Warning', 'missing-key');
+        }
+      }
       return next.handle();
     }
 

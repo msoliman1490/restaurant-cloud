@@ -12,6 +12,7 @@ import { SalesService } from './sales.service';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions, RequireAnyPermissions } from '../../common/decorators/permissions.decorator';
+import { RequireIdempotencyKey } from '../../common/decorators/require-idempotency.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import { OptionalLegalEntityIdPipe } from '../../common/pipes/legal-entity-id.pipe';
 import {
@@ -150,6 +151,7 @@ export class SalesController {
 
   @Post('orders')
   @RequirePermissions('pos.order.create')
+  @RequireIdempotencyKey()
   async createSalesOrder(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -208,6 +210,7 @@ export class SalesController {
   @Post('orders/:id/refund')
   @UseGuards(TenantContextGuard, PermissionsGuard)
   @RequirePermissions('sales.refund')
+  @RequireIdempotencyKey()
   async refundSalesOrder(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string,

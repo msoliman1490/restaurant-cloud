@@ -25,6 +25,7 @@ export const purchaseRequests = pgTable(
     neededByDate: timestamp('needed_by_date', { withTimezone: true }),
     notes: text('notes'),
     version: integer('version').notNull().default(1),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -70,6 +71,7 @@ export const purchaseOrders = pgTable(
     notes: text('notes'),
     issuedBy: uuid('issued_by'),
     version: integer('version').notNull().default(1),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -115,6 +117,7 @@ export const goodsReceipts = pgTable(
     status: varchar('status', { length: 30 }).notNull().default(GoodsReceiptStatus.RECEIVED),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     receivedBy: uuid('received_by'),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
     notes: text('notes'),
   },
   (table) => [
@@ -165,6 +168,7 @@ export const supplierInvoices = pgTable(
     currency: varchar('currency', { length: 3 }).notNull().default('SAR'),
     notes: text('notes'),
     version: integer('version').notNull().default(1),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -204,6 +208,7 @@ export const purchaseReturns = pgTable(
     reason: varchar('reason', { length: 255 }).notNull(),
     returnedAt: timestamp('returned_at', { withTimezone: true }).notNull().defaultNow(),
     returnedBy: uuid('returned_by'),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
     totalAmount: numeric('total_amount', { precision: 14, scale: 4 }).notNull().default('0.0000'),
   },
   (table) => [
@@ -264,6 +269,7 @@ export const supplierPayments = pgTable(
     notes: text('notes'),
     journalEntryId: uuid('journal_entry_id'),
     paidBy: uuid('paid_by'),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

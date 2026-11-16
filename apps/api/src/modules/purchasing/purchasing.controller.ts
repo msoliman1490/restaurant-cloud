@@ -2,15 +2,19 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Param,
   Query,
   Body,
+  Headers,
   UseGuards,
 } from '@nestjs/common';
+import { z } from 'zod';
 import { PurchasingService } from './purchasing.service';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { RequireIdempotencyKey } from '../../common/decorators/require-idempotency.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
   OptionalLegalEntityIdPipe,
@@ -33,12 +37,50 @@ export class PurchasingController {
 
   @Post('requests')
   @RequirePermissions('purchasing.request.create')
+  @RequireIdempotencyKey()
   async createRequest(
     @CurrentContext() context: TenantContext,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: unknown
   ) {
     const validatedDto = CreatePurchaseRequestSchema.parse(body);
-    const data = await this.purchasingService.createPurchaseRequest(context, validatedDto);
+    const raw = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+    const data = await this.purchasingService.createPurchaseRequest(context, {
+      ...validatedDto,
+      saveAsDraft: Boolean(raw.saveAsDraft),
+      idempotencyKey: idempotencyKey || (typeof raw.idempotencyKey === 'string' ? raw.idempotencyKey : undefined),
+    });
+    return { success: true, data };
+  }
+
+  @Patch('requests/:id/draft')
+  @RequirePermissions('purchasing.request.create')
+  async updateRequestDraft(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const dto = z
+      .object({
+        expectedVersion: z.number().int().min(1),
+        notes: z.string().max(500).optional(),
+        neededByDate: z.string().datetime().nullable().optional(),
+        submit: z.boolean().optional(),
+        lines: z
+          .array(
+            z.object({
+              itemId: z.string().uuid(),
+              uomId: z.string().uuid(),
+              requestedQty: z.string().regex(/^\d+(\.\d{1,4})?$/),
+              estimatedUnitCost: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
+              notes: z.string().max(255).optional(),
+            })
+          )
+          .min(1)
+          .optional(),
+      })
+      .parse(body);
+    const data = await this.purchasingService.updatePurchaseRequestDraft(context, id, dto);
     return { success: true, data };
   }
 
@@ -224,6 +266,7 @@ export class PurchasingController {
 
   @Post('receipts')
   @RequirePermissions('purchasing.receipt.create')
+  @RequireIdempotencyKey()
   async receiveGoods(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -235,6 +278,7 @@ export class PurchasingController {
 
   @Post('invoices')
   @RequirePermissions('purchasing.invoice.create')
+  @RequireIdempotencyKey()
   async createInvoice(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -246,6 +290,7 @@ export class PurchasingController {
 
   @Post('returns')
   @RequirePermissions('purchasing.return.create')
+  @RequireIdempotencyKey()
   async createReturn(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown
@@ -272,6 +317,7 @@ export class PurchasingController {
 
   @Post('payments')
   @RequirePermissions('purchasing.payment.create')
+  @RequireIdempotencyKey()
   async createPayment(
     @CurrentContext() context: TenantContext,
     @Body() body: unknown

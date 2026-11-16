@@ -160,6 +160,7 @@ export const stockAdjustments = pgTable(
     reason: varchar('reason', { length: 50 }).notNull().default(AdjustmentReason.PHYSICAL_COUNT),
     notes: text('notes'),
     adjustedBy: uuid('adjusted_by'),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
     adjustedAt: timestamp('adjusted_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

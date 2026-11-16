@@ -64,6 +64,12 @@ test.describe('SaaS Portal, Auth Redesign, Onboarding & Subscriptions E2E', () =
     await page.click('aside button:has-text("الاشتراك والفوترة")');
     await expect(page.locator('h2:has-text("الاشتراك والفوترة السحابية")')).toBeVisible();
 
+    // Navigate to Settings -> Integrations & WhatsApp Templates
+    await page.click('aside button:has-text("إعدادات المنشأة")');
+    await page.click('button:has-text("التكاملات والإشعارات (WhatsApp)")');
+    await expect(page.locator('h3:has-text("إدارة قوالب رسائل WhatsApp")')).toBeVisible();
+    await expect(page.locator('td:has-text("ORDER_CONFIRMATION")').first()).toBeVisible();
+
     expect(pageErrors).toEqual([]);
     expect(apiErrors).toEqual([]);
   });

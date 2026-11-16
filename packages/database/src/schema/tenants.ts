@@ -331,3 +331,32 @@ export const webhookReplayNonces = pgTable(
     index('idx_webhook_replay_nonces_expires').on(table.expiresAt),
   ]
 );
+
+export const whatsappTemplates = pgTable(
+  'whatsapp_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    templateKey: varchar('template_key', { length: 80 }).notNull(),
+    nameAr: varchar('name_ar', { length: 160 }).notNull(),
+    nameEn: varchar('name_en', { length: 160 }).notNull(),
+    metaTemplateName: varchar('meta_template_name', { length: 120 }).notNull(),
+    languageCode: varchar('language_code', { length: 10 }).notNull().default('ar'),
+    category: varchar('category', { length: 30 }).notNull().default('UTILITY'),
+    headerText: text('header_text'),
+    bodyText: text('body_text').notNull(),
+    footerText: text('footer_text'),
+    variablesJson: jsonb('variables_json').$type<string[]>().notNull().default([]),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_whatsapp_templates_tenant_key_lang').on(
+      table.tenantId,
+      table.templateKey,
+      table.languageCode
+    ),
+    index('idx_whatsapp_templates_tenant_id').on(table.tenantId),
+  ]
+);

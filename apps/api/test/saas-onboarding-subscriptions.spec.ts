@@ -24,6 +24,8 @@ import {
   onboardingProgress,
   authVerificationTokens,
   auditLogs,
+  whatsappTemplates,
+  notificationLogs,
 } from '@restaurant-cloud/database';
 import type postgres from 'postgres';
 
@@ -71,8 +73,8 @@ describe('SaaS Onboarding, Auth Hardening, Subscriptions & Super Admin (Live API
     options: { method?: string; token?: string; headers?: Record<string, string>; body?: unknown } = {}
   ) {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers ?? {}),
     };
     if (options.token) {
@@ -104,6 +106,12 @@ describe('SaaS Onboarding, Auth Hardening, Subscriptions & Super Admin (Live API
           await db
             .delete(onboardingProgress)
             .where(inArray(onboardingProgress.tenantId, createdTenantIds));
+          await db
+            .delete(whatsappTemplates)
+            .where(inArray(whatsappTemplates.tenantId, createdTenantIds));
+          await db
+            .delete(notificationLogs)
+            .where(inArray(notificationLogs.tenantId, createdTenantIds));
           await db
             .delete(tenantIndustryPacks)
             .where(inArray(tenantIndustryPacks.tenantId, createdTenantIds));
@@ -451,5 +459,64 @@ describe('SaaS Onboarding, Auth Hardening, Subscriptions & Super Admin (Live API
     const tenant2Sub = await apiCall('/saas/subscription', { token: owner2Token });
     expect(tenant2Sub.status).toBe(200);
     expect(tenant2Sub.body.data.invoices.length).toBe(0);
+
+    // 6. WhatsApp Message Templates CRUD, Preview & Dispatch Rendering
+    const listTpl = await apiCall('/tenants/whatsapp-templates', { token: ownerToken });
+    expect(listTpl.status).toBe(200);
+    expect(listTpl.body.data.length).toBeGreaterThanOrEqual(5);
+
+    const customTpl = await apiCall('/tenants/whatsapp-templates', {
+      method: 'POST',
+      token: ownerToken,
+      body: {
+        templateKey: 'CUSTOM_PROMO',
+        nameAr: 'عرض خاص',
+        nameEn: 'Special Promo',
+        metaTemplateName: 'rc_custom_promo_ar',
+        languageCode: 'ar',
+        category: 'MARKETING',
+        headerText: 'عرض {{customer_name}}',
+        bodyText: 'خصم {{discount_pct}}% على طلبك التالي!',
+        footerText: 'مطعم نجد',
+        isActive: true,
+      },
+    });
+    expect(customTpl.status).toBe(201);
+    expect(customTpl.body.data.variablesJson).toContain('customer_name');
+    expect(customTpl.body.data.variablesJson).toContain('discount_pct');
+
+    const previewTpl = await apiCall('/tenants/whatsapp-templates/preview', {
+      method: 'POST',
+      token: ownerToken,
+      body: {
+        templateId: customTpl.body.data.id,
+        variables: { customer_name: 'فهد', discount_pct: '20' },
+      },
+    });
+    expect(previewTpl.status).toBe(201);
+    expect(previewTpl.body.data.renderedMessage).toContain('فهد');
+    expect(previewTpl.body.data.renderedMessage).toContain('20%');
+
+    const dispatchTpl = await apiCall('/tenants/notifications/dispatch', {
+      method: 'POST',
+      token: ownerToken,
+      body: {
+        channel: 'WHATSAPP',
+        recipient: '+966501112233',
+        eventType: 'CUSTOM_PROMO',
+        payload: {
+          templateKey: 'CUSTOM_PROMO',
+          variables: { customer_name: 'فهد', discount_pct: '20' },
+        },
+      },
+    });
+    expect(dispatchTpl.status).toBe(201);
+    expect(dispatchTpl.body.data.payload.renderedMessage).toContain('خصم 20%');
+
+    const deleteTpl = await apiCall(`/tenants/whatsapp-templates/${customTpl.body.data.id}`, {
+      method: 'DELETE',
+      token: ownerToken,
+    });
+    expect(deleteTpl.status).toBe(200);
   });
 });

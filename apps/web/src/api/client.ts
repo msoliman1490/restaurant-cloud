@@ -57,7 +57,7 @@ class ApiClient {
     const headers = new Headers(options.headers || {});
     headers.set('Accept', 'application/json');
 
-    if (!(options.body instanceof FormData)) {
+    if (options.body !== undefined && !(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
 

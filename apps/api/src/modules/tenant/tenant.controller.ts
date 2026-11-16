@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Param,
   Query,
   Body,
@@ -339,6 +340,69 @@ export class TenantController {
   @RequirePermissions('tenant.update')
   async retryNotifications(@CurrentContext() context: TenantContext) {
     const data = await this.tenantService.retryPendingNotifications(context);
+    return { success: true, data };
+  }
+
+  @Get('tenants/whatsapp-templates')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
+  async listWhatsappTemplates(@CurrentContext() context: TenantContext) {
+    const data = await this.tenantService.listWhatsappTemplates(context);
+    return { success: true, data };
+  }
+
+  @Post('tenants/whatsapp-templates')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.update')
+  async upsertWhatsappTemplate(
+    @CurrentContext() context: TenantContext,
+    @Body() body: unknown
+  ) {
+    const validated = z
+      .object({
+        id: z.string().uuid().optional(),
+        templateKey: z.string().min(2).max(80),
+        nameAr: z.string().min(2).max(160),
+        nameEn: z.string().min(2).max(160),
+        metaTemplateName: z.string().min(2).max(120),
+        languageCode: z.string().min(2).max(10).default('ar'),
+        category: z.enum(['UTILITY', 'AUTHENTICATION', 'MARKETING']).default('UTILITY'),
+        headerText: z.string().max(300).nullable().optional(),
+        bodyText: z.string().min(3).max(2000),
+        footerText: z.string().max(300).nullable().optional(),
+        isActive: z.boolean().optional(),
+      })
+      .parse(body);
+    const data = await this.tenantService.upsertWhatsappTemplate(context, validated);
+    return { success: true, data };
+  }
+
+  @Delete('tenants/whatsapp-templates/:id')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.update')
+  async deleteWhatsappTemplate(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.tenantService.deleteWhatsappTemplate(context, id);
+    return { success: true, data };
+  }
+
+  @Post('tenants/whatsapp-templates/preview')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
+  async previewWhatsappTemplate(
+    @CurrentContext() context: TenantContext,
+    @Body() body: unknown
+  ) {
+    const validated = z
+      .object({
+        templateId: z.string().uuid().optional(),
+        templateKey: z.string().min(2).max(80).optional(),
+        variables: z.record(z.string()).optional(),
+      })
+      .parse(body);
+    const data = await this.tenantService.previewWhatsappTemplate(context, validated);
     return { success: true, data };
   }
 

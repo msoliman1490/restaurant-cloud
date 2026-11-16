@@ -14,7 +14,26 @@ import {
   MessageSquare,
   Webhook,
   Send,
+  Plus,
+  Pencil,
+  Trash2,
+  FileText,
 } from 'lucide-react';
+
+interface WhatsappTemplateRow {
+  id: string;
+  templateKey: string;
+  nameAr: string;
+  nameEn: string;
+  metaTemplateName: string;
+  languageCode: string;
+  category: 'UTILITY' | 'AUTHENTICATION' | 'MARKETING';
+  headerText?: string | null;
+  bodyText: string;
+  footerText?: string | null;
+  variablesJson: string[];
+  isActive: boolean;
+}
 
 interface TenantSettingsData {
   tenant: {
@@ -65,12 +84,39 @@ export const SettingsView: React.FC = () => {
   const [notifLogs, setNotifLogs] = useState<
     Array<{ id: string; channel: string; recipient: string; eventType: string; status: string; createdAt: string }>
   >([]);
+  const [waTemplates, setWaTemplates] = useState<WhatsappTemplateRow[]>([]);
+  const [tplForm, setTplForm] = useState<{
+    id?: string;
+    templateKey: string;
+    nameAr: string;
+    nameEn: string;
+    metaTemplateName: string;
+    languageCode: string;
+    category: 'UTILITY' | 'AUTHENTICATION' | 'MARKETING';
+    headerText: string;
+    bodyText: string;
+    footerText: string;
+    isActive: boolean;
+  }>({
+    templateKey: '',
+    nameAr: '',
+    nameEn: '',
+    metaTemplateName: '',
+    languageCode: 'ar',
+    category: 'UTILITY',
+    headerText: '',
+    bodyText: '',
+    footerText: '',
+    isActive: true,
+  });
+  const [showTplEditor, setShowTplEditor] = useState(false);
 
   const fetchIntegrations = async () => {
     try {
-      const [intRes, logRes] = await Promise.all([
+      const [intRes, logRes, tplRes] = await Promise.all([
         apiClient.request<Array<{ channel: string; isEnabled: boolean; configJson: Record<string, any> }>>('/tenants/integrations'),
         apiClient.request<Array<{ id: string; channel: string; recipient: string; eventType: string; status: string; createdAt: string }>>('/tenants/notifications?limit=15'),
+        apiClient.request<WhatsappTemplateRow[]>('/tenants/whatsapp-templates').catch(() => []),
       ]);
       if (Array.isArray(intRes)) {
         const wa = intRes.find((i) => i.channel === 'WHATSAPP');
@@ -87,8 +133,140 @@ export const SettingsView: React.FC = () => {
       if (Array.isArray(logRes)) {
         setNotifLogs(logRes);
       }
+      if (Array.isArray(tplRes)) {
+        setWaTemplates(tplRes);
+      }
     } catch {
       // Keep UI functional even if integrations table is empty
+    }
+  };
+
+  const resetTplForm = () => {
+    setTplForm({
+      templateKey: '',
+      nameAr: '',
+      nameEn: '',
+      metaTemplateName: '',
+      languageCode: 'ar',
+      category: 'UTILITY',
+      headerText: '',
+      bodyText: '',
+      footerText: '',
+      isActive: true,
+    });
+    setShowTplEditor(false);
+  };
+
+  const handleEditTemplate = (tpl: WhatsappTemplateRow) => {
+    setTplForm({
+      id: tpl.id,
+      templateKey: tpl.templateKey,
+      nameAr: tpl.nameAr,
+      nameEn: tpl.nameEn,
+      metaTemplateName: tpl.metaTemplateName,
+      languageCode: tpl.languageCode,
+      category: tpl.category,
+      headerText: tpl.headerText || '',
+      bodyText: tpl.bodyText,
+      footerText: tpl.footerText || '',
+      isActive: tpl.isActive,
+    });
+    setShowTplEditor(true);
+  };
+
+  const handleSaveTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      await apiClient.post('/tenants/whatsapp-templates', {
+        id: tplForm.id,
+        templateKey: tplForm.templateKey,
+        nameAr: tplForm.nameAr,
+        nameEn: tplForm.nameEn || tplForm.nameAr,
+        metaTemplateName: tplForm.metaTemplateName,
+        languageCode: tplForm.languageCode,
+        category: tplForm.category,
+        headerText: tplForm.headerText || null,
+        bodyText: tplForm.bodyText,
+        footerText: tplForm.footerText || null,
+        isActive: tplForm.isActive,
+      });
+      setSuccessMsg('تم حفظ قالب WhatsApp بنجاح.');
+      resetTplForm();
+      await fetchIntegrations();
+    } catch (err: any) {
+      setError(err?.message || 'فشل حفظ قالب WhatsApp');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleTemplateActive = async (tpl: WhatsappTemplateRow) => {
+    setIsSubmitting(true);
+    try {
+      await apiClient.post('/tenants/whatsapp-templates', {
+        id: tpl.id,
+        templateKey: tpl.templateKey,
+        nameAr: tpl.nameAr,
+        nameEn: tpl.nameEn,
+        metaTemplateName: tpl.metaTemplateName,
+        languageCode: tpl.languageCode,
+        category: tpl.category,
+        headerText: tpl.headerText || null,
+        bodyText: tpl.bodyText,
+        footerText: tpl.footerText || null,
+        isActive: !tpl.isActive,
+      });
+      await fetchIntegrations();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    setIsSubmitting(true);
+    try {
+      await apiClient.request(`/tenants/whatsapp-templates/${id}`, { method: 'DELETE' });
+      setSuccessMsg('تم حذف القالب.');
+      await fetchIntegrations();
+    } catch (err: any) {
+      setError(err?.message || 'تعذر حذف القالب');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleTestTemplateDispatch = async (tpl: WhatsappTemplateRow) => {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      await apiClient.post('/tenants/notifications/dispatch', {
+        channel: 'WHATSAPP',
+        recipient: testRecipient,
+        eventType: tpl.templateKey,
+        payload: {
+          templateKey: tpl.templateKey,
+          variables: {
+            customer_name: 'عميل تجريبي',
+            order_number: 'ORD-10045',
+            invoice_number: 'INV-10045',
+            total_sar: '115.00',
+            vat_sar: '15.00',
+            driver_name: 'أحمد',
+            otp_code: '482910',
+            plan_name: 'الباقة المتقدمة',
+            due_date: '2026-12-01',
+          },
+        },
+      });
+      setSuccessMsg(`تم إرسال رسالة اختبار باستخدام قالب (${tpl.nameAr}).`);
+      await fetchIntegrations();
+    } catch (err: any) {
+      setError(err?.message || 'فشل إرسال اختبار القالب');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -347,6 +525,287 @@ export const SettingsView: React.FC = () => {
                   اختبار الإرسال
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* WhatsApp Message Templates Management */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-[#0D6E4F]" />
+                  إدارة قوالب رسائل WhatsApp
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  تحكم في نصوص ومتغيرات الرسائل التلقائية (تأكيد الطلب، الفاتورة، التوصيل، ورموز التحقق) وربطها بقوالب Meta Cloud API.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  resetTplForm();
+                  setShowTplEditor(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A5A40] text-white text-xs font-bold cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>قالب جديد</span>
+              </button>
+            </div>
+
+            {showTplEditor && (
+              <form
+                onSubmit={handleSaveTemplate}
+                className="p-5 rounded-2xl bg-slate-50 border border-slate-200 grid grid-cols-1 lg:grid-cols-3 gap-5"
+              >
+                <div className="lg:col-span-2 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        مفتاح القالب (Key) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={tplForm.templateKey}
+                        onChange={(e) => setTplForm({ ...tplForm, templateKey: e.target.value })}
+                        placeholder="ORDER_CONFIRMATION"
+                        dir="ltr"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        اسم القالب (عربي) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={tplForm.nameAr}
+                        onChange={(e) => setTplForm({ ...tplForm, nameAr: e.target.value })}
+                        placeholder="تأكيد الطلب"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        اسم القالب في Meta *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={tplForm.metaTemplateName}
+                        onChange={(e) => setTplForm({ ...tplForm, metaTemplateName: e.target.value })}
+                        placeholder="rc_order_confirmation_ar"
+                        dir="ltr"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">التصنيف</label>
+                      <select
+                        value={tplForm.category}
+                        onChange={(e) =>
+                          setTplForm({
+                            ...tplForm,
+                            category: e.target.value as 'UTILITY' | 'AUTHENTICATION' | 'MARKETING',
+                          })
+                        }
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                      >
+                        <option value="UTILITY">خدمي (UTILITY)</option>
+                        <option value="AUTHENTICATION">تحقق (AUTHENTICATION)</option>
+                        <option value="MARKETING">تسويقي (MARKETING)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">اللغة</label>
+                      <select
+                        value={tplForm.languageCode}
+                        onChange={(e) => setTplForm({ ...tplForm, languageCode: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                      >
+                        <option value="ar">العربية (ar)</option>
+                        <option value="en">English (en)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">العنوان (Header)</label>
+                      <input
+                        type="text"
+                        value={tplForm.headerText}
+                        onChange={(e) => setTplForm({ ...tplForm, headerText: e.target.value })}
+                        placeholder="تأكيد طلبك #{{order_number}}"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                      <label className="text-xs font-semibold text-slate-700">نص الرسالة (Body) *</label>
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          '{{customer_name}}',
+                          '{{order_number}}',
+                          '{{invoice_number}}',
+                          '{{total_sar}}',
+                          '{{vat_sar}}',
+                          '{{driver_name}}',
+                          '{{otp_code}}',
+                        ].map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() =>
+                              setTplForm((prev) => ({
+                                ...prev,
+                                bodyText: prev.bodyText ? `${prev.bodyText} ${v}` : v,
+                              }))
+                            }
+                            className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-mono text-[#0D6E4F] hover:bg-emerald-50 cursor-pointer"
+                          >
+                            +{v}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea
+                      required
+                      rows={3}
+                      value={tplForm.bodyText}
+                      onChange={(e) => setTplForm({ ...tplForm, bodyText: e.target.value })}
+                      placeholder="مرحباً {{customer_name}}، تم استلام طلبك رقم {{order_number}} بقيمة {{total_sar}} ر.س."
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                    <input
+                      type="text"
+                      value={tplForm.footerText}
+                      onChange={(e) => setTplForm({ ...tplForm, footerText: e.target.value })}
+                      placeholder="التذييل (Footer) — مثال: شكراً لاختيارك مطعمنا"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                    />
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tplForm.isActive}
+                        onChange={(e) => setTplForm({ ...tplForm, isActive: e.target.checked })}
+                      />
+                      <span>قالب مفعل للإرسال التلقائي</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-4 py-2 rounded-xl bg-[#0D6E4F] text-white text-xs font-bold cursor-pointer"
+                    >
+                      حفظ القالب
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetTplForm}
+                      className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live WhatsApp Bubble Preview */}
+                <div className="bg-[#EFEAE2] rounded-2xl p-4 border border-slate-200 flex flex-col justify-between">
+                  <div className="text-[11px] font-bold text-slate-600 mb-2">معاينة رسالة WhatsApp</div>
+                  <div className="bg-white rounded-xl p-3 shadow-sm text-xs text-slate-800 space-y-1.5 whitespace-pre-wrap">
+                    {tplForm.headerText && (
+                      <div className="font-bold text-slate-900">{tplForm.headerText}</div>
+                    )}
+                    <div>{tplForm.bodyText || 'اكتب نص الرسالة لعرض المعاينة...'}</div>
+                    {tplForm.footerText && (
+                      <div className="text-[11px] text-slate-400 pt-1">{tplForm.footerText}</div>
+                    )}
+                  </div>
+                </div>
+              </form>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
+                    <th className="py-2.5 px-3">القالب</th>
+                    <th className="py-2.5 px-3">Meta Name</th>
+                    <th className="py-2.5 px-3">التصنيف / اللغة</th>
+                    <th className="py-2.5 px-3">النص</th>
+                    <th className="py-2.5 px-3">الحالة</th>
+                    <th className="py-2.5 px-3">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {waTemplates.map((tpl) => (
+                    <tr key={tpl.id}>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-900">{tpl.nameAr}</div>
+                        <div className="font-mono text-[11px] text-slate-500">{tpl.templateKey}</div>
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-[11px]">{tpl.metaTemplateName}</td>
+                      <td className="py-2.5 px-3">
+                        <span className="px-2 py-0.5 rounded-full bg-slate-100 font-semibold">
+                          {tpl.category} · {tpl.languageCode}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 max-w-xs truncate text-slate-600">{tpl.bodyText}</td>
+                      <td className="py-2.5 px-3">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTemplateActive(tpl)}
+                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold cursor-pointer ${
+                            tpl.isActive
+                              ? 'bg-emerald-50 text-[#0D6E4F] border border-emerald-200'
+                              : 'bg-slate-100 text-slate-500 border border-slate-200'
+                          }`}
+                        >
+                          {tpl.isActive ? 'مفعل' : 'معطل'}
+                        </button>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleEditTemplate(tpl)}
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                            title="تعديل"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleTestTemplateDispatch(tpl)}
+                            className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#0D6E4F] cursor-pointer"
+                            title="إرسال اختبار بالقالب"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTemplate(tpl.id)}
+                            className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 cursor-pointer"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
 

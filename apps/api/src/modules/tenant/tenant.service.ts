@@ -39,6 +39,7 @@ import {
   saasPolicies,
   pdplConsents,
   onboardingProgress,
+  whatsappTemplates,
 } from '@restaurant-cloud/database';
 import {
   CreateTenantRequest,
@@ -1415,7 +1416,30 @@ export class TenantService implements OnModuleInit {
         )
         .limit(1);
 
-      const payloadObj = dto.payload ?? {};
+      const payloadObj: Record<string, any> = { ...(dto.payload ?? {}) };
+      if (normalizedChannel === 'WHATSAPP') {
+        const lookupKey = String(payloadObj.templateKey || dto.eventType || '').toUpperCase();
+        if (lookupKey) {
+          const [tpl] = await tx
+            .select()
+            .from(whatsappTemplates)
+            .where(
+              and(
+                eq(whatsappTemplates.tenantId, context.tenantId),
+                eq(whatsappTemplates.templateKey, lookupKey),
+                eq(whatsappTemplates.isActive, true)
+              )
+            )
+            .limit(1);
+          if (tpl) {
+            const vars = (payloadObj.variables ?? payloadObj) as Record<string, unknown>;
+            payloadObj.templateKey = tpl.templateKey;
+            payloadObj.metaTemplateName = tpl.metaTemplateName;
+            payloadObj.languageCode = tpl.languageCode;
+            payloadObj.renderedMessage = this.renderWhatsappTemplateText(tpl, vars);
+          }
+        }
+      }
       let signatureHeader: string | null = null;
       if (
         normalizedChannel === 'WEBHOOK' &&
@@ -1640,6 +1664,291 @@ export class TenantService implements OnModuleInit {
         zatca: {
           egsUnitsCount: zatcaStats?.egsCount || 0,
         },
+      };
+    });
+  }
+
+  // ====================================================================
+  // WhatsApp Message Templates Management
+  // ====================================================================
+
+  private extractTemplateVariables(text: string): string[] {
+    const matches = new Set<string>();
+    const regex = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+      if (m[1]) matches.add(m[1]);
+    }
+    return Array.from(matches);
+  }
+
+  private renderWhatsappTemplateText(
+    tpl: { headerText?: string | null; bodyText: string; footerText?: string | null },
+    variables: Record<string, unknown>
+  ): string {
+    const substitute = (input: string) =>
+      input.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => {
+        const val = variables[key];
+        return val !== undefined && val !== null ? String(val) : `{{${key}}}`;
+      });
+    const parts = [
+      tpl.headerText ? substitute(tpl.headerText) : '',
+      substitute(tpl.bodyText),
+      tpl.footerText ? substitute(tpl.footerText) : '',
+    ].filter((p) => p.trim().length > 0);
+    return parts.join('\n\n');
+  }
+
+  async listWhatsappTemplates(context: TenantContext) {
+    return this.dbService.withTenantContext(context, async (tx) => {
+      const existing = await tx
+        .select()
+        .from(whatsappTemplates)
+        .where(eq(whatsappTemplates.tenantId, context.tenantId))
+        .orderBy(sql`${whatsappTemplates.createdAt} ASC`);
+
+      if (existing.length > 0) {
+        return existing;
+      }
+
+      const defaults = [
+        {
+          tenantId: context.tenantId,
+          templateKey: 'ORDER_CONFIRMATION',
+          nameAr: 'تأكيد الطلب',
+          nameEn: 'Order Confirmation',
+          metaTemplateName: 'rc_order_confirmation_ar',
+          languageCode: 'ar',
+          category: 'UTILITY',
+          headerText: 'تأكيد طلبك #{{order_number}}',
+          bodyText:
+            'مرحباً {{customer_name}}، تم استلام طلبك رقم {{order_number}} بقيمة {{total_sar}} ر.س بنجاح.',
+          footerText: 'شكراً لاختيارك مطعمنا',
+          variablesJson: ['order_number', 'customer_name', 'total_sar'],
+          isActive: true,
+        },
+        {
+          tenantId: context.tenantId,
+          templateKey: 'INVOICE_RECEIPT',
+          nameAr: 'إرسال الفاتورة الضريبية',
+          nameEn: 'Tax Invoice Receipt',
+          metaTemplateName: 'rc_invoice_receipt_ar',
+          languageCode: 'ar',
+          category: 'UTILITY',
+          headerText: 'الفاتورة الضريبية #{{invoice_number}}',
+          bodyText:
+            'عزيزي {{customer_name}}، إجمالي فاتورتك {{total_sar}} ر.س (شامل ضريبة القيمة المضافة {{vat_sar}} ر.س).',
+          footerText: 'متوافق مع هيئة الزكاة والضريبة والجمارك',
+          variablesJson: ['invoice_number', 'customer_name', 'total_sar', 'vat_sar'],
+          isActive: true,
+        },
+        {
+          tenantId: context.tenantId,
+          templateKey: 'DELIVERY_DISPATCHED',
+          nameAr: 'خروج طلب التوصيل',
+          nameEn: 'Delivery Dispatched',
+          metaTemplateName: 'rc_delivery_dispatched_ar',
+          languageCode: 'ar',
+          category: 'UTILITY',
+          headerText: 'طلبك في الطريق إليك',
+          bodyText:
+            'مرحباً {{customer_name}}، خرج المندوب {{driver_name}} لتوصيل طلبك #{{order_number}}.',
+          footerText: 'نتمنى لك وجبة شهية',
+          variablesJson: ['customer_name', 'driver_name', 'order_number'],
+          isActive: true,
+        },
+        {
+          tenantId: context.tenantId,
+          templateKey: 'OTP_VERIFICATION',
+          nameAr: 'رمز التحقق الأمني',
+          nameEn: 'Security OTP Code',
+          metaTemplateName: 'rc_otp_verification_ar',
+          languageCode: 'ar',
+          category: 'AUTHENTICATION',
+          headerText: null,
+          bodyText: 'رمز التحقق الخاص بك في Restaurant Cloud هو: {{otp_code}}. صالح لمدة 15 دقيقة.',
+          footerText: 'لا تشارك هذا الرمز مع أي شخص',
+          variablesJson: ['otp_code'],
+          isActive: true,
+        },
+        {
+          tenantId: context.tenantId,
+          templateKey: 'SUBSCRIPTION_REMINDER',
+          nameAr: 'تذكير الاشتراك السحابي',
+          nameEn: 'Subscription Renewal Reminder',
+          metaTemplateName: 'rc_subscription_reminder_ar',
+          languageCode: 'ar',
+          category: 'UTILITY',
+          headerText: 'تنبيه تجديد الاشتراك',
+          bodyText:
+            'مرحباً {{customer_name}}، اشتراك منشأتك في باقة {{plan_name}} يستحق التجديد بتاريخ {{due_date}}.',
+          footerText: 'Restaurant Cloud SaaS',
+          variablesJson: ['customer_name', 'plan_name', 'due_date'],
+          isActive: true,
+        },
+      ];
+
+      return tx.insert(whatsappTemplates).values(defaults).returning();
+    });
+  }
+
+  async upsertWhatsappTemplate(
+    context: TenantContext,
+    dto: {
+      id?: string;
+      templateKey: string;
+      nameAr: string;
+      nameEn: string;
+      metaTemplateName: string;
+      languageCode: string;
+      category: 'UTILITY' | 'AUTHENTICATION' | 'MARKETING';
+      headerText?: string | null;
+      bodyText: string;
+      footerText?: string | null;
+      isActive?: boolean;
+    }
+  ) {
+    const templateKey = dto.templateKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+    const languageCode = dto.languageCode.trim().toLowerCase();
+    const combinedText = `${dto.headerText || ''} ${dto.bodyText} ${dto.footerText || ''}`;
+    const variablesJson = this.extractTemplateVariables(combinedText);
+
+    return this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = dto.id
+        ? await tx
+            .select()
+            .from(whatsappTemplates)
+            .where(
+              and(
+                eq(whatsappTemplates.id, dto.id),
+                eq(whatsappTemplates.tenantId, context.tenantId)
+              )
+            )
+            .limit(1)
+        : await tx
+            .select()
+            .from(whatsappTemplates)
+            .where(
+              and(
+                eq(whatsappTemplates.tenantId, context.tenantId),
+                eq(whatsappTemplates.templateKey, templateKey),
+                eq(whatsappTemplates.languageCode, languageCode)
+              )
+            )
+            .limit(1);
+
+      const values = {
+        templateKey,
+        nameAr: dto.nameAr.trim(),
+        nameEn: dto.nameEn.trim(),
+        metaTemplateName: dto.metaTemplateName.trim(),
+        languageCode,
+        category: dto.category,
+        headerText: dto.headerText?.trim() || null,
+        bodyText: dto.bodyText.trim(),
+        footerText: dto.footerText?.trim() || null,
+        variablesJson,
+        isActive: dto.isActive ?? true,
+        updatedAt: new Date(),
+      };
+
+      const [saved] = existing
+        ? await tx
+            .update(whatsappTemplates)
+            .set(values)
+            .where(eq(whatsappTemplates.id, existing.id))
+            .returning()
+        : await tx
+            .insert(whatsappTemplates)
+            .values({ ...values, tenantId: context.tenantId })
+            .returning();
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'WHATSAPP_TEMPLATE_SAVED',
+          entityType: 'whatsapp_template',
+          entityId: saved!.id,
+          afterState: { templateKey, languageCode, isActive: values.isActive },
+        },
+        tx
+      );
+
+      return saved;
+    });
+  }
+
+  async deleteWhatsappTemplate(context: TenantContext, templateId: string) {
+    return this.dbService.withTenantContext(context, async (tx) => {
+      const [deleted] = await tx
+        .delete(whatsappTemplates)
+        .where(
+          and(
+            eq(whatsappTemplates.id, templateId),
+            eq(whatsappTemplates.tenantId, context.tenantId)
+          )
+        )
+        .returning();
+
+      if (!deleted) {
+        throw new NotFoundException('WhatsApp template not found');
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'WHATSAPP_TEMPLATE_DELETED',
+          entityType: 'whatsapp_template',
+          entityId: templateId,
+          beforeState: { templateKey: deleted.templateKey },
+        },
+        tx
+      );
+
+      return { deleted: true, id: templateId };
+    });
+  }
+
+  async previewWhatsappTemplate(
+    context: TenantContext,
+    dto: { templateId?: string; templateKey?: string; variables?: Record<string, string> }
+  ) {
+    return this.dbService.withTenantContext(context, async (tx) => {
+      const [tpl] = dto.templateId
+        ? await tx
+            .select()
+            .from(whatsappTemplates)
+            .where(
+              and(
+                eq(whatsappTemplates.id, dto.templateId),
+                eq(whatsappTemplates.tenantId, context.tenantId)
+              )
+            )
+            .limit(1)
+        : dto.templateKey
+          ? await tx
+              .select()
+              .from(whatsappTemplates)
+              .where(
+                and(
+                  eq(whatsappTemplates.tenantId, context.tenantId),
+                  eq(whatsappTemplates.templateKey, dto.templateKey.toUpperCase())
+                )
+              )
+              .limit(1)
+          : [undefined];
+
+      if (!tpl) {
+        throw new NotFoundException('WhatsApp template not found');
+      }
+
+      return {
+        templateKey: tpl.templateKey,
+        metaTemplateName: tpl.metaTemplateName,
+        renderedMessage: this.renderWhatsappTemplateText(tpl, dto.variables ?? {}),
+        variables: tpl.variablesJson,
       };
     });
   }

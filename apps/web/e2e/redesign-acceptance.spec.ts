@@ -84,6 +84,16 @@ test.describe('Restaurant Cloud — Complete UI/UX Redesign Acceptance', () => {
     await page.locator('button[aria-label="الوضع الفاتح"]').click();
     await expect(themeBtn).toBeVisible();
 
+    // Test Held Orders (الطلبات المعلقة): add product -> Hold (F6) -> Open Held (F7) -> Resume
+    await page.locator('div.grid button:has-text("ر.س")').first().click();
+    await expect(page.locator('text=سلة الطلب (1)')).toBeVisible();
+    await page.keyboard.press('F6');
+    await expect(page.locator('text=سلة الطلب (0)')).toBeVisible();
+    await page.keyboard.press('F7');
+    await expect(page.locator('button:has-text("استئناف")').first()).toBeVisible();
+    await page.locator('button:has-text("استئناف")').first().click();
+    await expect(page.locator('text=سلة الطلب (1)')).toBeVisible();
+
     // Test Sidebar Collapse/Expand & Keyboard ArrowDown navigation
     const collapseBtn = page.locator('aside button[aria-label="تصغير القائمة الجانبية"]');
     await collapseBtn.click();

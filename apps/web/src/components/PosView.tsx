@@ -23,6 +23,8 @@ import {
   WifiOff,
   Sun,
   Moon,
+  PauseCircle,
+  PlayCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -50,6 +52,17 @@ export interface PosProduct {
 
 export interface CartItem extends PosProduct {
   quantity: number;
+}
+
+export interface HeldOrder {
+  id: string;
+  label: string;
+  orderType: 'DINE_IN' | 'TAKEAWAY';
+  items: CartItem[];
+  subtotal: number;
+  taxTotal: number;
+  grandTotal: number;
+  heldAt: string;
 }
 
 interface PosViewProps {
@@ -131,6 +144,94 @@ export const PosView: React.FC<PosViewProps> = ({
   const [pendingOfflineCount, setPendingOfflineCount] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Held / Suspended Orders (الطلبات المعلقة)
+  const heldStorageKey = `rc_pos_held_orders_v1_${activeBranch?.id || 'default'}`;
+  const [heldOrders, setHeldOrders] = useState<HeldOrder[]>(() => {
+    try {
+      const raw = localStorage.getItem(`rc_pos_held_orders_v1_${activeBranch?.id || 'default'}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showHeldOrdersModal, setShowHeldOrdersModal] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(heldStorageKey);
+      setHeldOrders(raw ? JSON.parse(raw) : []);
+    } catch {
+      setHeldOrders([]);
+    }
+  }, [heldStorageKey]);
+
+  const persistHeldOrders = useCallback(
+    (next: HeldOrder[]) => {
+      setHeldOrders(next);
+      try {
+        localStorage.setItem(heldStorageKey, JSON.stringify(next));
+      } catch {
+        // Ignore storage quota errors
+      }
+    },
+    [heldStorageKey],
+  );
+
+  const handleHoldCurrentOrder = useCallback(() => {
+    if (cart.length === 0) return;
+    const nextNum = heldOrders.length + 1;
+    const subtotalNow = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+    const taxNow = cart.reduce((s, i) => s + i.price * i.quantity * i.taxRate, 0);
+    const newHeld: HeldOrder = {
+      id: `HELD-${Date.now().toString(36).toUpperCase()}`,
+      label: t(`طلب معلق #${nextNum}`, `Held Order #${nextNum}`),
+      orderType,
+      items: cart,
+      subtotal: subtotalNow,
+      taxTotal: taxNow,
+      grandTotal: subtotalNow + taxNow,
+      heldAt: new Date().toISOString(),
+    };
+    persistHeldOrders([newHeld, ...heldOrders]);
+    setCart([]);
+  }, [cart, heldOrders, orderType, persistHeldOrders, t]);
+
+  const handleResumeHeldOrder = useCallback(
+    (held: HeldOrder) => {
+      let nextHeld = heldOrders.filter((h) => h.id !== held.id);
+      // If cart already has items, auto-park current cart so nothing is lost
+      if (cart.length > 0) {
+        const subtotalNow = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+        const taxNow = cart.reduce((s, i) => s + i.price * i.quantity * i.taxRate, 0);
+        nextHeld = [
+          {
+            id: `HELD-${Date.now().toString(36).toUpperCase()}`,
+            label: t(`طلب معلق #${nextHeld.length + 1}`, `Held Order #${nextHeld.length + 1}`),
+            orderType,
+            items: cart,
+            subtotal: subtotalNow,
+            taxTotal: taxNow,
+            grandTotal: subtotalNow + taxNow,
+            heldAt: new Date().toISOString(),
+          },
+          ...nextHeld,
+        ];
+      }
+      persistHeldOrders(nextHeld);
+      setOrderType(held.orderType);
+      setCart(held.items);
+      setShowHeldOrdersModal(false);
+    },
+    [cart, heldOrders, orderType, persistHeldOrders, t],
+  );
+
+  const handleDeleteHeldOrder = useCallback(
+    (id: string) => {
+      persistHeldOrders(heldOrders.filter((h) => h.id !== id));
+    },
+    [heldOrders, persistHeldOrders],
+  );
+
   useEffect(() => {
     const onPosKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -146,10 +247,24 @@ export const PosView: React.FC<PosViewProps> = ({
           setShowShiftClosingModal(false);
         } else if (showOfflineDrawer) {
           setShowOfflineDrawer(false);
+        } else if (showHeldOrdersModal) {
+          setShowHeldOrdersModal(false);
         } else if (receiptModalOpen) {
           setReceiptModalOpen(false);
           setIsReprintPreview(false);
         }
+        return;
+      }
+
+      if (e.key === 'F6' && cart.length > 0 && !showPaymentModal && !showOrdersModal && !showShiftClosingModal) {
+        e.preventDefault();
+        handleHoldCurrentOrder();
+        return;
+      }
+
+      if (e.key === 'F7' && !showPaymentModal && !showOrdersModal && !showShiftClosingModal) {
+        e.preventDefault();
+        setShowHeldOrdersModal((prev) => !prev);
         return;
       }
 
@@ -748,6 +863,30 @@ export const PosView: React.FC<PosViewProps> = ({
             </button>
           </div>
 
+          {/* Held Orders Button */}
+          <button
+            type="button"
+            onClick={() => setShowHeldOrdersModal(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+              heldOrders.length > 0
+                ? isLight
+                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                  : 'bg-amber-950/60 hover:bg-amber-900/60 text-amber-200 border-amber-700'
+                : isLight
+                ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title={t('الطلبات المعلقة (F7)', 'Held Orders (F7)')}
+          >
+            <PauseCircle size={14} />
+            <span>{t('الطلبات المعلقة', 'Held Orders')}</span>
+            {heldOrders.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-amber-600 text-white text-[10px] font-bold font-mono">
+                {heldOrders.length}
+              </span>
+            )}
+          </button>
+
           {/* Recent Orders & Returns Button */}
           <button
             type="button"
@@ -1031,14 +1170,29 @@ export const PosView: React.FC<PosViewProps> = ({
               </span>
             </div>
             {cart.length > 0 && (
-              <button
-                type="button"
-                onClick={clearCart}
-                className="text-xs text-rose-600 hover:text-rose-700 font-semibold flex items-center gap-1"
-              >
-                <Trash2 size={13} />
-                <span>{t('إفراغ السلة', 'Clear')}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleHoldCurrentOrder}
+                  title={t('تعليق الطلب (F6)', 'Hold Order (F6)')}
+                  className={`text-xs font-semibold flex items-center gap-1 px-2.5 py-1 rounded-lg border transition-colors ${
+                    isLight
+                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                      : 'bg-amber-950/60 hover:bg-amber-900/60 text-amber-200 border-amber-700'
+                  }`}
+                >
+                  <PauseCircle size={13} />
+                  <span>{t('تعليق', 'Hold')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={clearCart}
+                  className="text-xs text-rose-600 hover:text-rose-700 font-semibold flex items-center gap-1"
+                >
+                  <Trash2 size={13} />
+                  <span>{t('إفراغ', 'Clear')}</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -1586,6 +1740,92 @@ export const PosView: React.FC<PosViewProps> = ({
         locale={locale}
       />
 
+      {/* Held Orders Modal (الطلبات المعلقة) */}
+      {showHeldOrdersModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div
+            className={`w-full max-w-2xl max-h-[85vh] border rounded-3xl shadow-2xl flex flex-col overflow-hidden ${
+              isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-slate-100'
+            }`}
+          >
+            <div
+              className={`px-6 py-4 border-b flex items-center justify-between ${
+                isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+              }`}
+            >
+              <span className="font-bold flex items-center gap-2">
+                <PauseCircle size={18} className="text-amber-600" />
+                {t('الطلبات المعلقة', 'Held Orders')} ({heldOrders.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowHeldOrdersModal(false)}
+                className="p-2 rounded-xl hover:bg-slate-200/70 text-slate-500 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-3">
+              {heldOrders.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-sm">
+                  {t('لا توجد طلبات معلقة حالياً.', 'No held orders at the moment.')}
+                </div>
+              ) : (
+                heldOrders.map((held) => (
+                  <div
+                    key={held.id}
+                    className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ${
+                      isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-800/60 border-slate-700'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm">{held.label}</span>
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 font-medium">
+                          {held.orderType === 'DINE_IN' ? t('محلي', 'Dine-in') : t('سفري', 'Takeaway')}
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {new Date(held.heldAt).toLocaleTimeString(locale === 'en' ? 'en-US' : 'ar-SA', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1 truncate">
+                        {held.items.map((i) => `${i.nameAr} ×${i.quantity}`).join('، ')}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <span className={`font-mono text-sm font-black ${isLight ? 'text-[#0D6E4F]' : 'text-emerald-400'}`}>
+                        {held.grandTotal.toFixed(2)} ر.س
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleResumeHeldOrder(held)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-semibold shadow-sm"
+                      >
+                        <PlayCircle size={14} />
+                        <span>{t('استئناف', 'Resume')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteHeldOrder(held.id)}
+                        aria-label={t('حذف الطلب المعلق', 'Delete held order')}
+                        className="p-2 rounded-xl text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <OfflinePosDrawer
         isOpen={showOfflineDrawer}
         onClose={() => {
@@ -1610,6 +1850,8 @@ export const PosView: React.FC<PosViewProps> = ({
         <div className="flex items-center gap-4 whitespace-nowrap">
           <span><kbd className="rc-kbd">F2</kbd> {t('بحث / باركود', 'Search / Barcode')}</span>
           <span><kbd className="rc-kbd">F4</kbd> {t('الدفع', 'Checkout')}</span>
+          <span><kbd className="rc-kbd">F6</kbd> {t('تعليق', 'Hold')}</span>
+          <span><kbd className="rc-kbd">F7</kbd> {t('المعلقة', 'Held')}</span>
           <span><kbd className="rc-kbd">F8</kbd> {t('نقدي', 'Cash')}</span>
           <span><kbd className="rc-kbd">F9</kbd> {t('شبكة', 'Card')}</span>
           <span><kbd className="rc-kbd">F10</kbd> {t('مجزأ', 'Split')}</span>

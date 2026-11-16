@@ -8,6 +8,7 @@ import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { PostingEngineService } from '../accounting/posting-engine.service';
+import { DocumentNumberingService } from '../../common/operations/document-numbering.service';
 import {
   purchaseRequests,
   purchaseRequestLines,
@@ -50,7 +51,8 @@ export class PurchasingService {
     private readonly dbService: DatabaseService,
     private readonly auditService: AuditService,
     private readonly inventoryService: InventoryService,
-    private readonly postingEngineService: PostingEngineService
+    private readonly postingEngineService: PostingEngineService,
+    private readonly documentNumbering: DocumentNumberingService
   ) {}
 
   // ==================================================================
@@ -61,6 +63,16 @@ export class PurchasingService {
     context: TenantContext,
     dto: CreatePurchaseRequest & { saveAsDraft?: boolean; idempotencyKey?: string }
   ) {
+    let effectiveNumber = dto.requestNumber;
+    if (dto.requestNumber === 'AUTO') {
+      const alloc = await this.documentNumbering.allocateNextNumber(context, {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'PURCHASE_REQUEST',
+        sourceType: 'purchase_requests',
+      });
+      effectiveNumber = alloc.formattedNumber;
+    }
+
     return await this.dbService.withTenantContext(context, async (tx) => {
       if (dto.idempotencyKey) {
         const [existingIdemp] = await tx
@@ -85,13 +97,13 @@ export class PurchasingService {
           and(
             eq(purchaseRequests.tenantId, context.tenantId),
             eq(purchaseRequests.legalEntityId, dto.legalEntityId),
-            eq(purchaseRequests.requestNumber, dto.requestNumber)
+            eq(purchaseRequests.requestNumber, effectiveNumber)
           )
         )
         .limit(1);
 
       if (existing) {
-        throw new ConflictException(`Purchase request '${dto.requestNumber}' already exists`);
+        throw new ConflictException(`Purchase request '${effectiveNumber}' already exists`);
       }
 
       const [pr] = await tx
@@ -100,7 +112,7 @@ export class PurchasingService {
           tenantId: context.tenantId,
           legalEntityId: dto.legalEntityId,
           warehouseId: dto.warehouseId,
-          requestNumber: dto.requestNumber,
+          requestNumber: effectiveNumber,
           status: dto.saveAsDraft ? PurchaseRequestStatus.DRAFT : PurchaseRequestStatus.SUBMITTED,
           requestedBy: context.userId,
           neededByDate: dto.neededByDate ? new Date(dto.neededByDate) : null,

@@ -253,6 +253,13 @@
       "when": 1794840000000,
       "tag": "0035_priority1_idempotency_and_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794845000000,
+      "tag": "0036_document_numbering",
+      "breakpoints": true
     }
   ]
 }

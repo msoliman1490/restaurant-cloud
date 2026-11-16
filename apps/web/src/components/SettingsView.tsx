@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
+import { DocumentNumberingSettings } from './DocumentNumberingSettings';
 import {
   Settings,
   Save,
@@ -75,7 +76,7 @@ export const SettingsView: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'general' | 'integrations'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'integrations' | 'numbering'>('general');
   const [waEnabled, setWaEnabled] = useState(false);
   const [waPhoneId, setWaPhoneId] = useState('');
   const [webhookEnabled, setWebhookEnabled] = useState(false);
@@ -395,6 +396,16 @@ export const SettingsView: React.FC = () => {
             <MessageSquare className="w-3.5 h-3.5" />
             <span>التكاملات والإشعارات (WhatsApp)</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('numbering')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 ${
+              activeTab === 'numbering' ? 'bg-[#0D6E4F] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>ترقيم المستندات</span>
+          </button>
         </div>
       </div>
 
@@ -419,7 +430,9 @@ export const SettingsView: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'integrations' ? (
+      {activeTab === 'numbering' ? (
+        <DocumentNumberingSettings />
+      ) : activeTab === 'integrations' ? (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* WhatsApp Business Integration */}

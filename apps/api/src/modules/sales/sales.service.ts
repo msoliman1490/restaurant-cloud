@@ -11,6 +11,7 @@ import { ProductionService } from '../production/production.service';
 import { AccountingService } from '../accounting/accounting.service';
 import { PostingEngineService, PostingLineInput } from '../accounting/posting-engine.service';
 import { OperationsFrameworkService } from '../../common/operations/operations-framework.service';
+import { DocumentNumberingService } from '../../common/operations/document-numbering.service';
 import {
   salesOrders,
   orderLines,
@@ -81,7 +82,8 @@ export class SalesService {
     private readonly productionService: ProductionService,
     private readonly accountingService: AccountingService,
     private readonly postingEngine: PostingEngineService,
-    private readonly opsFramework: OperationsFrameworkService
+    private readonly opsFramework: OperationsFrameworkService,
+    private readonly documentNumbering: DocumentNumberingService
   ) {}
 
   getTenderMappingKey(paymentMethod: string): DefaultAccountMappingKey {
@@ -1008,6 +1010,79 @@ export class SalesService {
       });
     }
 
+    let effectiveDto = dto;
+    let allocatedNum: { formattedNumber: string; documentType: string } | null = null;
+    const needsServerNumber =
+      dto.orderNumber === 'AUTO' || dto.orderNumber.startsWith('OFFLINE-');
+
+    if (needsServerNumber) {
+      if (dto.idempotencyKey) {
+        const existingByKey = await this.dbService.withTenantContext(context, async (tx) => {
+          const [row] = await tx
+            .select()
+            .from(salesOrders)
+            .where(
+              and(
+                eq(salesOrders.tenantId, context.tenantId),
+                eq(salesOrders.idempotencyKey, dto.idempotencyKey!)
+              )
+            )
+            .limit(1);
+          return row;
+        });
+        if (existingByKey) {
+          return existingByKey;
+        }
+      }
+
+      const docType = dto.channel === 'POS' ? 'POS_TRANSACTION' : 'SALES_INVOICE';
+      const alloc = await this.documentNumbering.allocateNextNumber(context, {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId,
+        documentType: docType,
+        sourceType: 'sales_orders',
+      });
+      allocatedNum = { formattedNumber: alloc.formattedNumber, documentType: docType };
+      const offlineRefNote = dto.orderNumber.startsWith('OFFLINE-')
+        ? `[OfflineRef: ${dto.orderNumber}]${dto.notes ? ' ' + dto.notes : ''}`
+        : dto.notes;
+      effectiveDto = {
+        ...dto,
+        orderNumber: alloc.formattedNumber,
+        notes: offlineRefNote,
+      };
+    }
+
+    try {
+      const result = await this.executeCreateSalesOrder(context, effectiveDto);
+      if (allocatedNum && (result as any)?.id) {
+        await this.documentNumbering.markAllocationStatus(
+          context,
+          allocatedNum.formattedNumber,
+          allocatedNum.documentType,
+          dto.legalEntityId,
+          'USED',
+          (result as any).id
+        );
+      }
+      return result;
+    } catch (err) {
+      if (allocatedNum) {
+        await this.documentNumbering
+          .markAllocationStatus(
+            context,
+            allocatedNum.formattedNumber,
+            allocatedNum.documentType,
+            dto.legalEntityId,
+            'FAILED_TX'
+          )
+          .catch(() => {});
+      }
+      throw err;
+    }
+  }
+
+  private async executeCreateSalesOrder(context: TenantContext, dto: CreateSalesOrderRequest) {
     return await this.dbService.withTenantContext(context, async (tx) => {
       // 1. Idempotency Check: prevent duplicate orders
       if (dto.idempotencyKey) {

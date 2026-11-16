@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
+import { PageHeader } from './ui/PageHeader';
 import {
   Building2,
   GitBranch,
@@ -12,6 +14,7 @@ import {
   Loader2,
   RefreshCw,
   X,
+  MapPin,
 } from 'lucide-react';
 
 interface LegalEntityItem {
@@ -23,6 +26,14 @@ interface LegalEntityItem {
   vatNumber: string;
   functionalCurrency: string;
   timezone: string;
+  buildingNumber?: string | null;
+  postalCode?: string | null;
+  additionalNumber?: string | null;
+  streetName?: string | null;
+  district?: string | null;
+  city?: string | null;
+  shortAddress?: string | null;
+  country?: string | null;
 }
 
 interface BranchItem {
@@ -46,6 +57,7 @@ export const CompaniesView: React.FC = () => {
   const [entityModalError, setEntityModalError] = useState<string | null>(null);
   const [branchModalError, setBranchModalError] = useState<string | null>(null);
   const toast = useToast();
+  const { dir, t } = useLocale();
 
   // Modals state
   const [isEntityModalOpen, setIsEntityModalOpen] = useState(false);
@@ -57,9 +69,28 @@ export const CompaniesView: React.FC = () => {
     vatNumber: '',
     functionalCurrency: 'SAR',
     timezone: 'Asia/Riyadh',
+    buildingNumber: '',
+    postalCode: '',
+    additionalNumber: '',
+    streetName: '',
+    district: '',
+    city: '',
+    shortAddress: '',
+    country: 'المملكة العربية السعودية',
   });
 
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isEntityModalOpen) setIsEntityModalOpen(false);
+        if (isBranchModalOpen) setIsBranchModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isEntityModalOpen, isBranchModalOpen]);
   const [editingBranch, setEditingBranch] = useState<BranchItem | null>(null);
   const [branchForm, setBranchForm] = useState({
     legalEntityId: '',
@@ -176,57 +207,67 @@ export const CompaniesView: React.FC = () => {
     : branches.filter((b) => b.legalEntityId === selectedEntityId);
 
   return (
-    <div className="space-y-8" dir="rtl">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <Building2 className="w-7 h-7 text-indigo-600" />
-            إدارة الشركات والفروع
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            إدارة الهيكل التنظيمي، الكيانات الضريبية المعتمدة، والفروع التشغيلية تحت ({activeTenant?.name}).
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              setEditingEntity(null);
-              setEntityForm({
-                legalName: '',
-                commercialName: '',
-                crNumber: '',
-                vatNumber: '',
-                functionalCurrency: 'SAR',
-                timezone: 'Asia/Riyadh',
-              });
-              setIsEntityModalOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-sm transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            إضافة شركة جديدة
-          </button>
-          <button
-            onClick={() => {
-              setEditingBranch(null);
-              setBranchForm({
-                legalEntityId: entities[0]?.id || '',
-                code: '',
-                name: '',
-                businessType: 'RESTAURANT',
-                timezone: 'Asia/Riyadh',
-              });
-              setIsBranchModalOpen(true);
-            }}
-            disabled={entities.length === 0}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 disabled:opacity-50 transition-all"
-          >
-            <GitBranch className="w-4 h-4" />
-            إضافة فرع جديد
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6" dir={dir}>
+      <PageHeader
+        title={t('إدارة الشركات والفروع', 'Legal Entities & Branches')}
+        subtitle={t(
+          `إدارة الهيكل التنظيمي، الكيانات الضريبية، العنوان الوطني السعودي، والفروع تحت (${activeTenant?.name || ''}).`,
+          `Manage legal entities, VAT profiles, Saudi National Address, and operational branches (${activeTenant?.name || ''}).`
+        )}
+        icon={<Building2 className="w-6 h-6" />}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingEntity(null);
+                setEntityModalError(null);
+                setEntityForm({
+                  legalName: '',
+                  commercialName: '',
+                  crNumber: '',
+                  vatNumber: '',
+                  functionalCurrency: 'SAR',
+                  timezone: 'Asia/Riyadh',
+                  buildingNumber: '',
+                  postalCode: '',
+                  additionalNumber: '',
+                  streetName: '',
+                  district: '',
+                  city: '',
+                  shortAddress: '',
+                  country: 'المملكة العربية السعودية',
+                });
+                setIsEntityModalOpen(true);
+              }}
+              className="rc-btn-primary"
+            >
+              <Plus className="w-4 h-4" />
+              {t('إضافة شركة جديدة', 'New Legal Entity')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingBranch(null);
+                setBranchModalError(null);
+                setBranchForm({
+                  legalEntityId: entities[0]?.id || '',
+                  code: '',
+                  name: '',
+                  businessType: 'RESTAURANT',
+                  timezone: 'Asia/Riyadh',
+                });
+                setIsBranchModalOpen(true);
+              }}
+              disabled={entities.length === 0}
+              className="rc-btn-secondary disabled:opacity-50"
+            >
+              <GitBranch className="w-4 h-4" />
+              {t('إضافة فرع جديد', 'New Branch')}
+            </button>
+          </>
+        }
+      />
 
       {/* Notifications */}
       {error && (
@@ -297,11 +338,20 @@ export const CompaniesView: React.FC = () => {
                         vatNumber: entity.vatNumber,
                         functionalCurrency: entity.functionalCurrency,
                         timezone: entity.timezone,
+                        buildingNumber: entity.buildingNumber || '',
+                        postalCode: entity.postalCode || '',
+                        additionalNumber: entity.additionalNumber || '',
+                        streetName: entity.streetName || '',
+                        district: entity.district || '',
+                        city: entity.city || '',
+                        shortAddress: entity.shortAddress || '',
+                        country: entity.country || 'المملكة العربية السعودية',
                       });
+                      setEntityModalError(null);
                       setIsEntityModalOpen(true);
                     }}
-                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                    title="تعديل"
+                    className="p-1.5 text-slate-400 hover:text-[#0D6E4F] hover:bg-emerald-50 rounded-lg transition-all"
+                    title={t('تعديل', 'Edit')}
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
@@ -309,17 +359,35 @@ export const CompaniesView: React.FC = () => {
 
                 <div className="text-xs text-slate-600 space-y-1.5 pt-2 border-t border-slate-200/60 font-mono">
                   <div className="flex justify-between">
-                    <span className="text-slate-400 font-sans">الرقم الضريبي:</span>
+                    <span className="text-slate-400 font-sans">{t('الرقم الضريبي:', 'VAT Number:')}</span>
                     <strong className="text-slate-800">{entity.vatNumber}</strong>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400 font-sans">السجل التجاري:</span>
-                    <span>{entity.crNumber || 'غير مسجل'}</span>
+                    <span className="text-slate-400 font-sans">{t('السجل التجاري:', 'CR Number:')}</span>
+                    <span>{entity.crNumber || t('غير مسجل', 'N/A')}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400 font-sans">العملة / التوقيت:</span>
+                    <span className="text-slate-400 font-sans">{t('العملة / التوقيت:', 'Currency / TZ:')}</span>
                     <span>{entity.functionalCurrency} ({entity.timezone})</span>
                   </div>
+                  {(entity.shortAddress || entity.city || entity.postalCode) && (
+                    <div className="pt-2 mt-2 border-t border-slate-200/60 font-sans flex items-start gap-1.5 text-[11px] text-slate-600">
+                      <MapPin className="w-3.5 h-3.5 text-[#0D6E4F] shrink-0 mt-0.5" />
+                      <span className="leading-relaxed">
+                        {[
+                          entity.shortAddress,
+                          entity.buildingNumber,
+                          entity.streetName,
+                          entity.district,
+                          entity.city,
+                          entity.postalCode,
+                          entity.country,
+                        ]
+                          .filter(Boolean)
+                          .join(' — ')}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -413,7 +481,7 @@ export const CompaniesView: React.FC = () => {
       {/* Entity Modal */}
       {isEntityModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 space-y-5 animate-fadeIn">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900">
                 {editingEntity ? 'تعديل بيانات الشركة' : 'إضافة شركة قانونية جديدة'}
@@ -502,8 +570,129 @@ export const CompaniesView: React.FC = () => {
                     required
                     value={entityForm.timezone}
                     onChange={(e) => setEntityForm({ ...entityForm, timezone: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="rc-input"
                   />
+                </div>
+              </div>
+
+              {/* Saudi National Address Section */}
+              <div className="pt-3 border-t border-slate-200 space-y-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#0D6E4F]">
+                  <MapPin className="w-4 h-4" />
+                  <span>{t('العنوان الوطني السعودي (Saudi National Address)', 'Saudi National Address')}</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {t('رقم المبنى (4 أرقام)', 'Building No.')}
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={4}
+                      pattern="^(\d{4})?$"
+                      value={entityForm.buildingNumber}
+                      onChange={(e) => setEntityForm({ ...entityForm, buildingNumber: e.target.value.replace(/\D/g, '') })}
+                      placeholder="1234"
+                      className="rc-input font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {t('الرمز البريدي (5 أرقام)', 'Postal Code')}
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={5}
+                      pattern="^(\d{5})?$"
+                      value={entityForm.postalCode}
+                      onChange={(e) => setEntityForm({ ...entityForm, postalCode: e.target.value.replace(/\D/g, '') })}
+                      placeholder="12211"
+                      className="rc-input font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {t('الرقم الإضافي (4 أرقام)', 'Additional No.')}
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={4}
+                      pattern="^(\d{4})?$"
+                      value={entityForm.additionalNumber}
+                      onChange={(e) => setEntityForm({ ...entityForm, additionalNumber: e.target.value.replace(/\D/g, '') })}
+                      placeholder="5678"
+                      className="rc-input font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {t('الرمز المختصر', 'Short Address')}
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={8}
+                      pattern="^([A-Za-z]{4}\d{4})?$"
+                      value={entityForm.shortAddress}
+                      onChange={(e) => setEntityForm({ ...entityForm, shortAddress: e.target.value.toUpperCase() })}
+                      placeholder="RRRD2929"
+                      className="rc-input font-mono uppercase"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {t('اسم الشارع', 'Street Name')}
+                    </label>
+                    <input
+                      type="text"
+                      value={entityForm.streetName}
+                      onChange={(e) => setEntityForm({ ...entityForm, streetName: e.target.value })}
+                      placeholder={t('طريق الملك فهد', 'King Fahd Road')}
+                      className="rc-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {t('الحي', 'District')}
+                    </label>
+                    <input
+                      type="text"
+                      value={entityForm.district}
+                      onChange={(e) => setEntityForm({ ...entityForm, district: e.target.value })}
+                      placeholder={t('العليا', 'Al Olaya')}
+                      className="rc-input"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {t('المدينة', 'City')}
+                    </label>
+                    <input
+                      type="text"
+                      value={entityForm.city}
+                      onChange={(e) => setEntityForm({ ...entityForm, city: e.target.value })}
+                      placeholder={t('الرياض', 'Riyadh')}
+                      className="rc-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {t('الدولة', 'Country')}
+                    </label>
+                    <input
+                      type="text"
+                      value={entityForm.country}
+                      onChange={(e) => setEntityForm({ ...entityForm, country: e.target.value })}
+                      placeholder="المملكة العربية السعودية"
+                      className="rc-input"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -511,17 +700,17 @@ export const CompaniesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsEntityModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold"
+                  className="rc-btn-secondary"
                 >
-                  إلغاء
+                  {t('إلغاء', 'Cancel')}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50"
+                  className="rc-btn-primary"
                 >
                   {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {editingEntity ? 'حفظ التعديلات' : 'إنشاء الشركة'}
+                  {editingEntity ? t('حفظ التعديلات', 'Save Changes') : t('إنشاء الشركة', 'Create Entity')}
                 </button>
               </div>
             </form>
@@ -532,7 +721,7 @@ export const CompaniesView: React.FC = () => {
       {/* Branch Modal */}
       {isBranchModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 space-y-5 animate-fadeIn">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900">
                 {editingBranch ? 'تعديل بيانات الفرع' : 'إضافة فرع تشغيلي جديد'}

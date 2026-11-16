@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../api/client';
 import {
   Search,
@@ -105,6 +105,86 @@ export const PosView: React.FC<PosViewProps> = ({
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   );
   const [pendingOfflineCount, setPendingOfflineCount] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onPosKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      const isTyping = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+      if (e.key === 'Escape') {
+        if (showPaymentModal) {
+          setShowPaymentModal(false);
+          setShowSplitForm(false);
+        } else if (showOrdersModal) {
+          setShowOrdersModal(false);
+        } else if (showShiftClosingModal) {
+          setShowShiftClosingModal(false);
+        } else if (showOfflineDrawer) {
+          setShowOfflineDrawer(false);
+        } else if (receiptModalOpen) {
+          setReceiptModalOpen(false);
+          setIsReprintPreview(false);
+        }
+        return;
+      }
+
+      if (e.key === 'F2' || (!isTyping && e.key === '/')) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      if (e.key === 'F4' && cart.length > 0 && !showPaymentModal && !showOrdersModal && !showShiftClosingModal) {
+        e.preventDefault();
+        setPaymentError(null);
+        setShowPaymentModal(true);
+        return;
+      }
+
+      if (showPaymentModal && !isSubmittingPayment) {
+        if (e.key === 'F8') {
+          e.preventDefault();
+          void confirmPayment('CASH');
+          return;
+        }
+        if (e.key === 'F9') {
+          e.preventDefault();
+          void confirmPayment('CARD');
+          return;
+        }
+        if (e.key === 'F10') {
+          e.preventDefault();
+          setShowSplitForm((prev) => !prev);
+          return;
+        }
+      }
+
+      if (!isTyping && !showPaymentModal && cart.length > 0) {
+        const lastItem = cart[cart.length - 1];
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          setCart((prev) =>
+            prev.map((c) => (c.id === lastItem.id ? { ...c, quantity: c.quantity + 1 } : c)),
+          );
+        } else if (e.key === '-') {
+          e.preventDefault();
+          setCart((prev) =>
+            lastItem.quantity <= 1
+              ? prev.filter((c) => c.id !== lastItem.id)
+              : prev.map((c) => (c.id === lastItem.id ? { ...c, quantity: c.quantity - 1 } : c)),
+          );
+        } else if (e.key === 'Delete') {
+          e.preventDefault();
+          setCart((prev) => prev.filter((c) => c.id !== lastItem.id));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onPosKeyDown);
+    return () => window.removeEventListener('keydown', onPosKeyDown);
+  });
 
   const refreshOfflineCount = useCallback(async () => {
     try {
@@ -312,6 +392,17 @@ export const PosView: React.FC<PosViewProps> = ({
         : new Date().toLocaleString('ar-SA'),
       tenantName: activeLegalEntity?.commercialName || activeLegalEntity?.legalName || 'المطعم',
       branchName: activeBranch?.name || 'الفرع الرئيسي',
+      branchAddress: [
+        (activeLegalEntity as any)?.shortAddress,
+        (activeLegalEntity as any)?.buildingNumber,
+        (activeLegalEntity as any)?.streetName,
+        (activeLegalEntity as any)?.district,
+        (activeLegalEntity as any)?.city,
+        (activeLegalEntity as any)?.postalCode,
+        (activeLegalEntity as any)?.country,
+      ]
+        .filter(Boolean)
+        .join(' — ') || undefined,
       vatNumber: activeLegalEntity?.vatNumber || undefined,
       crNumber: activeLegalEntity?.crNumber || undefined,
       cashierName: user?.displayName || user?.email,
@@ -426,6 +517,17 @@ export const PosView: React.FC<PosViewProps> = ({
       issueDate: new Date(resObj?.createdAt || Date.now()).toLocaleString('ar-SA'),
       tenantName: activeLegalEntity?.commercialName || activeLegalEntity?.legalName || 'المطعم',
       branchName: activeBranch?.name || 'الفرع الرئيسي',
+      branchAddress: [
+        (activeLegalEntity as any)?.shortAddress,
+        (activeLegalEntity as any)?.buildingNumber,
+        (activeLegalEntity as any)?.streetName,
+        (activeLegalEntity as any)?.district,
+        (activeLegalEntity as any)?.city,
+        (activeLegalEntity as any)?.postalCode,
+        (activeLegalEntity as any)?.country,
+      ]
+        .filter(Boolean)
+        .join(' — ') || undefined,
       vatNumber: activeLegalEntity?.vatNumber || undefined,
       crNumber: activeLegalEntity?.crNumber || undefined,
       cashierName: user?.displayName || user?.email,
@@ -662,12 +764,16 @@ export const PosView: React.FC<PosViewProps> = ({
             <div className="relative">
               <Search className="absolute right-4 top-3 text-slate-400" size={18} />
               <input
+                ref={searchInputRef}
                 type="text"
-                placeholder="ابحث بالاسم، الكود، أو امسح الباركود..."
+                placeholder="ابحث بالاسم، الكود، أو امسح الباركود... (F2)"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-2xl pr-11 pl-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-slate-900 border border-slate-800 rounded-2xl pr-11 pl-16 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
+              <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-800 border border-slate-700 rounded absolute left-3 top-2.5">
+                F2
+              </kbd>
             </div>
 
             {/* Category Pills */}
@@ -1237,6 +1343,19 @@ export const PosView: React.FC<PosViewProps> = ({
           void refreshOfflineCount();
         }}
       />
+
+      {/* Keyboard Shortcuts Bar */}
+      <footer className="h-8 bg-slate-900/95 border-t border-slate-800 px-4 flex items-center justify-between text-[11px] text-slate-400 shrink-0 overflow-x-auto">
+        <div className="flex items-center gap-4 whitespace-nowrap">
+          <span><kbd className="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-[10px] font-mono text-slate-200">F2</kbd> بحث الأصناف</span>
+          <span><kbd className="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-[10px] font-mono text-slate-200">F4</kbd> فتح الدفع</span>
+          <span><kbd className="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-[10px] font-mono text-slate-200">F8</kbd> نقدي</span>
+          <span><kbd className="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-[10px] font-mono text-slate-200">F9</kbd> شبكة</span>
+          <span><kbd className="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-[10px] font-mono text-slate-200">+/-</kbd> الكمية</span>
+          <span><kbd className="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-[10px] font-mono text-slate-200">Esc</kbd> إغلاق</span>
+        </div>
+        <span className="text-emerald-400/90 font-mono hidden sm:inline">Keyboard-First POS</span>
+      </footer>
     </div>
   );
 };

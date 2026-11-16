@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import { exportToCsv } from '../utils/export';
+import type { NavTab } from './Sidebar';
 
 interface DashboardSummary {
   salesToday: { orderCount: number; totalAmount: number };
@@ -35,12 +36,14 @@ interface DashboardSummary {
 interface DashboardViewProps {
   onNavigateToCatalog: () => void;
   onNavigateToInventory: () => void;
+  onNavigateTab?: (tab: NavTab) => void;
   locale?: 'ar' | 'en';
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToCatalog,
   onNavigateToInventory,
+  onNavigateTab,
   locale = 'ar',
 }) => {
   const { activeTenant, activeBranch, activeLegalEntity, hierarchy } = useAuth();
@@ -111,7 +114,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Executive Header Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 text-white shadow-sm">
+      <div className="bg-gradient-to-br from-[#0B1614] via-[#102420] to-[#0D6E4F]/90 border border-[#1E3530] rounded-2xl p-6 md:p-8 text-white shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div className="max-w-2xl">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/70 mb-3">
@@ -182,6 +185,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <RefreshCw className="w-3.5 h-3.5" />
             <span>{isEn ? 'Retry' : 'إعادة المحاولة'}</span>
           </button>
+        </div>
+      )}
+
+      {/* Quick Launch Shortcuts */}
+      {onNavigateTab && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { tab: 'pos' as NavTab, ar: 'نقطة البيع (POS)', en: 'Point of Sale', descAr: 'كاشير سريع بلوحة المفاتيح', descEn: 'Keyboard-first terminal' },
+            { tab: 'purchasing' as NavTab, ar: 'المشتريات والطلبات', en: 'Purchasing & PRs', descAr: 'أوامر شراء واستلام', descEn: 'POs, GRNs & Invoices' },
+            { tab: 'accounting' as NavTab, ar: 'المحاسبة والأستاذ', en: 'Accounting & GL', descAr: 'شجرة الحسابات والقيود', descEn: 'COA, JVs & Vaults' },
+            { tab: 'entities' as NavTab, ar: 'الشركات والعنوان الوطني', en: 'Entities & Address', descAr: 'الكيانات والفروع', descEn: 'National Address & VAT' },
+          ].map((q) => (
+            <button
+              key={q.tab}
+              type="button"
+              onClick={() => onNavigateTab(q.tab)}
+              className="rc-card p-3.5 text-start hover:border-[#0D6E4F]/50 hover:shadow-md transition-all flex items-center justify-between gap-2 group"
+            >
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-900 truncate group-hover:text-[#0D6E4F]">
+                  {isEn ? q.en : q.ar}
+                </p>
+                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                  {isEn ? q.descEn : q.descAr}
+                </p>
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-[#0D6E4F] shrink-0" />
+            </button>
+          ))}
         </div>
       )}
 

@@ -100,6 +100,40 @@ export const UpdateSubscriptionPlanRequestSchema = z.object({
 
 export type UpdateSubscriptionPlanRequest = z.infer<typeof UpdateSubscriptionPlanRequestSchema>;
 
+const SaudiNationalAddressFields = {
+  buildingNumber: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^\d{4}$/.test(v), 'Building number must be 4 digits (رقم المبنى 4 أرقام)')
+    .optional()
+    .nullable(),
+  postalCode: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^\d{5}$/.test(v), 'Postal code must be 5 digits (الرمز البريدي 5 أرقام)')
+    .optional()
+    .nullable(),
+  additionalNumber: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^\d{4}$/.test(v), 'Additional number must be 4 digits (الرقم الإضافي 4 أرقام)')
+    .optional()
+    .nullable(),
+  streetName: z.string().trim().max(255).optional().nullable(),
+  district: z.string().trim().max(255).optional().nullable(),
+  city: z.string().trim().max(120).optional().nullable(),
+  shortAddress: z
+    .string()
+    .trim()
+    .refine(
+      (v) => v === '' || /^[A-Za-z]{4}\d{4}$/.test(v),
+      'Short national address must be 4 letters + 4 digits e.g. RRRD2929 (الرمز المختصر 4 أحرف + 4 أرقام)'
+    )
+    .optional()
+    .nullable(),
+  country: z.string().trim().max(100).optional().nullable(),
+};
+
 export const CreateLegalEntityRequestSchema = z.object({
   groupId: z.string().uuid().optional(),
   legalName: z.string().min(2).max(255),
@@ -108,6 +142,7 @@ export const CreateLegalEntityRequestSchema = z.object({
   vatNumber: z.string().regex(/^\d{15}$/, 'Saudi VAT number must be 15 digits'),
   functionalCurrency: z.string().length(3).default('SAR'),
   timezone: z.string().default('Asia/Riyadh'),
+  ...SaudiNationalAddressFields,
 });
 
 export type CreateLegalEntityRequest = z.infer<typeof CreateLegalEntityRequestSchema>;
@@ -118,6 +153,7 @@ export const UpdateLegalEntityRequestSchema = z.object({
   crNumber: z.string().optional(),
   vatNumber: z.string().regex(/^\d{15}$/, 'Saudi VAT number must be 15 digits').optional(),
   timezone: z.string().optional(),
+  ...SaudiNationalAddressFields,
 });
 
 export type UpdateLegalEntityRequest = z.infer<typeof UpdateLegalEntityRequestSchema>;

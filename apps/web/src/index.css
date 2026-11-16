@@ -3,59 +3,93 @@
 @tailwind utilities;
 
 /* ============================================================================
-   Restaurant Cloud — Enterprise Design System
-   Palette: Slate & Emerald | High-contrast tabular financial typography
+   Restaurant Cloud — Enterprise ERP & POS Design System
+   Identity: Warm Ivory Canvas + Deep Pine Accent + Precision Slate Typography
    ============================================================================ */
 
 :root {
-  --rc-bg: #f8fafc;
+  --rc-bg: #f6f7f9;
   --rc-surface: #ffffff;
-  --rc-surface-muted: #f1f5f9;
-  --rc-border: #e2e8f0;
+  --rc-surface-muted: #f1f4f8;
+  --rc-border: #e4e7ec;
+  --rc-border-strong: #cbd5e1;
   --rc-text-primary: #0f172a;
   --rc-text-secondary: #475569;
   --rc-text-muted: #64748b;
-  --rc-accent: #059669;
-  --rc-accent-hover: #047857;
+  --rc-accent: #0d6e4f;
+  --rc-accent-hover: #0a583f;
   --rc-accent-soft: #ecfdf5;
-  --rc-sidebar-bg: #0f172a;
-  --rc-sidebar-border: #1e293b;
+  --rc-sidebar-bg: #0b1614;
+  --rc-sidebar-surface: #122420;
+  --rc-sidebar-border: #1e3530;
 }
 
 @layer base {
   html {
-    font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     color: var(--rc-text-primary);
     background-color: var(--rc-bg);
   }
 
+  /* Accessible keyboard focus indicator across all interactive controls */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid #0d6e4f;
+    outline-offset: 2px;
+  }
+
   .font-mono,
   [data-numeric='true'] {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-variant-numeric: tabular-nums;
   }
 }
 
 @layer components {
   .rc-card {
-    @apply bg-white border border-slate-200 rounded-xl shadow-sm;
+    @apply bg-white border border-slate-200/90 rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.04)];
+  }
+
+  .rc-card-elevated {
+    @apply bg-white border border-slate-200 rounded-2xl shadow-[0_8px_24px_-8px_rgba(15,23,42,0.08)];
+  }
+
+  .rc-input {
+    @apply w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500;
+  }
+
+  .rc-select {
+    @apply w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 transition-colors focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/15 focus:outline-none disabled:bg-slate-100;
   }
 
   .rc-btn-primary {
-    @apply inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs px-4 py-2.5 rounded-lg transition-colors cursor-pointer;
+    @apply inline-flex items-center justify-center gap-2 bg-[#0D6E4F] hover:bg-[#0A583F] active:bg-[#084733] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow-sm cursor-pointer;
   }
 
   .rc-btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-xs px-4 py-2.5 rounded-lg transition-colors cursor-pointer;
+    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 active:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer;
+  }
+
+  .rc-btn-danger {
+    @apply inline-flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow-sm cursor-pointer;
   }
 
   .rc-badge-emerald {
-    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200;
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200;
   }
 
   .rc-badge-slate {
     @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200;
+  }
+
+  .rc-kbd {
+    @apply inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 text-[10px] font-mono font-semibold text-slate-600 bg-slate-100 border border-slate-300 rounded shadow-[0_1px_0_rgba(15,23,42,0.08)];
   }
 }
 
@@ -100,12 +134,11 @@
     background: #ffffff !important;
     padding: 0 !important;
     margin: 0 !important;
-    box-shadow: none !important;
-    border: none !important;
     overflow: visible !important;
+    box-shadow: none !important;
   }
 
-  /* 80mm Thermal Receipt */
+  /* 80mm Thermal Receipt (72mm printable width) */
   .print-receipt-80mm {
     width: 72mm !important;
     max-width: 72mm !important;

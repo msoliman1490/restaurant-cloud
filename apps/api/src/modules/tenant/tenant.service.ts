@@ -345,6 +345,14 @@ export class TenantService implements OnModuleInit {
           vatNumber: dto.vatNumber,
           functionalCurrency: dto.functionalCurrency,
           timezone: dto.timezone,
+          buildingNumber: dto.buildingNumber || null,
+          postalCode: dto.postalCode || null,
+          additionalNumber: dto.additionalNumber || null,
+          streetName: dto.streetName || null,
+          district: dto.district || null,
+          city: dto.city || null,
+          shortAddress: dto.shortAddress ? dto.shortAddress.toUpperCase() : null,
+          country: dto.country || 'المملكة العربية السعودية',
         })
         .returning();
 

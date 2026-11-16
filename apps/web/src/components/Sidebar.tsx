@@ -243,20 +243,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`no-print fixed inset-y-0 ${drawerSideClass} z-40 w-64 bg-slate-900 text-slate-300 flex flex-col border-slate-800 transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 shrink-0 ${drawerTranslateClass}`}
+        className={`no-print fixed inset-y-0 ${drawerSideClass} z-40 w-64 bg-[#0B1614] text-slate-300 flex flex-col border-[#1E3530] transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 shrink-0 ${drawerTranslateClass}`}
         aria-label={isEn ? 'Main navigation' : 'القائمة الرئيسية'}
       >
-        <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800">
+        <div className="h-16 flex items-center justify-between px-5 border-b border-[#1E3530]">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-white shadow-sm shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-[#0D6E4F] flex items-center justify-center font-bold text-white shadow-sm shrink-0">
               RC
             </div>
             <div className="min-w-0">
               <h1 className="font-bold text-sm text-white leading-tight truncate">
                 Restaurant Cloud
               </h1>
-              <span className="text-[11px] text-slate-400 block truncate">
-                {isEn ? 'Enterprise Backoffice' : 'نظام إدارة المطاعم المركزي'}
+              <span className="text-[11px] text-emerald-300/80 block truncate">
+                {isEn ? 'Enterprise ERP & POS' : 'منصة المطاعم السحابية'}
               </span>
             </div>
           </div>
@@ -266,7 +266,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={onClose}
               aria-label={isEn ? 'Close navigation menu' : 'إغلاق القائمة الجانبية'}
-              className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#122420] transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -285,10 +285,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => handleSelect(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
                   isActive
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'hover:bg-slate-800/80 hover:text-white text-slate-300'
+                    ? 'bg-[#0D6E4F] text-white shadow-sm'
+                    : 'hover:bg-[#122420] hover:text-white text-slate-300'
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -310,10 +310,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => handleSelect(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
                       isActive
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'hover:bg-slate-800/80 hover:text-white text-slate-300'
+                        ? 'bg-[#0D6E4F] text-white shadow-sm'
+                        : 'hover:bg-[#122420] hover:text-white text-slate-300'
                     }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
@@ -326,9 +326,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
 
         {/* Footer System Info */}
-        <div className="p-4 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-          <span>{isEn ? 'v1.0 (Live Context)' : 'الإصدار 1.0 (Live Context)'}</span>
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+        <div className="p-4 border-t border-[#1E3530] text-[11px] text-slate-400 flex items-center justify-between">
+          <span>{isEn ? 'Enterprise v2.0' : 'الإصدار 2.0 (Staging)'}</span>
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
         </div>
       </aside>
     </>

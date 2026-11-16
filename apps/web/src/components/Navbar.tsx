@@ -12,6 +12,8 @@ import {
   RefreshCw,
   AlertCircle,
   Loader2,
+  Search,
+  Keyboard,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
@@ -37,12 +39,16 @@ interface NavbarProps {
   onToggleSidebar?: () => void;
   locale?: 'ar' | 'en';
   onToggleLocale?: () => void;
+  onOpenCommandPalette?: () => void;
+  onOpenShortcuts?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   onToggleSidebar,
   locale = 'ar',
   onToggleLocale,
+  onOpenCommandPalette,
+  onOpenShortcuts,
 }) => {
   const {
     user,
@@ -258,6 +264,31 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Globe className="w-3.5 h-3.5 text-slate-500" />
             <span>{isEn ? 'عربي' : 'EN'}</span>
+          </button>
+        )}
+
+        {onOpenCommandPalette && (
+          <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            title={isEn ? 'Quick Jump (Ctrl+K)' : 'انتقال سريع (Ctrl+K)'}
+            className="hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs text-slate-600 transition-colors cursor-pointer"
+          >
+            <Search className="w-3.5 h-3.5 text-slate-400" />
+            <span>{isEn ? 'Quick Jump' : 'انتقال سريع'}</span>
+            <kbd className="rc-kbd">Ctrl+K</kbd>
+          </button>
+        )}
+
+        {onOpenShortcuts && (
+          <button
+            type="button"
+            onClick={onOpenShortcuts}
+            title={isEn ? 'Keyboard Shortcuts (?)' : 'اختصارات لوحة المفاتيح (?)'}
+            aria-label={isEn ? 'Keyboard Shortcuts' : 'اختصارات لوحة المفاتيح'}
+            className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+          >
+            <Keyboard className="w-4 h-4" />
           </button>
         )}
 

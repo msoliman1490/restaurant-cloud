@@ -47,6 +47,15 @@ export const legalEntities = pgTable(
     vatNumber: varchar('vat_number', { length: 50 }).notNull(),
     functionalCurrency: varchar('functional_currency', { length: 3 }).notNull().default('SAR'),
     timezone: varchar('timezone', { length: 50 }).notNull().default('Asia/Riyadh'),
+    // Saudi National Address (العنوان الوطني السعودي)
+    buildingNumber: varchar('building_number', { length: 10 }),
+    postalCode: varchar('postal_code', { length: 10 }),
+    additionalNumber: varchar('additional_number', { length: 10 }),
+    streetName: varchar('street_name', { length: 255 }),
+    district: varchar('district', { length: 255 }),
+    city: varchar('city', { length: 120 }),
+    shortAddress: varchar('short_address', { length: 16 }),
+    country: varchar('country', { length: 100 }).default('المملكة العربية السعودية'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

@@ -28,6 +28,7 @@ import { LoginView } from './components/LoginView';
 import { OnboardingWizardView } from './components/OnboardingWizardView';
 import { SubscriptionBillingView } from './components/SubscriptionBillingView';
 import { SuperAdminView } from './components/SuperAdminView';
+import { BusinessPartnersDirectoryView } from './components/BusinessPartnersDirectoryView';
 import { CommandPalette, CommandItem } from './components/ui/CommandPalette';
 import { KeyboardShortcutsModal } from './components/ui/KeyboardShortcutsModal';
 import { Loader2 } from 'lucide-react';
@@ -164,9 +165,11 @@ const AppContent: React.FC = () => {
                   />
                 )}
                 {currentTab === 'catalog' && <CatalogView />}
+                {currentTab === 'customers' && <BusinessPartnersDirectoryView mode="CUSTOMER" />}
                 {currentTab === 'inventory' && <InventoryView />}
                 {currentTab === 'transfers' && <TransfersView />}
                 {currentTab === 'purchasing' && <PurchasingView />}
+                {currentTab === 'suppliers' && <BusinessPartnersDirectoryView mode="VENDOR" />}
                 {currentTab === 'production' && <ProductionView />}
                 {currentTab === 'dining' && <DiningView />}
                 {currentTab === 'accounting' && <AccountingView />}

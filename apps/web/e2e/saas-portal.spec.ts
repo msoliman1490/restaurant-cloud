@@ -70,6 +70,12 @@ test.describe('SaaS Portal, Auth Redesign, Onboarding & Subscriptions E2E', () =
     await expect(page.locator('h3:has-text("إدارة قوالب رسائل WhatsApp")')).toBeVisible();
     await expect(page.locator('td:has-text("ORDER_CONFIRMATION")').first()).toBeVisible();
 
+    // Navigate to Customers & Suppliers directories
+    await page.click('aside button:has-text("سجل العملاء")');
+    await expect(page.locator('h2:has-text("سجل العملاء الموحد")')).toBeVisible();
+    await page.click('aside button:has-text("سجل الموردين")');
+    await expect(page.locator('h2:has-text("سجل الموردين الموحد")')).toBeVisible();
+
     expect(pageErrors).toEqual([]);
     expect(apiErrors).toEqual([]);
   });

@@ -29,10 +29,12 @@ export type NavTab =
   | 'dashboard'
   | 'onboarding'
   | 'pos'
+  | 'customers'
   | 'catalog'
   | 'inventory'
   | 'transfers'
   | 'purchasing'
+  | 'suppliers'
   | 'production'
   | 'dining'
   | 'accounting'
@@ -127,6 +129,13 @@ export const NAVIGATION_GROUPS: NavGroupConfig[] = [
         icon: ChefHat,
         requiredPermissions: ['production.read', 'production.manage'],
       },
+      {
+        id: 'customers',
+        labelAr: 'سجل العملاء',
+        labelEn: 'Customers',
+        icon: Users,
+        requiredPermissions: ['partner.view', 'sales.read'],
+      },
     ],
   },
   {
@@ -152,9 +161,16 @@ export const NAVIGATION_GROUPS: NavGroupConfig[] = [
       {
         id: 'purchasing',
         labelAr: 'المشتريات وسلاسل الإمداد',
-        labelEn: 'Purchasing & Suppliers',
+        labelEn: 'Purchasing & Invoices',
         icon: ShoppingCart,
         requiredPermissions: ['purchasing.read', 'purchasing.manage'],
+      },
+      {
+        id: 'suppliers',
+        labelAr: 'سجل الموردين',
+        labelEn: 'Suppliers',
+        icon: Building2,
+        requiredPermissions: ['partner.view', 'purchasing.read'],
       },
     ],
   },

@@ -42,15 +42,45 @@ export class PartnersController {
     @CurrentContext() context: TenantContext,
     @Query('role') role?: string,
     @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
+    @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
   ) {
     const data = await this.partnersService.listPartners(context, {
       role,
       search,
+      status,
+      sortBy,
+      sortDir,
+      page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
     });
+    return { success: true, data };
+  }
+
+  @Get(':id/statement')
+  @RequirePermissions('partner.view')
+  async getPartnerStatement(
+    @CurrentContext() context: TenantContext,
+    @Param('id') partnerId: string,
+    @Query('role') role?: 'CUSTOMER' | 'VENDOR'
+  ) {
+    const data = await this.partnersService.getPartnerStatement(context, partnerId, role);
+    return { success: true, data };
+  }
+
+  @Post(':id/roles')
+  @RequirePermissions('partner.edit')
+  async addPartnerRole(
+    @CurrentContext() context: TenantContext,
+    @Param('id') partnerId: string,
+    @Body('roleType') roleType: 'CUSTOMER' | 'VENDOR'
+  ) {
+    const data = await this.partnersService.addPartnerRole(context, partnerId, roleType);
     return { success: true, data };
   }
 

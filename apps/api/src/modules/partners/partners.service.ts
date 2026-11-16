@@ -13,6 +13,8 @@ import {
   partnerContacts,
   partnerCompanySettings,
   partnerBalances,
+  arInvoices,
+  apInvoices,
 } from '@restaurant-cloud/database';
 import {
   CreateBusinessPartnerRequest,
@@ -22,7 +24,7 @@ import {
   SetPartnerCompanySettingsRequest,
 } from '@restaurant-cloud/shared-contracts';
 import { TenantContext } from '@restaurant-cloud/domain-kernel';
-import { eq, and, sql, or, ilike, desc } from 'drizzle-orm';
+import { eq, and, sql, or, ilike, desc, asc, inArray } from 'drizzle-orm';
 
 @Injectable()
 export class PartnersService {
@@ -230,25 +232,45 @@ export class PartnersService {
   }
 
   /**
-   * List Partners with search and role filtering.
+   * List Partners with server-side pagination, search, role/status filtering, sorting & batched AR/AP metrics.
    */
   async listPartners(
     context: TenantContext,
-    query: { role?: string; search?: string; limit?: number; offset?: number }
+    query: {
+      role?: string;
+      search?: string;
+      status?: string;
+      sortBy?: string;
+      sortDir?: string;
+      page?: number;
+      limit?: number;
+      offset?: number;
+    }
   ) {
     return await this.dbService.withTenantContext(context, async (tx) => {
-      const limit = query.limit || 50;
-      const offset = query.offset || 0;
+      const limit = Math.min(100, Math.max(1, query.limit || 20));
+      const page = Math.max(1, query.page || 1);
+      const offset = query.offset !== undefined ? query.offset : (page - 1) * limit;
 
       const conditions = [eq(businessPartners.tenantId, context.tenantId)];
 
+      if (query.status === 'ACTIVE') {
+        conditions.push(eq(businessPartners.isActive, true));
+      } else if (query.status === 'INACTIVE') {
+        conditions.push(eq(businessPartners.isActive, false));
+      }
+
       if (query.search) {
+        const term = `%${query.search.trim()}%`;
         conditions.push(
           or(
-            ilike(businessPartners.legalNameAr, `%${query.search}%`),
-            ilike(businessPartners.partnerNumber, `%${query.search}%`),
-            ilike(businessPartners.taxIdentificationNumber, `%${query.search}%`),
-            ilike(businessPartners.commercialRegistrationNumber, `%${query.search}%`)
+            ilike(businessPartners.legalNameAr, term),
+            ilike(businessPartners.legalNameEn, term),
+            ilike(businessPartners.tradeNameAr, term),
+            ilike(businessPartners.partnerNumber, term),
+            ilike(businessPartners.primaryPhone, term),
+            ilike(businessPartners.taxIdentificationNumber, term),
+            ilike(businessPartners.commercialRegistrationNumber, term)
           )!
         );
       }
@@ -265,27 +287,226 @@ export class PartnersService {
           );
         const pIds = matchingPartners.map((m) => m.partnerId);
         if (pIds.length === 0) {
-          return { items: [], total: 0 };
+          return { items: [], total: 0, page, limit, totalPages: 0 };
         }
-        conditions.push(sql`${businessPartners.id} IN ${pIds}`);
+        conditions.push(inArray(businessPartners.id, pIds));
       }
 
-      const items = await tx
+      const dirFn = query.sortDir === 'asc' ? asc : desc;
+      const orderExpr =
+        query.sortBy === 'legalNameAr'
+          ? dirFn(businessPartners.legalNameAr)
+          : query.sortBy === 'partnerNumber'
+            ? dirFn(businessPartners.partnerNumber)
+            : dirFn(businessPartners.createdAt);
+
+      const rawItems = await tx
         .select()
         .from(businessPartners)
         .where(and(...conditions))
-        .orderBy(desc(businessPartners.createdAt))
+        .orderBy(orderExpr)
         .limit(limit)
         .offset(offset);
 
       const [totalRes] = await tx
-        .select({ count: sql<number>`count(*)` })
+        .select({ count: sql<number>`count(*)::int` })
         .from(businessPartners)
         .where(and(...conditions));
 
+      const total = Number(totalRes?.count || 0);
+      if (rawItems.length === 0) {
+        return { items: [], total, page, limit, totalPages: Math.ceil(total / limit) };
+      }
+
+      const ids = rawItems.map((i) => i.id);
+
+      const [rolesRows, balRows, arAggRows, apAggRows] = await Promise.all([
+        tx
+          .select({ partnerId: partnerRoles.partnerId, roleType: partnerRoles.roleType })
+          .from(partnerRoles)
+          .where(and(eq(partnerRoles.tenantId, context.tenantId), inArray(partnerRoles.partnerId, ids))),
+        tx
+          .select({
+            partnerId: partnerBalances.partnerId,
+            arBalance: partnerBalances.customerBalance,
+            apBalance: partnerBalances.vendorBalance,
+          })
+          .from(partnerBalances)
+          .where(and(eq(partnerBalances.tenantId, context.tenantId), inArray(partnerBalances.partnerId, ids))),
+        tx
+          .select({
+            partnerId: arInvoices.partnerId,
+            totalSales: sql<string>`coalesce(sum(${arInvoices.grandTotal}), 0)::text`,
+            lastSaleAt: sql<string>`max(${arInvoices.issueDate})::text`,
+          })
+          .from(arInvoices)
+          .where(and(eq(arInvoices.tenantId, context.tenantId), inArray(arInvoices.partnerId, ids)))
+          .groupBy(arInvoices.partnerId),
+        tx
+          .select({
+            partnerId: apInvoices.partnerId,
+            totalPurchases: sql<string>`coalesce(sum(${apInvoices.grandTotal}), 0)::text`,
+            lastInvoiceAt: sql<string>`max(${apInvoices.invoiceDate})::text`,
+          })
+          .from(apInvoices)
+          .where(and(eq(apInvoices.tenantId, context.tenantId), inArray(apInvoices.partnerId, ids)))
+          .groupBy(apInvoices.partnerId),
+      ]);
+
+      const rolesMap = new Map<string, string[]>();
+      for (const r of rolesRows) {
+        const list = rolesMap.get(r.partnerId) ?? [];
+        list.push(r.roleType);
+        rolesMap.set(r.partnerId, list);
+      }
+
+      const balMap = new Map<string, { arBalance: number; apBalance: number }>();
+      for (const b of balRows) {
+        const prev = balMap.get(b.partnerId) ?? { arBalance: 0, apBalance: 0 };
+        prev.arBalance += Number(b.arBalance || 0);
+        prev.apBalance += Number(b.apBalance || 0);
+        balMap.set(b.partnerId, prev);
+      }
+
+      const arMap = new Map(arAggRows.map((a) => [a.partnerId, a]));
+      const apMap = new Map(apAggRows.map((a) => [a.partnerId, a]));
+
+      const items = rawItems.map((item) => {
+        const bal = balMap.get(item.id) ?? { arBalance: 0, apBalance: 0 };
+        const arAgg = arMap.get(item.id);
+        const apAgg = apMap.get(item.id);
+        return {
+          ...item,
+          roles: rolesMap.get(item.id) ?? [],
+          arBalance: bal.arBalance,
+          apBalance: bal.apBalance,
+          totalSales: Number(arAgg?.totalSales || 0),
+          lastSaleAt: arAgg?.lastSaleAt || null,
+          totalPurchases: Number(apAgg?.totalPurchases || 0),
+          lastInvoiceAt: apAgg?.lastInvoiceAt || null,
+        };
+      });
+
       return {
         items,
-        total: Number(totalRes?.count || 0),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    });
+  }
+
+  /**
+   * Activate an additional role (e.g. CUSTOMER or VENDOR) on an existing Business Partner without duplication.
+   */
+  async addPartnerRole(context: TenantContext, partnerId: string, roleType: 'CUSTOMER' | 'VENDOR') {
+    return this.dbService.withTenantContext(context, async (tx) => {
+      const [partner] = await tx
+        .select()
+        .from(businessPartners)
+        .where(and(eq(businessPartners.tenantId, context.tenantId), eq(businessPartners.id, partnerId)))
+        .limit(1);
+      if (!partner) {
+        throw new NotFoundException('الطرف التجاري غير موجود');
+      }
+
+      const [existingRole] = await tx
+        .select()
+        .from(partnerRoles)
+        .where(
+          and(
+            eq(partnerRoles.tenantId, context.tenantId),
+            eq(partnerRoles.partnerId, partnerId),
+            eq(partnerRoles.roleType, roleType)
+          )
+        )
+        .limit(1);
+
+      if (existingRole) {
+        return existingRole;
+      }
+
+      const [created] = await tx
+        .insert(partnerRoles)
+        .values({
+          tenantId: context.tenantId,
+          partnerId,
+          roleType,
+          status: 'ACTIVE',
+        })
+        .returning();
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'PARTNER_ROLE_ADDED',
+          entityType: 'BUSINESS_PARTNER',
+          entityId: partnerId,
+          afterState: { roleType },
+        },
+        tx
+      );
+
+      return created;
+    });
+  }
+
+  /**
+   * Get Partner Statement of Account (كشف حساب العميل / المورد) from AR/AP subledger invoices.
+   */
+  async getPartnerStatement(context: TenantContext, partnerId: string, role?: 'CUSTOMER' | 'VENDOR') {
+    return this.dbService.withTenantContext(context, async (tx) => {
+      const [partner] = await tx
+        .select()
+        .from(businessPartners)
+        .where(and(eq(businessPartners.tenantId, context.tenantId), eq(businessPartners.id, partnerId)))
+        .limit(1);
+      if (!partner) {
+        throw new NotFoundException('الطرف التجاري غير موجود');
+      }
+
+      const [arRows, apRows, balances] = await Promise.all([
+        role === 'VENDOR'
+          ? Promise.resolve([])
+          : tx
+              .select({
+                id: arInvoices.id,
+                invoiceNumber: arInvoices.invoiceNumber,
+                invoiceDate: arInvoices.issueDate,
+                grandTotal: arInvoices.grandTotal,
+                balanceDue: arInvoices.remainingAmount,
+                status: arInvoices.status,
+              })
+              .from(arInvoices)
+              .where(and(eq(arInvoices.tenantId, context.tenantId), eq(arInvoices.partnerId, partnerId)))
+              .orderBy(desc(arInvoices.issueDate)),
+        role === 'CUSTOMER'
+          ? Promise.resolve([])
+          : tx
+              .select({
+                id: apInvoices.id,
+                invoiceNumber: apInvoices.internalNumber,
+                invoiceDate: apInvoices.invoiceDate,
+                grandTotal: apInvoices.grandTotal,
+                balanceDue: apInvoices.remainingAmount,
+                status: apInvoices.status,
+              })
+              .from(apInvoices)
+              .where(and(eq(apInvoices.tenantId, context.tenantId), eq(apInvoices.partnerId, partnerId)))
+              .orderBy(desc(apInvoices.invoiceDate)),
+        tx
+          .select()
+          .from(partnerBalances)
+          .where(and(eq(partnerBalances.tenantId, context.tenantId), eq(partnerBalances.partnerId, partnerId))),
+      ]);
+
+      return {
+        partner,
+        balances,
+        arInvoices: arRows,
+        apInvoices: apRows,
       };
     });
   }

@@ -1,48 +1,16 @@
-import React from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  LayoutDashboard,
-  UtensilsCrossed,
-  Boxes,
-  ArrowLeftRight,
-  Building2,
-  Receipt,
-  ShoppingCart,
-  ChefHat,
-  Utensils,
-  BookOpen,
-  Layers,
-  Users,
-  ShieldCheck,
-  Settings,
-  FileText,
-  Lock,
-  QrCode,
-  Truck,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { NAVIGATION_GROUPS, type NavTab, type NavItemConfig } from '../config/navigation';
 
-export type NavTab =
-  | 'dashboard'
-  | 'pos'
-  | 'catalog'
-  | 'inventory'
-  | 'transfers'
-  | 'purchasing'
-  | 'production'
-  | 'dining'
-  | 'accounting'
-  | 'reconciliation'
-  | 'period-closing'
-  | 'zatca-v2'
-  | 'entities'
-  | 'users'
-  | 'hr'
-  | 'delivery'
-  | 'roles'
-  | 'settings'
-  | 'audit'
-  | 'industries';
+export type { NavTab };
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -53,6 +21,9 @@ interface SidebarProps {
   locale?: 'ar' | 'en';
 }
 
+const COLLAPSED_STORAGE_KEY = 'rc_sidebar_collapsed_v1';
+const GROUPS_STORAGE_KEY = 'rc_sidebar_groups_v1';
+
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onSelectTab,
@@ -61,167 +32,109 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   locale = 'ar',
 }) => {
-  const { role } = useAuth();
+  const { role, permissions, hasPermission } = useAuth();
   const isCashierOnly = role?.name === 'CASHIER';
   const isEn = locale === 'en';
+  const navRef = useRef<HTMLElement>(null);
 
-  const operationsNav = [
-    {
-      id: 'dashboard' as NavTab,
-      labelAr: 'لوحة التحكم',
-      labelEn: 'Dashboard',
-      icon: LayoutDashboard,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'pos' as NavTab,
-      labelAr: 'نقاط البيع والكاشير (POS)',
-      labelEn: 'Point of Sale (POS)',
-      icon: Receipt,
-      show: true,
-    },
-    {
-      id: 'catalog' as NavTab,
-      labelAr: 'قائمة المنتجات والتسعير',
-      labelEn: 'Catalog & Pricing',
-      icon: UtensilsCrossed,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'dining' as NavTab,
-      labelAr: 'إدارة الصالة والطاولات',
-      labelEn: 'Dining & Tables',
-      icon: Utensils,
-      show: !isCashierOnly && activeIndustries.includes('RESTAURANT'),
-    },
-    {
-      id: 'inventory' as NavTab,
-      labelAr: 'أرصدة المخزون والتكلفة',
-      labelEn: 'Inventory & Costing',
-      icon: Boxes,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'purchasing' as NavTab,
-      labelAr: 'المشتريات وسلاسل الإمداد',
-      labelEn: 'Purchasing & Supply',
-      icon: ShoppingCart,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'production' as NavTab,
-      labelAr: 'الوصفات والتصنيع (BOM)',
-      labelEn: 'Recipes & Production',
-      icon: ChefHat,
-      show:
-        !isCashierOnly &&
-        activeIndustries.some((ind) =>
-          ['RESTAURANT', 'CAFE', 'BAKERY', 'CATERING'].includes(ind)
-        ),
-    },
-    {
-      id: 'transfers' as NavTab,
-      labelAr: 'التحويلات والمناقلات',
-      labelEn: 'Stock Transfers',
-      icon: ArrowLeftRight,
-      show: !isCashierOnly,
-    },
-  ];
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(COLLAPSED_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
-  const filteredOperationsNav = operationsNav.filter((item) => item.show);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const defaults: Record<string, boolean> = {};
+    NAVIGATION_GROUPS.forEach((g) => {
+      defaults[g.id] = g.defaultOpen !== false;
+    });
+    try {
+      const saved = localStorage.getItem(GROUPS_STORAGE_KEY);
+      if (saved) {
+        return { ...defaults, ...JSON.parse(saved) };
+      }
+    } catch {
+      // Ignore storage errors
+    }
+    return defaults;
+  });
 
-  const enterpriseNav = [
-    {
-      id: 'entities' as NavTab,
-      labelAr: 'الشركات والفروع',
-      labelEn: 'Entities & Branches',
-      icon: Building2,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'users' as NavTab,
-      labelAr: 'المستخدمون',
-      labelEn: 'Users',
-      icon: Users,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'roles' as NavTab,
-      labelAr: 'الأدوار والصلاحيات',
-      labelEn: 'Roles & Permissions',
-      icon: ShieldCheck,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'settings' as NavTab,
-      labelAr: 'إعدادات المنشأة',
-      labelEn: 'Organization Settings',
-      icon: Settings,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'audit' as NavTab,
-      labelAr: 'سجل الرقابة (Audit)',
-      labelEn: 'Audit Logs',
-      icon: FileText,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'accounting' as NavTab,
-      labelAr: 'المحاسبة ودفتر الأستاذ',
-      labelEn: 'Accounting & Ledger',
-      icon: BookOpen,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'reconciliation' as NavTab,
-      labelAr: 'المصالحات والتقارير المالية',
-      labelEn: 'Reconciliation & Reports',
-      icon: ShieldCheck,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'period-closing' as NavTab,
-      labelAr: 'إقفال الفترات المالية',
-      labelEn: 'Period Closing',
-      icon: Lock,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'zatca-v2' as NavTab,
-      labelAr: 'الفوترة الإلكترونية ZATCA V2',
-      labelEn: 'ZATCA V2 E-Invoicing',
-      icon: QrCode,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'hr' as NavTab,
-      labelAr: 'الموظفون والموارد البشرية',
-      labelEn: 'HR & Employees',
-      icon: Users,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'delivery' as NavTab,
-      labelAr: 'التوصيل والسائقون',
-      labelEn: 'Delivery & Drivers',
-      icon: Truck,
-      show: !isCashierOnly,
-    },
-    {
-      id: 'industries' as NavTab,
-      labelAr: 'قطاعات المنشأة وباقات SaaS',
-      labelEn: 'Industries & SaaS Packs',
-      icon: Layers,
-      show: !isCashierOnly,
-    },
-  ];
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSED_STORAGE_KEY, String(isCollapsed));
+    } catch {
+      // Ignore
+    }
+  }, [isCollapsed]);
 
-  const filteredEnterpriseNav = enterpriseNav.filter((item) => item.show);
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(openGroups));
+    } catch {
+      // Ignore
+    }
+  }, [openGroups]);
+
+  // Ensure the group containing the active tab stays open when navigating
+  useEffect(() => {
+    const activeGroup = NAVIGATION_GROUPS.find((g) =>
+      g.items.some((item) => item.id === currentTab),
+    );
+    if (activeGroup && !openGroups[activeGroup.id]) {
+      setOpenGroups((prev) => ({ ...prev, [activeGroup.id]: true }));
+    }
+  }, [currentTab]);
+
+  const canAccessItem = (item: NavItemConfig): boolean => {
+    if (isCashierOnly && !item.cashierAllowed) return false;
+    if (item.requiredIndustry && !activeIndustries.includes(item.requiredIndustry)) {
+      return false;
+    }
+    if (!item.requiredPermissions || item.requiredPermissions.length === 0) {
+      return true;
+    }
+    if (!permissions || permissions.length === 0 || permissions.includes('*')) {
+      return true;
+    }
+    return item.requiredPermissions.some((perm) => hasPermission(perm));
+  };
+
+  const visibleGroups = useMemo(
+    () =>
+      NAVIGATION_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter(canAccessItem),
+      })).filter((group) => group.items.length > 0),
+    [activeIndustries, isCashierOnly, permissions],
+  );
+
+  const toggleGroup = (groupId: string) => {
+    setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
 
   const handleSelect = (tab: NavTab) => {
     onSelectTab(tab);
     onClose?.();
+  };
+
+  // Keyboard navigation with ArrowUp / ArrowDown across visible sidebar items
+  const handleNavKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const buttons = Array.from(
+      navRef.current?.querySelectorAll<HTMLButtonElement>('button[data-nav-item="true"]') || [],
+    );
+    if (buttons.length === 0) return;
+    const activeIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (activeIndex === -1) return;
+
+    e.preventDefault();
+    const nextIndex =
+      e.key === 'ArrowDown'
+        ? (activeIndex + 1) % buttons.length
+        : (activeIndex - 1 + buttons.length) % buttons.length;
+    buttons[nextIndex]?.focus();
   };
 
   const drawerSideClass = isEn ? 'left-0 border-r' : 'right-0 border-l';
@@ -231,9 +144,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ? '-translate-x-full lg:translate-x-0'
     : 'translate-x-full lg:translate-x-0';
 
+  const desktopWidthClass = isCollapsed ? 'lg:w-[74px]' : 'lg:w-64';
+
   return (
     <>
-      {/* Mobile/Tablet Backdrop */}
       {isOpen && (
         <div
           className="no-print fixed inset-0 z-30 bg-slate-950/50 backdrop-blur-[1px] lg:hidden"
@@ -243,92 +157,177 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`no-print fixed inset-y-0 ${drawerSideClass} z-40 w-64 bg-[#0B1614] text-slate-300 flex flex-col border-[#1E3530] transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 shrink-0 ${drawerTranslateClass}`}
+        className={`no-print fixed inset-y-0 ${drawerSideClass} z-40 w-64 ${desktopWidthClass} bg-[#0B1614] text-slate-200 flex flex-col border-[#1E3530] transition-all duration-200 ease-in-out lg:static lg:translate-x-0 shrink-0 ${drawerTranslateClass}`}
         aria-label={isEn ? 'Main navigation' : 'القائمة الرئيسية'}
       >
-        <div className="h-16 flex items-center justify-between px-5 border-b border-[#1E3530]">
-          <div className="flex items-center gap-3 min-w-0">
+        {/* Brand Header */}
+        <div className="h-16 flex items-center justify-between px-4 border-b border-[#1E3530] shrink-0">
+          <div className={`flex items-center gap-3 min-w-0 ${isCollapsed ? 'lg:justify-center lg:w-full' : ''}`}>
             <div className="w-9 h-9 rounded-xl bg-[#0D6E4F] flex items-center justify-center font-bold text-white shadow-sm shrink-0">
               RC
             </div>
-            <div className="min-w-0">
-              <h1 className="font-bold text-sm text-white leading-tight truncate">
-                Restaurant Cloud
-              </h1>
-              <span className="text-[11px] text-emerald-300/80 block truncate">
-                {isEn ? 'Enterprise ERP & POS' : 'منصة المطاعم السحابية'}
-              </span>
-            </div>
+            {!isCollapsed && (
+              <div className="min-w-0">
+                <h1 className="font-bold text-sm text-white leading-tight truncate">
+                  Restaurant Cloud
+                </h1>
+                <span className="text-[11px] text-emerald-300/80 block truncate">
+                  {isEn ? 'Cloud Restaurant ERP' : 'إدارة المطاعم السحابية'}
+                </span>
+              </div>
+            )}
           </div>
 
-          {onClose && (
+          <div className="flex items-center gap-1">
+            {/* Desktop Collapse Toggle */}
             <button
               type="button"
-              onClick={onClose}
-              aria-label={isEn ? 'Close navigation menu' : 'إغلاق القائمة الجانبية'}
-              className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#122420] transition-colors cursor-pointer"
+              onClick={() => setIsCollapsed((prev) => !prev)}
+              aria-label={
+                isCollapsed
+                  ? isEn ? 'Expand sidebar' : 'توسيع القائمة الجانبية'
+                  : isEn ? 'Collapse sidebar' : 'تصغير القائمة الجانبية'
+              }
+              title={
+                isCollapsed
+                  ? isEn ? 'Expand sidebar' : 'توسيع القائمة'
+                  : isEn ? 'Collapse sidebar' : 'تصغير القائمة'
+              }
+              className="hidden lg:inline-flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#122420] transition-colors cursor-pointer"
             >
-              <X className="w-4 h-4" />
+              {isCollapsed ? (
+                isEn ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />
+              ) : (
+                isEn ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />
+              )}
             </button>
-          )}
+
+            {/* Mobile Close */}
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={isEn ? 'Close navigation menu' : 'إغلاق القائمة الجانبية'}
+                className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#122420] transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
-        <nav className="flex-1 p-3.5 space-y-1 overflow-y-auto">
-          <div className="text-[11px] font-semibold text-slate-400 px-3 py-1.5 uppercase tracking-wider">
-            {isEn ? 'Operations' : 'العمليات والتشغيل'}
-          </div>
-          {filteredOperationsNav.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentTab === item.id;
+        {/* Navigation Groups */}
+        <nav
+          ref={navRef}
+          onKeyDown={handleNavKeyDown}
+          className="flex-1 p-3 space-y-3 overflow-y-auto"
+        >
+          {visibleGroups.map((group) => {
+            const isGroupOpen = isCollapsed ? true : openGroups[group.id] !== false;
             return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleSelect(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
-                  isActive
-                    ? 'bg-[#0D6E4F] text-white shadow-sm'
-                    : 'hover:bg-[#122420] hover:text-white text-slate-300'
-                }`}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                <span className="truncate">{isEn ? item.labelEn : item.labelAr}</span>
-              </button>
+              <div key={group.id} className="space-y-1">
+                {!isCollapsed ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.id)}
+                    aria-expanded={isGroupOpen}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <span className="truncate">{isEn ? group.titleEn : group.titleAr}</span>
+                    {isGroupOpen ? (
+                      <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    ) : isEn ? (
+                      <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    ) : (
+                      <ChevronLeft className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    )}
+                  </button>
+                ) : (
+                  <div className="mx-2 my-1 border-t border-[#1E3530]" />
+                )}
+
+                {isGroupOpen && (
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = currentTab === item.id;
+                      const label = isEn ? item.labelEn : item.labelAr;
+
+                      return (
+                        <div key={item.id} className="relative group/nav">
+                          <button
+                            type="button"
+                            data-nav-item="true"
+                            onClick={() => handleSelect(item.id)}
+                            aria-current={isActive ? 'page' : undefined}
+                            aria-label={label}
+                            title={isCollapsed ? label : undefined}
+                            className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-all cursor-pointer ${
+                              isCollapsed ? 'lg:justify-center lg:px-2' : ''
+                            } ${
+                              isActive
+                                ? 'bg-[#0D6E4F]/25 text-white font-semibold'
+                                : 'text-slate-300 hover:bg-[#122420] hover:text-white font-medium'
+                            }`}
+                          >
+                            {/* Thin Side Accent Bar for Active Item */}
+                            {isActive && (
+                              <span
+                                aria-hidden="true"
+                                className={`absolute top-2 bottom-2 w-1 rounded-full bg-emerald-400 ${
+                                  isEn ? 'left-0' : 'right-0'
+                                }`}
+                              />
+                            )}
+                            <Icon
+                              className={`w-4 h-4 shrink-0 ${
+                                isActive ? 'text-emerald-400' : 'text-slate-400 group-hover/nav:text-slate-200'
+                              }`}
+                            />
+                            {!isCollapsed && (
+                              <span className="truncate flex-1 text-start">{label}</span>
+                            )}
+                            {!isCollapsed && typeof item.badgeCount === 'number' && item.badgeCount > 0 && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                {item.badgeCount}
+                              </span>
+                            )}
+                          </button>
+
+                          {/* Tooltip when sidebar is collapsed on desktop */}
+                          {isCollapsed && (
+                            <span
+                              role="tooltip"
+                              className={`hidden lg:group-hover/nav:flex lg:group-focus-within/nav:flex items-center whitespace-nowrap absolute top-1/2 -translate-y-1/2 z-50 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium shadow-lg border border-slate-700 pointer-events-none ${
+                                isEn ? 'left-full ml-2.5' : 'right-full mr-2.5'
+                              }`}
+                            >
+                              {label}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
-
-          {!isCashierOnly && filteredEnterpriseNav.length > 0 && (
-            <>
-              <div className="text-[11px] font-semibold text-slate-400 px-3 pt-5 pb-1.5 uppercase tracking-wider">
-                {isEn ? 'Enterprise & Finance' : 'إدارة المنشأة والمالية'}
-              </div>
-              {filteredEnterpriseNav.map((item) => {
-                const Icon = item.icon;
-                const isActive = currentTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleSelect(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
-                      isActive
-                        ? 'bg-[#0D6E4F] text-white shadow-sm'
-                        : 'hover:bg-[#122420] hover:text-white text-slate-300'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{isEn ? item.labelEn : item.labelAr}</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
         </nav>
 
-        {/* Footer System Info */}
-        <div className="p-4 border-t border-[#1E3530] text-[11px] text-slate-400 flex items-center justify-between">
-          <span>{isEn ? 'Enterprise v2.0' : 'الإصدار 2.0 (Staging)'}</span>
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
+        {/* Clean Footer */}
+        <div className="p-3.5 border-t border-[#1E3530] text-[11px] text-slate-400 flex items-center justify-between">
+          {!isCollapsed ? (
+            <>
+              <span className="truncate">Restaurant Cloud</span>
+              <span className="inline-flex items-center gap-1.5 text-emerald-400 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                {isEn ? 'Online' : 'متصل'}
+              </span>
+            </>
+          ) : (
+            <span className="mx-auto w-2 h-2 rounded-full bg-emerald-400" title={isEn ? 'Online' : 'متصل'} />
+          )}
         </div>
       </aside>
     </>

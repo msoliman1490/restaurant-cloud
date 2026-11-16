@@ -1136,7 +1136,7 @@ export const InventoryView: React.FC = () => {
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
             <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="font-bold text-sm text-slate-800">أوامر الجرد المخزني الفعلي والتسويات (Physical Stocktake Engine)</h3>
+                <h3 className="font-bold text-sm text-slate-800">أوامر الجرد المخزني الفعلي والتسويات</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   تثبيت الأرصدة الدفترية تلقائياً، تسجيل العد الفعلي، احتساب الفروقات، وتوليد قيود وحركات التسوية المحاسبية
                 </p>

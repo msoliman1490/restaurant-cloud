@@ -140,7 +140,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     },
     connected: {
       dot: 'bg-emerald-500',
-      label: isEn ? 'PostgreSQL 16 Connected' : 'PostgreSQL 16 متصل',
+      label: isEn ? 'System Connected' : 'النظام متصل',
       pill: 'bg-emerald-50/70 border-emerald-200 text-emerald-800',
     },
     disconnected: {
@@ -180,7 +180,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <span className="hidden xl:inline-flex text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium border border-emerald-200 items-center gap-1.5 shrink-0">
           <ShieldCheck className="w-3.5 h-3.5" />
-          <span>{isEn ? 'RLS Active' : 'عزل RLS نشط'}</span>
+          <span>{isEn ? 'Isolated Workspace' : 'بيئة معزولة وآمنة'}</span>
         </span>
 
         {/* Branch Selector Dropdown */}

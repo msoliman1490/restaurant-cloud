@@ -45,7 +45,7 @@ const COMMAND_ITEMS: CommandItem[] = [
   { id: 'accounting', labelAr: 'المحاسبة ودفتر الأستاذ', labelEn: 'Accounting & GL', groupAr: 'المالية والامتثال', groupEn: 'Finance & Compliance' },
   { id: 'reconciliation', labelAr: 'المصالحات والتقارير المالية', labelEn: 'Reconciliation & Reports', groupAr: 'المالية والامتثال', groupEn: 'Finance & Compliance' },
   { id: 'period-closing', labelAr: 'إقفال الفترات المالية', labelEn: 'Period Closing', groupAr: 'المالية والامتثال', groupEn: 'Finance & Compliance' },
-  { id: 'zatca-v2', labelAr: 'الفوترة الإلكترونية ZATCA V2', labelEn: 'ZATCA Phase 2', groupAr: 'المالية والامتثال', groupEn: 'Finance & Compliance' },
+  { id: 'zatca-v2', labelAr: 'الفوترة الإلكترونية ZATCA', labelEn: 'ZATCA E-Invoicing', groupAr: 'التكامل والامتثال', groupEn: 'Integrations & Compliance' },
   { id: 'entities', labelAr: 'الشركات والفروع والعنوان الوطني', labelEn: 'Legal Entities & National Address', groupAr: 'الحوكمة والإدارة', groupEn: 'Governance' },
   { id: 'users', labelAr: 'المستخدمون', labelEn: 'Users', groupAr: 'الحوكمة والإدارة', groupEn: 'Governance' },
   { id: 'roles', labelAr: 'الأدوار والصلاحيات', labelEn: 'Roles & Permissions', groupAr: 'الحوكمة والإدارة', groupEn: 'Governance' },

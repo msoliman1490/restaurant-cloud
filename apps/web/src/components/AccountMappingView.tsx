@@ -580,9 +580,9 @@ export const AccountMappingView: React.FC<AccountMappingViewProps> = ({
           </div>
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2">
-              <span>محرك الربط المحاسبي واستثناءات الفروع</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 font-semibold border border-indigo-500/20">
-                Phase 3.3 Engine
+              <span>الربط المحاسبي واستثناءات الفروع</span>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-[#0D6E4F] font-semibold border border-emerald-500/20">
+                الربط التلقائي
               </span>
             </h2>
             <p className="text-xs text-slate-500 mt-1">

@@ -119,7 +119,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="max-w-2xl">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/70 mb-3">
               <Shield className="w-3.5 h-3.5 text-emerald-400" />
-              {isEn ? 'Live Context: PostgreSQL 16 + RLS' : 'سياق حي: PostgreSQL 16 + RLS'}
+              {isEn ? 'Active Cloud Workspace' : 'بيئة العمل النشطة'}
             </span>
             <h2 className="text-xl md:text-2xl font-bold mb-2">
               {isEn
@@ -391,7 +391,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {isEn ? 'Sales Trend (Last 7 Days)' : 'مخطط المبيعات (آخر 7 أيام)'}
               </h3>
               <span className="rc-badge-emerald">
-                {isEn ? 'Live PostgreSQL' : 'بيانات حية'}
+                {isEn ? 'Live Data' : 'بيانات فورية'}
               </span>
             </div>
             <button
@@ -458,7 +458,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
             <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200/70">
               <span className="font-medium text-slate-700">
-                {isEn ? 'Registered ZATCA Phase 2 Units' : 'وحدات ZATCA Phase 2 المسجلة'}
+                {isEn ? 'Registered E-Invoicing Units' : 'أجهزة الفوترة الإلكترونية المسجلة'}
               </span>
               <span className="text-slate-900 font-bold font-mono">
                 {summary?.zatca.egsUnitsCount ?? 0} {isEn ? 'EGS Units' : 'وحدة EGS'}

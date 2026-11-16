@@ -356,7 +356,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 )}
                 <p className="text-[10px] text-slate-500 mt-1.5">
                   {isEn
-                    ? 'ZATCA Phase 2 Electronic Invoice QR'
+                    ? 'ZATCA Electronic Invoice QR'
                     : 'رمز الفاتورة الإلكترونية — هيئة الزكاة والضريبة والجمارك'}
                 </p>
               </div>

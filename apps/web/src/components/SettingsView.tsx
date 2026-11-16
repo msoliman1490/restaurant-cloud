@@ -140,7 +140,7 @@ export const SettingsView: React.FC = () => {
         channel,
         recipient: channel === 'WHATSAPP' ? testRecipient : webhookUrl || 'https://webhook.local/test',
         eventType: 'TEST_MESSAGE',
-        payload: { message: 'رسالة اختبار من Restaurant Cloud Staging' },
+        payload: { message: 'رسالة اختبار من Restaurant Cloud' },
         idempotencyKey: `TEST-${channel}-${Date.now()}`,
       });
       setSuccessMsg(`تم إرسال إشعار اختبار عبر ${channel}`);

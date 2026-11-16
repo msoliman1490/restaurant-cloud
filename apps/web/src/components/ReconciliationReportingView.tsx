@@ -388,7 +388,7 @@ export const ReconciliationReportingView: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900">المصالحات والتقارير المالية</h1>
-            <p className="text-xs text-slate-500">محرك المطابقة الموحد، ميزان المراجعة الهرمي، وكشوفات الأستاذ العام</p>
+            <p className="text-xs text-slate-500">المطابقة المالية الموحدة، ميزان المراجعة الهرمي، وكشوفات الأستاذ العام</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

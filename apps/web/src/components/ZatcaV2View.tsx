@@ -120,10 +120,10 @@ export const ZatcaV2View: React.FC = () => {
       const res = await apiClient.post<any>('/api/v1/zatca/outbox/watchdog', {
         legalEntityId: selectedEntityId,
       });
-      showToast(`استرداد Watchdog: ${res.recoveredCount || 0} عملية متعثرة`, 'success');
+      showToast(`تمت معالجة ${res.recoveredCount || 0} عملية متعثرة`, 'success');
       await loadZatcaData();
     } catch (err: any) {
-      showToast(err?.message || 'تعذر تشغيل Watchdog', 'error');
+      showToast(err?.message || 'تعذر إعادة معالجة العمليات المتعثرة', 'error');
     }
   };
 
@@ -132,11 +132,11 @@ export const ZatcaV2View: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <QrCode className="w-5 h-5 text-indigo-600" />
-            جاهزية الفوترة الإلكترونية ZATCA Phase 2 (Staging)
+            <QrCode className="w-5 h-5 text-[#0D6E4F]" />
+            الفوترة الإلكترونية (ZATCA)
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            ZATCA V1 نشط دون تغيير — وحدات POS EGS مستقلة، توقيع ECDSA، تسلسل ICV/PIH، وOutbox مع Watchdog.
+            إدارة ربط نقاط البيع، الشهادات الرقمية، تسلسل الفواتير الضريبية، وصف الإرسال والمزامنة.
           </p>
         </div>
 
@@ -163,10 +163,10 @@ export const ZatcaV2View: React.FC = () => {
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
         {[
-          { id: 'config', label: 'إعدادات المنشأة وV1/V2', icon: ShieldCheck },
-          { id: 'egs', label: 'وحدات POS EGS والشهادات', icon: KeyRound },
+          { id: 'config', label: 'إعدادات المنشأة والربط', icon: ShieldCheck },
+          { id: 'egs', label: 'أجهزة نقاط البيع والشهادات', icon: KeyRound },
           { id: 'documents', label: 'سجل الفواتير والإشعارات', icon: QrCode },
-          { id: 'outbox', label: 'صف الإرسال وWatchdog', icon: Send },
+          { id: 'outbox', label: 'صف الإرسال والمزامنة', icon: Send },
           { id: 'reports', label: 'تقارير الأخطاء والمصالحة', icon: Activity },
         ].map((t) => {
           const Icon = t.icon;
@@ -176,7 +176,7 @@ export const ZatcaV2View: React.FC = () => {
               onClick={() => setActiveTab(t.id as ZatcaTab)}
               className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${
                 activeTab === t.id
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-[#0D6E4F] text-white'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -190,8 +190,8 @@ export const ZatcaV2View: React.FC = () => {
       {activeTab === 'config' && (
         <form onSubmit={handleSaveConfig} className="bg-white p-6 rounded-xl border border-slate-200 space-y-4 max-w-2xl">
           <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-800">
-            <span>حالة ZATCA V1: <strong>نشط دائماً (Active)</strong></span>
-            <span>حالة V2 في الإنتاج: <strong>معطل حتى القبول النهائي</strong></span>
+            <span>حالة الفوترة المبسطة: <strong>نشطة</strong></span>
+            <span>حالة الربط المباشر: <strong>مربوط بإعدادات المنشأة</strong></span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -203,15 +203,15 @@ export const ZatcaV2View: React.FC = () => {
               <input value={sellerNameAr} onChange={(e) => setSellerNameAr(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" required />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">بيئة الربط (Staging فقط)</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">بيئة الربط</label>
               <select value={environment} onChange={(e) => setEnvironment(e.target.value as any)} className="w-full border rounded-lg px-3 py-2 text-sm">
-                <option value="SANDBOX">SANDBOX</option>
-                <option value="SIMULATION">SIMULATION</option>
+                <option value="SANDBOX">بيئة الاختبار</option>
+                <option value="SIMULATION">بيئة المحاكاة</option>
               </select>
             </div>
             <div className="flex items-center gap-2 pt-5">
               <input type="checkbox" checked={v2Enabled} onChange={(e) => setV2Enabled(e.target.checked)} id="v2Toggle" />
-              <label htmlFor="v2Toggle" className="text-sm text-slate-700">تفعيل V2 على Staging للاختبار</label>
+              <label htmlFor="v2Toggle" className="text-sm text-slate-700">تفعيل الربط المباشر للفوترة الإلكترونية</label>
             </div>
           </div>
           <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">حفظ إعدادات المنشأة</button>
@@ -285,7 +285,7 @@ export const ZatcaV2View: React.FC = () => {
         <div className="space-y-4">
           <div className="flex gap-3">
             <button onClick={handleProcessOutbox} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">تشغيل دفعة الإرسال (Outbox)</button>
-            <button onClick={handleWatchdog} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium">استرداد العمليات المتعثرة (Watchdog)</button>
+            <button onClick={handleWatchdog} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium">إعادة معالجة العمليات المتعثرة</button>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
             <table className="w-full text-sm text-right">

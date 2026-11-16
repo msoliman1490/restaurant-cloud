@@ -107,7 +107,7 @@ test.describe('Batch 2 Staging E2E & Product Quality', () => {
     await snap(page, '01-dashboard-rtl.png');
 
     const modules: Array<{ label: string; file: string; subTab?: string }> = [
-      { label: 'نقاط البيع والكاشير (POS)', file: '02-pos.png' },
+      { label: 'نقاط البيع POS', file: '02-pos.png' },
       { label: 'إدارة الصالة والطاولات', file: '03-dining.png' },
       { label: 'المشتريات وسلاسل الإمداد', file: '04-purchasing-pr.png', subTab: 'طلبات الشراء' },
       { label: 'أرصدة المخزون والتكلفة', file: '05-inventory.png' },
@@ -122,7 +122,7 @@ test.describe('Batch 2 Staging E2E & Product Quality', () => {
         file: '08-accounting-settlements.png',
         subTab: 'تسويات الدفع والتوصيل',
       },
-      { label: 'الفوترة الإلكترونية ZATCA V2', file: '09-zatca-v2.png' },
+      { label: 'الفوترة الإلكترونية ZATCA', file: '09-zatca-v2.png' },
       { label: 'إقفال الفترات المالية', file: '10-period-closing.png' },
       { label: 'المصالحات والتقارير المالية', file: '11-reports.png' },
     ];
@@ -193,7 +193,7 @@ test.describe('Batch 2 Staging E2E & Product Quality', () => {
     const issues = attachListeners(page);
     await login(page);
 
-    const posNav = page.locator('aside nav button', { hasText: 'نقاط البيع والكاشير (POS)' }).first();
+    const posNav = page.locator('aside nav button', { hasText: 'نقاط البيع POS' }).first();
     await posNav.click();
     await waitForSpinnersToSettle(page, 15_000);
 
@@ -258,7 +258,7 @@ test.describe('Batch 2 Staging E2E & Product Quality', () => {
       await menuBtn.click();
       await page.waitForTimeout(300);
     }
-    const posBtn = page.locator('aside nav button', { hasText: 'نقاط البيع والكاشير (POS)' }).first();
+    const posBtn = page.locator('aside nav button', { hasText: 'نقاط البيع POS' }).first();
     await posBtn.click({ force: true });
     await waitForSpinnersToSettle(page, 10_000);
 

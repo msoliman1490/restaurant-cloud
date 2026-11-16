@@ -108,8 +108,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <Server className="w-3.5 h-3.5 text-emerald-400" />
             <span>
               {isEn
-                ? 'Live Environment: PostgreSQL 16 + RLS Multi-Tenant'
-                : 'بيئة حقيقية: PostgreSQL 16 + RLS Multi-Tenant'}
+                ? 'Secure Multi-Branch Cloud Platform'
+                : 'منصة سحابية آمنة ومتعددة الفروع'}
             </span>
           </div>
         </div>
@@ -265,9 +265,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
         {/* Security & Compliance Footer */}
         <div className="mt-6 text-center text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-3">
-          <span>{isEn ? 'ZATCA Phase 2 Compliant' : 'متوافق مع ZATCA المرحلة 2'}</span>
+          <span>{isEn ? 'ZATCA E-Invoicing Ready' : 'متوافق مع متطلبات هيئة الزكاة والضريبة'}</span>
           <span>•</span>
-          <span>{isEn ? 'Strict RLS Isolation' : 'عزل RLS تام لكل شركة'}</span>
+          <span>{isEn ? 'Multi-Entity Data Isolation' : 'عزل كامل لبيانات كل منشأة'}</span>
           <span>•</span>
           <span>SSL 256-bit</span>
         </div>

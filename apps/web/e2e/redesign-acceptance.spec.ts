@@ -76,6 +76,18 @@ test.describe('Restaurant Cloud — Complete UI/UX Redesign Acceptance', () => {
     const focusedPlaceholder = await page.evaluate(() => (document.activeElement as HTMLInputElement)?.placeholder || '');
     expect(focusedPlaceholder).toContain('F2');
 
+    // Test Sidebar Collapse/Expand & Keyboard ArrowDown navigation
+    const collapseBtn = page.locator('aside button[aria-label="تصغير القائمة الجانبية"]');
+    await collapseBtn.click();
+    await expect(page.locator('aside button[aria-label="توسيع القائمة الجانبية"]')).toBeVisible();
+    await page.locator('aside button[aria-label="توسيع القائمة الجانبية"]').click();
+
+    const firstNav = page.locator('aside button[data-nav-item="true"]').first();
+    await firstNav.focus();
+    await page.keyboard.press('ArrowDown');
+    const focusedNavLabel = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || '');
+    expect(focusedNavLabel.length).toBeGreaterThan(0);
+
     expect(pageErrors).toEqual([]);
     expect(apiErrors).toEqual([]);
   });

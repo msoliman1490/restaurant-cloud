@@ -318,8 +318,8 @@ export const PeriodClosingView: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Lock className="w-5 h-5 text-indigo-600" />
-            محرك إقفال الفترات المالية (Phase 3.6)
+            <Lock className="w-5 h-5 text-[#0D6E4F]" />
+            إقفال الفترات المالية
           </h2>
           <p className="text-sm text-slate-500 mt-1">
             إدارة السنوات والفترات المالية، فحوصات ما قبل الإقفال، ميزان المراجعة النهائي، وإعادة الفتح المقيدة بالصلاحيات.

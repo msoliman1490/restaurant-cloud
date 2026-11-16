@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 import { useToast } from '../context/ToastContext';
 import {
   Truck,
@@ -75,6 +76,7 @@ interface CashVault {
 
 export const DeliveryView: React.FC = () => {
   const { hierarchy, activeLegalEntity, activeBranch } = useAuth();
+  const { dir } = useLocale();
   const legalEntities = hierarchy?.legalEntities || [];
   const branches = hierarchy?.branches || [];
   const { showToast } = useToast();
@@ -228,7 +230,7 @@ export const DeliveryView: React.FC = () => {
   const driverMap = Object.fromEntries(drivers.map((d) => [d.id, d]));
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-white p-5 shadow-sm border border-slate-200">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-orange-600">

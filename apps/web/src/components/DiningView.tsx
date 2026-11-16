@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 import { ReceiptPrintModal, ReceiptPrintData } from './ReceiptPrintModal';
 
 interface TableCard {
@@ -48,6 +49,7 @@ interface KitchenTicket {
 
 export const DiningView = () => {
   const { user, activeBranch, activeLegalEntity, hierarchy } = useAuth();
+  const { dir } = useLocale();
   const [tables, setTables] = useState<TableCard[]>([]);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>([]);
   const [voids, setVoids] = useState<any[]>([]);
@@ -76,6 +78,16 @@ export const DiningView = () => {
   const [printedOrderKeys, setPrintedOrderKeys] = useState<Set<string>>(() => new Set());
   const [isPrintingGuard, setIsPrintingGuard] = useState(false);
   const [isReprintPreview, setIsReprintPreview] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedTable) {
+        setSelectedTable(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedTable]);
 
   const openReceiptPreview = useCallback(
     (receipt: ReceiptPrintData, orderKey: string, forceReprint = false) => {
@@ -361,7 +373,7 @@ export const DiningView = () => {
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-800">إدارة صالات الطعام والطاولات والمطبخ (Dining & KDS)</h2>
@@ -375,7 +387,7 @@ export const DiningView = () => {
               type="button"
               disabled={isPrintingGuard}
               onClick={() => openReceiptPreview(lastCheckedOutReceipt.data, lastCheckedOutReceipt.key, true)}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-medium text-xs transition-colors shadow-sm"
+              className="flex items-center gap-2 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-medium text-xs transition-colors shadow-sm"
             >
               <Printer className="w-4 h-4" />
               <span>إعادة طباعة آخر فاتورة (نسخة مطبوعة)</span>
@@ -383,7 +395,7 @@ export const DiningView = () => {
           )}
           <button
             onClick={handleAddTable}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
+            className="flex items-center gap-2 bg-[#0D6E4F] hover:bg-[#0A583F] text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
             <span>إضافة طاولة جديدة</span>
@@ -396,7 +408,7 @@ export const DiningView = () => {
         <button
           onClick={() => setActiveTab('floor')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'floor' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'floor' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Armchair className="w-4 h-4" />
@@ -405,7 +417,7 @@ export const DiningView = () => {
         <button
           onClick={() => setActiveTab('kitchen')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'kitchen' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'kitchen' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <ChefHat className="w-4 h-4" />
@@ -414,7 +426,7 @@ export const DiningView = () => {
         <button
           onClick={() => setActiveTab('voids')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'voids' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'voids' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Ban className="w-4 h-4" />
@@ -425,7 +437,7 @@ export const DiningView = () => {
       {/* Loading / Error State */}
       {loading && (
         <div className="bg-white rounded-2xl border border-slate-200 p-8 flex items-center justify-center gap-3 text-slate-600 text-sm">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+          <Loader2 className="w-5 h-5 animate-spin text-[#0D6E4F]" />
           <span>جاري تحميل بيانات الطاولات والمطبخ...</span>
         </div>
       )}
@@ -460,7 +472,7 @@ export const DiningView = () => {
               key={t.id}
               className={`p-5 rounded-2xl border-2 transition-all ${
                 t.status === 'OCCUPIED'
-                  ? 'border-indigo-500 bg-indigo-50/40'
+                  ? 'border-[#0D6E4F] bg-emerald-50/40'
                   : t.status === 'RESERVED'
                   ? 'border-amber-400 bg-amber-50/40'
                   : 'border-slate-200 bg-white'
@@ -471,7 +483,7 @@ export const DiningView = () => {
                 <span
                   className={`px-2.5 py-1 rounded-full text-xs font-bold ${
                     t.status === 'OCCUPIED'
-                      ? 'bg-indigo-600 text-white'
+                      ? 'bg-[#0D6E4F] text-white'
                       : t.status === 'RESERVED'
                       ? 'bg-amber-500 text-white'
                       : 'bg-emerald-100 text-emerald-700'
@@ -488,7 +500,7 @@ export const DiningView = () => {
                   <span>السعة: {t.capacity} مقاعد</span>
                 </p>
                 {t.status === 'OCCUPIED' && (
-                  <p className="text-indigo-700 font-bold mt-2">
+                  <p className="text-[#0D6E4F] font-bold mt-2">
                     الطلب الحالي: {Number(t.activeOrderTotal || 0).toFixed(2)} ر.س
                   </p>
                 )}
@@ -505,7 +517,7 @@ export const DiningView = () => {
                 ) : (
                   <button
                     onClick={() => openTableModal(t)}
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-xl"
+                    className="flex-1 bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-bold py-2 rounded-xl"
                   >
                     إدارة الطلب والسداد
                   </button>
@@ -562,7 +574,7 @@ export const DiningView = () => {
                 {kt.status === 'READY' && (
                   <button
                     onClick={() => handleAdvanceTicket(kt.id, 'SERVED')}
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 rounded-lg flex items-center justify-center gap-1"
+                    className="flex-1 bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-bold py-1.5 rounded-lg flex items-center justify-center gap-1"
                   >
                     <UtensilsCrossed className="w-3.5 h-3.5" /> تم التسليم
                   </button>
@@ -595,8 +607,8 @@ export const DiningView = () => {
 
       {/* Table Order & Settlement Modal */}
       {selectedTable && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 text-slate-900 rounded-2xl shadow-sm max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="font-bold text-lg text-slate-900">
                 طاولة {selectedTable.tableNumber} — إدارة الطلب والمطبخ والسداد
@@ -627,7 +639,7 @@ export const DiningView = () => {
                 placeholder="الكمية"
                 className="px-3 py-2 rounded-lg border border-slate-200 text-xs"
               />
-              <button type="submit" className="bg-indigo-600 text-white rounded-lg text-xs font-bold px-3 py-2">
+              <button type="submit" className="bg-[#0D6E4F] hover:bg-[#0A583F] text-white rounded-lg text-xs font-bold px-3 py-2">
                 إضافة وإرسال للمطبخ
               </button>
               <input
@@ -656,7 +668,7 @@ export const DiningView = () => {
                     <span className="font-semibold text-slate-800">{l.itemNameAr || l.itemId}</span>
                     <span className="text-slate-500 mr-2">×{Number(l.quantity)}</span>
                     {l.modifiers?.length > 0 && (
-                      <span className="text-indigo-600 mr-2">
+                      <span className="text-[#0D6E4F] mr-2">
                         ({l.modifiers.map((m: any) => m.modifierNameAr).join('، ')})
                       </span>
                     )}

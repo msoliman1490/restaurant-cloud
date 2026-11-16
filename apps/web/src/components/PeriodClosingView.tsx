@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 
 type ClosingTab = 'periods' | 'precheck' | 'pending' | 'trial-balance' | 'logs';
 
@@ -70,6 +71,7 @@ interface PreCheckResult {
 
 export const PeriodClosingView: React.FC = () => {
   const { showToast } = useToast();
+  const { dir } = useLocale();
   const [activeTab, setActiveTab] = useState<ClosingTab>('periods');
   const [entities, setEntities] = useState<LegalEntityOption[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
@@ -118,6 +120,20 @@ export const PeriodClosingView: React.FC = () => {
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closeTarget, setCloseTarget] = useState<FiscalPeriodRow | null>(null);
   const [closeNotes, setCloseNotes] = useState('');
+
+  useEffect(() => {
+    if (!showYearModal && !showPeriodModal && !showCloseModal && !showReopenModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowYearModal(false);
+        setShowPeriodModal(false);
+        setShowCloseModal(false);
+        setShowReopenModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showYearModal, showPeriodModal, showCloseModal, showReopenModal]);
 
   const loadEntities = useCallback(async () => {
     try {
@@ -313,7 +329,7 @@ export const PeriodClosingView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div>
@@ -345,7 +361,7 @@ export const PeriodClosingView: React.FC = () => {
 
           <button
             onClick={() => setShowYearModal(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-[#0D6E4F] text-white rounded-lg text-sm font-medium hover:bg-[#0A583F]"
           >
             <Plus className="w-4 h-4" />
             سنة مالية
@@ -353,7 +369,7 @@ export const PeriodClosingView: React.FC = () => {
 
           <button
             onClick={() => setShowPeriodModal(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-900"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-sm font-medium"
           >
             <Plus className="w-4 h-4" />
             فترة مالية
@@ -386,7 +402,7 @@ export const PeriodClosingView: React.FC = () => {
               onClick={() => setActiveTab(t.id as ClosingTab)}
               className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 active
-                  ? 'bg-indigo-600 text-white shadow-sm'
+                  ? 'bg-[#0D6E4F] text-white shadow-sm'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -399,8 +415,8 @@ export const PeriodClosingView: React.FC = () => {
 
       {/* Selected Period Banner */}
       {selectedPeriod && (
-        <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-indigo-900">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-blue-800">
             <span className="font-semibold">الفترة المحددة:</span> {selectedPeriod.periodName} (
             {String(selectedPeriod.startDate).slice(0, 10)} → {String(selectedPeriod.endDate).slice(0, 10)})
           </div>
@@ -444,7 +460,7 @@ export const PeriodClosingView: React.FC = () => {
                 {periods.map((p) => (
                   <tr
                     key={p.id}
-                    className={`hover:bg-slate-50 cursor-pointer ${selectedPeriod?.id === p.id ? 'bg-indigo-50/40' : ''}`}
+                    className={`hover:bg-slate-50 cursor-pointer ${selectedPeriod?.id === p.id ? 'bg-blue-50/40' : ''}`}
                     onClick={() => setSelectedPeriod(p)}
                   >
                     <td className="px-4 py-3 font-medium text-slate-900">{p.periodName}</td>
@@ -455,7 +471,7 @@ export const PeriodClosingView: React.FC = () => {
                     <td className="px-4 py-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => handleRunPrecheck(p)}
-                        className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 text-xs font-medium"
+                        className="px-2.5 py-1 bg-blue-50 text-blue-800 border border-blue-200 rounded hover:bg-blue-100 text-xs font-medium"
                       >
                         فحص الإقفال
                       </button>
@@ -747,7 +763,7 @@ export const PeriodClosingView: React.FC = () => {
               <input type="checkbox" checked={generateMonthly} onChange={(e) => setGenerateMonthly(e.target.checked)} />
               توليد 12 فترة شهرية تلقائياً
             </label>
-            <button type="submit" className="w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">حفظ السنة المالية</button>
+            <button type="submit" className="w-full py-2 bg-[#0D6E4F] hover:bg-[#0A583F] text-white rounded-lg text-sm font-medium">حفظ السنة المالية</button>
           </form>
         </div>
       )}
@@ -771,7 +787,7 @@ export const PeriodClosingView: React.FC = () => {
               <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" required />
               <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" required />
             </div>
-            <button type="submit" className="w-full py-2 bg-slate-800 text-white rounded-lg text-sm font-medium">إنشاء الفترة</button>
+            <button type="submit" className="w-full py-2 bg-[#0D6E4F] hover:bg-[#0A583F] text-white rounded-lg text-sm font-medium">إنشاء الفترة</button>
           </form>
         </div>
       )}

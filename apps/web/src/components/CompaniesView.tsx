@@ -299,7 +299,7 @@ export const CompaniesView: React.FC = () => {
           </div>
           <button
             onClick={fetchData}
-            className="p-2 text-slate-400 hover:text-indigo-600 rounded-xl hover:bg-slate-50 transition-all"
+            className="p-2 text-slate-400 hover:text-[#0D6E4F] rounded-xl hover:bg-slate-50 transition-all"
             title="تحديث البيانات"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -319,7 +319,7 @@ export const CompaniesView: React.FC = () => {
             {entities.map((entity) => (
               <div
                 key={entity.id}
-                className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-indigo-300 transition-all shadow-sm space-y-3"
+                className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-[#0D6E4F]/40 transition-all shadow-sm space-y-3"
               >
                 <div className="flex items-start justify-between">
                   <div>
@@ -407,7 +407,7 @@ export const CompaniesView: React.FC = () => {
             <select
               value={selectedEntityId}
               onChange={(e) => setSelectedEntityId(e.target.value)}
-              className="text-xs px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="text-xs px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
             >
               <option value="all">جميع الشركات ({branches.length} فرع)</option>
               {entities.map((ent) => (
@@ -434,7 +434,7 @@ export const CompaniesView: React.FC = () => {
               return (
                 <div
                   key={branch.id}
-                  className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-indigo-300 transition-all shadow-sm space-y-3"
+                  className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-[#0D6E4F]/40 transition-all shadow-sm space-y-3"
                 >
                   <div className="flex items-start justify-between">
                     <div>
@@ -444,7 +444,7 @@ export const CompaniesView: React.FC = () => {
                         </span>
                         <h3 className="font-bold text-slate-900 text-base">{branch.name}</h3>
                       </div>
-                      <p className="text-xs text-indigo-600 font-medium mt-1">
+                      <p className="text-xs text-[#0D6E4F] font-medium mt-1">
                         {entity?.legalName || 'شركة غير محددة'}
                       </p>
                     </div>
@@ -460,7 +460,7 @@ export const CompaniesView: React.FC = () => {
                         });
                         setIsBranchModalOpen(true);
                       }}
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                      className="p-1.5 text-slate-400 hover:text-[#0D6E4F] hover:bg-emerald-50 rounded-lg transition-all"
                       title="تعديل"
                     >
                       <Edit2 className="w-4 h-4" />
@@ -511,7 +511,7 @@ export const CompaniesView: React.FC = () => {
                   value={entityForm.legalName}
                   onChange={(e) => setEntityForm({ ...entityForm, legalName: e.target.value })}
                   placeholder="مثال: شركة ضيافة السحاب المحدودة"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 />
               </div>
 
@@ -522,7 +522,7 @@ export const CompaniesView: React.FC = () => {
                   value={entityForm.commercialName}
                   onChange={(e) => setEntityForm({ ...entityForm, commercialName: e.target.value })}
                   placeholder="مثال: مطاعم كلاود"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 />
               </div>
 
@@ -536,7 +536,7 @@ export const CompaniesView: React.FC = () => {
                     value={entityForm.vatNumber}
                     onChange={(e) => setEntityForm({ ...entityForm, vatNumber: e.target.value })}
                     placeholder="300000000000003"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   />
                 </div>
                 <div>
@@ -546,7 +546,7 @@ export const CompaniesView: React.FC = () => {
                     value={entityForm.crNumber}
                     onChange={(e) => setEntityForm({ ...entityForm, crNumber: e.target.value })}
                     placeholder="1010000000"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   />
                 </div>
               </div>
@@ -560,7 +560,7 @@ export const CompaniesView: React.FC = () => {
                     maxLength={3}
                     value={entityForm.functionalCurrency}
                     onChange={(e) => setEntityForm({ ...entityForm, functionalCurrency: e.target.value.toUpperCase() })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   />
                 </div>
                 <div>
@@ -750,7 +750,7 @@ export const CompaniesView: React.FC = () => {
                     required
                     value={branchForm.legalEntityId}
                     onChange={(e) => setBranchForm({ ...branchForm, legalEntityId: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   >
                     {entities.map((e) => (
                       <option key={e.id} value={e.id}>
@@ -770,7 +770,7 @@ export const CompaniesView: React.FC = () => {
                     value={branchForm.code}
                     onChange={(e) => setBranchForm({ ...branchForm, code: e.target.value.toUpperCase() })}
                     placeholder="مثال: BR-02"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   />
                 </div>
                 <div>
@@ -781,7 +781,7 @@ export const CompaniesView: React.FC = () => {
                     value={branchForm.name}
                     onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })}
                     placeholder="مثال: فرع التحلية"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   />
                 </div>
               </div>
@@ -792,7 +792,7 @@ export const CompaniesView: React.FC = () => {
                   <select
                     value={branchForm.businessType}
                     onChange={(e) => setBranchForm({ ...branchForm, businessType: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   >
                     <option value="RESTAURANT">مطعم (Restaurant)</option>
                     <option value="CAFE">مقهى (Cafe)</option>
@@ -808,7 +808,7 @@ export const CompaniesView: React.FC = () => {
                     required
                     value={branchForm.timezone}
                     onChange={(e) => setBranchForm({ ...branchForm, timezone: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   />
                 </div>
               </div>
@@ -824,7 +824,7 @@ export const CompaniesView: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-slate-900 text-white font-semibold hover:bg-slate-800 disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-[#0D6E4F] text-white font-semibold hover:bg-[#0A583F] disabled:opacity-50"
                 >
                   {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   {editingBranch ? 'حفظ التعديلات' : 'إضافة الفرع'}

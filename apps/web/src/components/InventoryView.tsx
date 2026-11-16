@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 import {
   Boxes,
   ArrowLeftRight,
@@ -166,6 +167,7 @@ const INITIAL_MOVEMENTS: InventoryMovementRow[] = [
 
 export const InventoryView: React.FC = () => {
   const { activeLegalEntity, activeBranch } = useAuth();
+  const { dir } = useLocale();
   const [activeTab, setActiveTab] = useState<'BALANCES' | 'WAREHOUSES' | 'MOVEMENTS' | 'TRANSFERS' | 'STOCKTAKE'>('BALANCES');
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([ALL_WAREHOUSES_OPTION]);
@@ -290,6 +292,32 @@ export const InventoryView: React.FC = () => {
 
   // Stocktake Count Entry Modal
   const [selectedStocktakeForCount, setSelectedStocktakeForCount] = useState<StocktakeOrder | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedStocktakeForCount) setSelectedStocktakeForCount(null);
+        else if (isStocktakeModalOpen) setIsStocktakeModalOpen(false);
+        else if (selectedTransferForReceive) setSelectedTransferForReceive(null);
+        else if (isTransferModalOpen) setIsTransferModalOpen(false);
+        else if (isWarehouseModalOpen) setIsWarehouseModalOpen(false);
+        else if (selectedMovementForReversal) setSelectedMovementForReversal(null);
+        else if (isIssueModalOpen) setIsIssueModalOpen(false);
+        else if (isReceiveModalOpen) setIsReceiveModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    selectedStocktakeForCount,
+    isStocktakeModalOpen,
+    selectedTransferForReceive,
+    isTransferModalOpen,
+    isWarehouseModalOpen,
+    selectedMovementForReversal,
+    isIssueModalOpen,
+    isReceiveModalOpen,
+  ]);
   const [countedItems, setCountedItems] = useState<Array<{ id: string; name: string; sku: string; sysQty: number; countQty: number; unitCost: number }>>([
     { id: 'prod-1', name: 'برجر أنجوس كلاسيك (شريحة خام)', sku: 'BRG-001', sysQty: 85, countQty: 85, unitCost: 14.5 },
     { id: 'prod-2', name: 'برجر دجاج كرسبي مقرمش', sku: 'BRG-002', sysQty: 18, countQty: 15, unitCost: 11.0 },
@@ -569,7 +597,7 @@ export const InventoryView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 text-right" dir="rtl">
+    <div className="space-y-6 text-right" dir={dir}>
       {/* Header & Quick Action Buttons */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
@@ -603,7 +631,7 @@ export const InventoryView: React.FC = () => {
 
           <button
             onClick={() => setIsTransferModalOpen(true)}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-xs shadow-indigo-600/20"
+            className="flex items-center gap-2 bg-[#0D6E4F] hover:bg-[#0A583F] text-white px-3.5 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-xs"
           >
             <ArrowLeftRight className="w-4 h-4" />
             <span>طلب مناقلة</span>
@@ -619,7 +647,7 @@ export const InventoryView: React.FC = () => {
 
           <button
             onClick={() => setIsWarehouseModalOpen(true)}
-            className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-xs"
+            className="flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-xs"
           >
             <Plus className="w-4 h-4" />
             <span>مستودع جديد</span>
@@ -632,7 +660,7 @@ export const InventoryView: React.FC = () => {
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
             <span>القيمة الإجمالية للمخزون</span>
-            <Boxes className="w-5 h-5 text-indigo-600" />
+            <Boxes className="w-5 h-5 text-[#0D6E4F]" />
           </div>
           <p className="text-2xl font-bold text-slate-900 mt-2 font-mono">
             {totalValuation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
@@ -680,7 +708,7 @@ export const InventoryView: React.FC = () => {
           onClick={() => setActiveTab('BALANCES')}
           className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
             activeTab === 'BALANCES'
-              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/30'
+              ? 'border-[#0D6E4F] text-[#0D6E4F] bg-emerald-50/40'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -692,7 +720,7 @@ export const InventoryView: React.FC = () => {
           onClick={() => setActiveTab('WAREHOUSES')}
           className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
             activeTab === 'WAREHOUSES'
-              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/30'
+              ? 'border-[#0D6E4F] text-[#0D6E4F] bg-emerald-50/40'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -704,7 +732,7 @@ export const InventoryView: React.FC = () => {
           onClick={() => setActiveTab('MOVEMENTS')}
           className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
             activeTab === 'MOVEMENTS'
-              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/30'
+              ? 'border-[#0D6E4F] text-[#0D6E4F] bg-emerald-50/40'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -716,7 +744,7 @@ export const InventoryView: React.FC = () => {
           onClick={() => setActiveTab('TRANSFERS')}
           className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
             activeTab === 'TRANSFERS'
-              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/30'
+              ? 'border-[#0D6E4F] text-[#0D6E4F] bg-emerald-50/40'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -728,7 +756,7 @@ export const InventoryView: React.FC = () => {
           onClick={() => setActiveTab('STOCKTAKE')}
           className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
             activeTab === 'STOCKTAKE'
-              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/30'
+              ? 'border-[#0D6E4F] text-[#0D6E4F] bg-emerald-50/40'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -740,7 +768,7 @@ export const InventoryView: React.FC = () => {
       {/* Loading / Error Banner */}
       {loading && (
         <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-3 text-slate-600 text-sm">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+          <Loader2 className="w-5 h-5 animate-spin text-[#0D6E4F]" />
           <span>جاري تحميل بيانات المخزون والمستودعات...</span>
         </div>
       )}
@@ -773,7 +801,7 @@ export const InventoryView: React.FC = () => {
                   placeholder="بحث باسم الصنف أو SKU أو المستودع..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pr-9 pl-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-indigo-500"
+                  className="w-full pr-9 pl-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#0D6E4F]"
                 />
               </div>
 
@@ -784,7 +812,7 @@ export const InventoryView: React.FC = () => {
                     onClick={() => setSelectedWarehouse(w.id)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
                       selectedWarehouse === w.id
-                        ? 'bg-slate-900 text-white shadow-xs'
+                        ? 'bg-[#0D6E4F] text-white shadow-xs'
                         : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
                     }`}
                   >
@@ -875,7 +903,7 @@ export const InventoryView: React.FC = () => {
                       <tr key={b.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-3 px-4">
                           <div className="font-bold text-slate-800">{b.itemName}</div>
-                          <span className="font-mono text-xs text-indigo-600 font-medium">{b.itemSku}</span>
+                          <span className="font-mono text-xs text-[#0D6E4F] font-medium">{b.itemSku}</span>
                         </td>
                         <td className="py-3 px-4">
                           <div className="font-medium text-slate-700">{b.warehouseName}</div>
@@ -980,7 +1008,7 @@ export const InventoryView: React.FC = () => {
                   </div>
                   <div className="flex items-center justify-between text-slate-600">
                     <span>المناقلة بين الفروع:</span>
-                    <span className={wh.allowTransfer !== false ? 'text-indigo-600 font-bold' : 'text-slate-400'}>
+                    <span className={wh.allowTransfer !== false ? 'text-[#0D6E4F] font-bold' : 'text-slate-400'}>
                       {wh.allowTransfer !== false ? 'مسموح' : 'غير مفعل'}
                     </span>
                   </div>
@@ -1002,7 +1030,7 @@ export const InventoryView: React.FC = () => {
         <div className="space-y-4">
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <ShieldCheck className="w-5 h-5 text-indigo-600" />
+              <ShieldCheck className="w-5 h-5 text-[#0D6E4F]" />
               <div>
                 <h4 className="font-bold text-sm text-slate-800">دفتر حركات المخزون الثابت (Immutable Transaction Ledger)</h4>
                 <p className="text-xs text-slate-500">
@@ -1076,7 +1104,7 @@ export const InventoryView: React.FC = () => {
                       <td className="py-3 px-4">
                         <span className="font-mono text-xs font-bold text-slate-800">{m.movementNumber}</span>
                         {m.reversalOfId && (
-                          <span className="block text-[10px] text-indigo-600 font-mono mt-0.5">
+                          <span className="block text-[10px] text-[#0D6E4F] font-mono mt-0.5">
                             عكس حركة سابقة
                           </span>
                         )}
@@ -1111,7 +1139,7 @@ export const InventoryView: React.FC = () => {
                         ) : (
                           <button
                             onClick={() => setSelectedMovementForReversal(m)}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-bold hover:underline flex items-center justify-center gap-1 mx-auto"
+                            className="text-xs text-[#0D6E4F] hover:text-[#0A583F] font-bold hover:underline flex items-center justify-center gap-1 mx-auto"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span>عكس الحركة</span>
@@ -1168,7 +1196,7 @@ export const InventoryView: React.FC = () => {
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {stocktakes.map((s) => (
                     <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4 font-mono font-medium text-xs text-indigo-600">
+                      <td className="py-3 px-4 font-mono font-medium text-xs text-[#0D6E4F]">
                         <div>{s.orderNumber}</div>
                         <div className="text-[11px] text-slate-400 font-sans">{s.createdAt}</div>
                       </td>
@@ -1222,7 +1250,7 @@ export const InventoryView: React.FC = () => {
                               : s.status === 'IN_PROGRESS'
                               ? 'bg-blue-50 text-blue-700 border border-blue-200'
                               : s.status === 'COUNTED'
-                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              ? 'bg-blue-50 text-blue-800 border border-blue-200'
                               : s.status === 'APPROVED'
                               ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                               : 'bg-rose-50 text-rose-700 border border-rose-200'
@@ -1249,7 +1277,7 @@ export const InventoryView: React.FC = () => {
                           {s.status === 'IN_PROGRESS' && (
                             <button
                               onClick={() => handleOpenCountModal(s)}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 shadow-xs"
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0D6E4F] text-white text-xs font-bold hover:bg-[#0A583F] shadow-xs"
                               title="إدخال الكميات الفعلية المحصورة"
                             >
                               <ClipboardCheck className="w-3 h-3" />
@@ -1285,7 +1313,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal 1: Receive Stock */}
       {isReceiveModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
@@ -1361,14 +1389,14 @@ export const InventoryView: React.FC = () => {
               </div>
 
               {/* Dynamic WAC calculation preview */}
-              <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs space-y-1.5">
-                <div className="flex items-center justify-between text-indigo-900 font-semibold">
+              <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-slate-800 font-semibold">
                   <span>التكلفة المرجحة الحالية (WAC):</span>
                   <span className="font-mono">{existingRcvWac.toFixed(2)} ر.س</span>
                 </div>
-                <div className="flex items-center justify-between text-indigo-900 font-bold border-t border-indigo-200 pt-1">
+                <div className="flex items-center justify-between text-slate-800 font-bold border-t border-emerald-200 pt-1">
                   <span>التكلفة المرجحة الجديدة بعد الاستلام:</span>
-                  <span className="font-mono text-sm text-indigo-700">{calculatedNewWac.toFixed(2)} ر.س</span>
+                  <span className="font-mono text-sm text-[#0D6E4F]">{calculatedNewWac.toFixed(2)} ر.س</span>
                 </div>
                 <span className="text-[10px] text-slate-500 block">
                   المعادلة: (الرصيد الحالي × التكلفة الحالية + الكمية الواردة × سعر الوارد) ÷ (الرصيد الإجمالي الجديد)
@@ -1417,7 +1445,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal 2: Issue Stock */}
       {isIssueModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
@@ -1469,7 +1497,7 @@ export const InventoryView: React.FC = () => {
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-semibold text-slate-700">الكمية المطلوبة للصرف</label>
                   <span className="text-xs text-slate-500 font-mono">
-                    الرصيد المتاح حالياً: <b className="text-indigo-600 font-bold">{currentIssAvailable}</b>
+                    الرصيد المتاح حالياً: <b className="text-[#0D6E4F] font-bold">{currentIssAvailable}</b>
                   </span>
                 </div>
                 <input
@@ -1525,11 +1553,11 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal 3: Reverse Movement */}
       {selectedMovementForReversal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
-                <RotateCcw className="w-5 h-5 text-indigo-600" />
+                <RotateCcw className="w-5 h-5 text-[#0D6E4F]" />
                 <span>عكس حركة المخزون رقم {selectedMovementForReversal.movementNumber}</span>
               </h3>
               <button onClick={() => setSelectedMovementForReversal(null)} className="text-slate-400 hover:text-slate-600">
@@ -1573,7 +1601,7 @@ export const InventoryView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium shadow-xs hover:bg-indigo-700"
+                  className="px-5 py-2 rounded-xl bg-[#0D6E4F] text-white text-sm font-medium shadow-xs hover:bg-[#0A583F]"
                 >
                   تأكيد عكس الحركة
                 </button>
@@ -1585,7 +1613,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal 4: New Warehouse */}
       {isWarehouseModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
@@ -1647,7 +1675,7 @@ export const InventoryView: React.FC = () => {
                     type="checkbox"
                     checked={whAllowRcv}
                     onChange={(e) => setWhAllowRcv(e.target.checked)}
-                    className="rounded text-indigo-600"
+                    className="rounded text-[#0D6E4F]"
                   />
                   <span>السماح بالاستلام المباشر للمخزون (Purchase Receiving)</span>
                 </label>
@@ -1656,7 +1684,7 @@ export const InventoryView: React.FC = () => {
                     type="checkbox"
                     checked={whAllowIss}
                     onChange={(e) => setWhAllowIss(e.target.checked)}
-                    className="rounded text-indigo-600"
+                    className="rounded text-[#0D6E4F]"
                   />
                   <span>السماح بالصرف المباشر للاستهلاك (Operational Issuing)</span>
                 </label>
@@ -1665,7 +1693,7 @@ export const InventoryView: React.FC = () => {
                     type="checkbox"
                     checked={whAllowTrf}
                     onChange={(e) => setWhAllowTrf(e.target.checked)}
-                    className="rounded text-indigo-600"
+                    className="rounded text-[#0D6E4F]"
                   />
                   <span>السماح بالمناقلات البينية (Inter-Warehouse Transfers)</span>
                 </label>
@@ -1681,7 +1709,7 @@ export const InventoryView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium shadow-xs hover:bg-slate-800"
+                  className="px-5 py-2 rounded-xl bg-[#0D6E4F] text-white text-sm font-medium shadow-xs hover:bg-[#0A583F]"
                 >
                   حفظ المستودع
                 </button>
@@ -1693,7 +1721,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal 5: New Transfer */}
       {isTransferModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
             <h3 className="font-bold text-lg text-slate-800 mb-4 pb-2 border-b border-slate-100">
               إنشاء طلب مناقلة مخزنية بين الفروع
@@ -1758,7 +1786,7 @@ export const InventoryView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium shadow-xs hover:bg-indigo-700"
+                  className="px-5 py-2 rounded-xl bg-[#0D6E4F] text-white text-sm font-medium shadow-xs hover:bg-[#0A583F]"
                 >
                   إنشاء طلب المناقلة
                 </button>
@@ -1770,7 +1798,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal 6: Receive & Inspect Transfer */}
       {selectedTransferForReceive && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
@@ -1783,7 +1811,7 @@ export const InventoryView: React.FC = () => {
             </div>
 
             <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1 text-slate-700 border border-slate-200">
-              <div>رقم المناقلة: <b className="font-mono text-indigo-600">{selectedTransferForReceive.transferNumber}</b></div>
+              <div>رقم المناقلة: <b className="font-mono text-[#0D6E4F]">{selectedTransferForReceive.transferNumber}</b></div>
               <div>المسار: من <b>{selectedTransferForReceive.sourceWarehouseName}</b> إلى <b>{selectedTransferForReceive.destinationWarehouseName}</b></div>
               <div>إجمالي الكمية المشحونة: <b className="font-mono text-slate-900">{selectedTransferForReceive.totalShippedQty} وحدة</b></div>
             </div>
@@ -1837,7 +1865,7 @@ export const InventoryView: React.FC = () => {
                 />
               </div>
 
-              <div className="p-3 bg-indigo-50/60 rounded-xl text-xs text-indigo-900 border border-indigo-100">
+              <div className="p-3 bg-blue-50 rounded-xl text-xs text-blue-800 border border-blue-200">
                 يتم خصم الكميات من الرصيد المنقول (In-Transit) وإضافة الكميات السليمة إلى الرصيد المتاح بالمستودع المستلم، مع إثبات التوالف في حسابات خسائر الشحن.
               </div>
 
@@ -1863,7 +1891,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal 7: Create Stocktake Order */}
       {isStocktakeModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
@@ -1963,11 +1991,11 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal 8: Record Physical Count */}
       {selectedStocktakeForCount && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
-                <ClipboardCheck className="w-5 h-5 text-indigo-600" />
+                <ClipboardCheck className="w-5 h-5 text-[#0D6E4F]" />
                 <span>تسجيل العد الفعلي لجرد المخزون ({selectedStocktakeForCount.orderNumber})</span>
               </h3>
               <button onClick={() => setSelectedStocktakeForCount(null)} className="text-slate-400 hover:text-slate-600">
@@ -2047,7 +2075,7 @@ export const InventoryView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleSaveStocktakeCount}
-                className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium shadow-xs hover:bg-indigo-700"
+                className="px-5 py-2 rounded-xl bg-[#0D6E4F] text-white text-sm font-medium shadow-xs hover:bg-[#0A583F]"
               >
                 حفظ نتائج العد الفعلي
               </button>

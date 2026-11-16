@@ -17,6 +17,7 @@ import {
   Send,
 } from 'lucide-react';
 import { apiClient } from '../api/client';
+import { useLocale } from '../context/LocaleContext';
 import { useToast } from '../context/ToastContext';
 
 interface TransfersViewProps {
@@ -28,15 +29,15 @@ type SubTab = 'list' | 'reconciliation';
 const TRANSFER_TYPE_LABELS: Record<string, { label: string; badge: string }> = {
   SAME_BRANCH: { label: 'داخل نفس الفرع', badge: 'bg-slate-100 text-slate-700 border-slate-200' },
   SAME_LEGAL_ENTITY: { label: 'بين فروع المنشأة', badge: 'bg-blue-50 text-blue-700 border-blue-200' },
-  CROSS_LEGAL_ENTITY: { label: 'بين منشآت قانونية', badge: 'bg-purple-50 text-purple-700 border-purple-200' },
+  CROSS_LEGAL_ENTITY: { label: 'بين منشآت قانونية', badge: 'bg-amber-50 text-amber-800 border-amber-200' },
 };
 
 const STATUS_LABELS: Record<string, { label: string; badge: string }> = {
   DRAFT: { label: 'مسودة', badge: 'bg-slate-100 text-slate-600' },
   SUBMITTED: { label: 'مقدمة للاعتماد', badge: 'bg-sky-100 text-sky-700' },
   APPROVED: { label: 'معتمدة (محجوز)', badge: 'bg-amber-100 text-amber-700' },
-  DISPATCHED: { label: 'تم الشحن', badge: 'bg-indigo-100 text-indigo-700' },
-  IN_TRANSIT: { label: 'في الطريق', badge: 'bg-indigo-100 text-indigo-700' },
+  DISPATCHED: { label: 'تم الشحن', badge: 'bg-blue-50 text-blue-800 border border-blue-200' },
+  IN_TRANSIT: { label: 'في الطريق', badge: 'bg-blue-50 text-blue-800 border border-blue-200' },
   PARTIALLY_RECEIVED: { label: 'استلام جزئي', badge: 'bg-orange-100 text-orange-700' },
   RECEIVED: { label: 'مستلمة بالكامل', badge: 'bg-emerald-100 text-emerald-700' },
   DISCREPANCY: { label: 'فروقات استلام', badge: 'bg-rose-100 text-rose-700' },
@@ -47,6 +48,7 @@ const STATUS_LABELS: Record<string, { label: string; badge: string }> = {
 };
 
 export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) => {
+  const { dir } = useLocale();
   const { showToast } = useToast();
   const [subTab, setSubTab] = useState<SubTab>('list');
   const [loading, setLoading] = useState(false);
@@ -68,6 +70,18 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
   const [selectedTransfer, setSelectedTransfer] = useState<any | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isReceiveOpen) setIsReceiveOpen(false);
+        else if (isCreateOpen) setIsCreateOpen(false);
+        else if (selectedTransfer) setSelectedTransfer(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isReceiveOpen, isCreateOpen, selectedTransfer]);
 
   // Create form state
   const [newTransferNumber, setNewTransferNumber] = useState(`TRF-${Date.now().toString(36).toUpperCase()}`);
@@ -267,14 +281,14 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
   const currentPage = Math.floor(offset / limit) + 1;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" dir={dir}>
       {/* Header & Sub-Tabs */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSubTab('list')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition ${
-              subTab === 'list' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              subTab === 'list' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             <ArrowLeftRight className="w-4 h-4" />
@@ -283,7 +297,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
           <button
             onClick={() => setSubTab('reconciliation')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition ${
-              subTab === 'reconciliation' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              subTab === 'reconciliation' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             <AlertTriangle className="w-4 h-4" />
@@ -301,7 +315,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
           </button>
           <button
             onClick={() => setIsCreateOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-bold"
           >
             <Plus className="w-4 h-4" />
             <span>تحويل مخزني جديد</span>
@@ -323,7 +337,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
                   setSearch(e.target.value);
                 }}
                 placeholder="بحث برقم التحويل..."
-                className="w-full pr-9 pl-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
+                className="w-full pr-9 pl-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-[#0D6E4F]"
               />
             </div>
             <select
@@ -442,7 +456,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
                                     'تم شحن البضاعة وترحيل القيد'
                                   )
                                 }
-                                className="px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold flex items-center gap-1"
+                                className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 font-semibold flex items-center gap-1"
                               >
                                 <Truck className="w-3.5 h-3.5" />
                                 <span>شحن</span>
@@ -506,7 +520,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="bg-white p-4 rounded-2xl border border-slate-200">
               <div className="text-xs text-slate-500">تحويلات في الطريق</div>
-              <div className="text-xl font-bold text-indigo-600 mt-1">{reconReport.summary.inTransitCount}</div>
+              <div className="text-xl font-bold text-[#0D6E4F] mt-1">{reconReport.summary.inTransitCount}</div>
             </div>
             <div className="bg-white p-4 rounded-2xl border border-slate-200">
               <div className="text-xs text-slate-500">كمية في الطريق</div>
@@ -639,7 +653,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
                 </div>
                 {selectedTransfer.linkedJournals.map((j: any) => (
                   <div key={j.id} className="text-xs flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
-                    <span className="font-mono font-bold text-indigo-700">{j.journalNumber}</span>
+                    <span className="font-mono font-bold text-[#0D6E4F]">{j.journalNumber}</span>
                     <span className="text-slate-600">{j.description}</span>
                     <span className="font-mono font-semibold">{parseFloat(j.debitTotal || '0').toFixed(2)}</span>
                   </div>
@@ -751,7 +765,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
                 <button
                   type="button"
                   onClick={() => setNewLines([...newLines, { itemId: '', uomId: '', quantity: '1' }])}
-                  className="text-indigo-600 font-bold"
+                  className="text-[#0D6E4F] font-bold"
                 >
                   + إضافة صنف
                 </button>
@@ -810,7 +824,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({ legalEntityId }) =
               <button type="button" onClick={() => setIsCreateOpen(false)} className="px-4 py-2 rounded-xl border text-xs font-semibold">
                 إلغاء
               </button>
-              <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">
+              <button type="submit" className="px-4 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-bold">
                 حفظ كمسودة
               </button>
             </div>

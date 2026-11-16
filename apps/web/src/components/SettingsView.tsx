@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 import {
   Settings,
   Save,
@@ -44,6 +45,7 @@ interface TenantSettingsData {
 
 export const SettingsView: React.FC = () => {
   const { activeTenant } = useAuth();
+  const { dir } = useLocale();
   const [data, setData] = useState<TenantSettingsData | null>(null);
   const [form, setForm] = useState({
     displayName: '',
@@ -183,12 +185,12 @@ export const SettingsView: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8" dir="rtl">
+    <div className="space-y-8" dir={dir}>
       {/* Header */}
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <Settings className="w-7 h-7 text-indigo-600" />
+            <Settings className="w-7 h-7 text-[#0D6E4F]" />
             إعدادات المنشأة والنظام
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -200,7 +202,7 @@ export const SettingsView: React.FC = () => {
             type="button"
             onClick={() => setActiveTab('general')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-              activeTab === 'general' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              activeTab === 'general' ? 'bg-[#0D6E4F] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             الإعدادات العامة
@@ -209,7 +211,7 @@ export const SettingsView: React.FC = () => {
             type="button"
             onClick={() => setActiveTab('integrations')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 ${
-              activeTab === 'integrations' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              activeTab === 'integrations' ? 'bg-[#0D6E4F] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             <MessageSquare className="w-3.5 h-3.5" />
@@ -283,7 +285,7 @@ export const SettingsView: React.FC = () => {
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => handleSaveIntegration('WHATSAPP')}
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+                  className="px-4 py-2 rounded-xl bg-[#0D6E4F] text-white text-xs font-bold hover:bg-[#0A583F]"
                 >
                   حفظ إعدادات WhatsApp
                 </button>
@@ -303,7 +305,7 @@ export const SettingsView: React.FC = () => {
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <Webhook className="w-5 h-5 text-indigo-600" />
+                  <Webhook className="w-5 h-5 text-[#0D6E4F]" />
                   تكامل Webhooks الأحداث
                 </h2>
                 <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
@@ -311,7 +313,7 @@ export const SettingsView: React.FC = () => {
                     type="checkbox"
                     checked={webhookEnabled}
                     onChange={(e) => setWebhookEnabled(e.target.checked)}
-                    className="rounded border-slate-300 text-indigo-600"
+                    className="rounded border-slate-300 text-[#0D6E4F]"
                   />
                   <span>تفعيل القناة</span>
                 </label>
@@ -331,7 +333,7 @@ export const SettingsView: React.FC = () => {
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => handleSaveIntegration('WEBHOOK')}
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+                  className="px-4 py-2 rounded-xl bg-[#0D6E4F] text-white text-xs font-bold hover:bg-[#0A583F]"
                 >
                   حفظ إعدادات Webhook
                 </button>
@@ -339,7 +341,7 @@ export const SettingsView: React.FC = () => {
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => handleSendTestNotification('WEBHOOK')}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 flex items-center gap-1"
+                  className="px-4 py-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold hover:bg-blue-100 flex items-center gap-1"
                 >
                   <Send className="w-3.5 h-3.5" />
                   اختبار الإرسال
@@ -422,7 +424,7 @@ export const SettingsView: React.FC = () => {
                 required
                 value={form.displayName}
                 onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
               />
             </div>
 
@@ -432,7 +434,7 @@ export const SettingsView: React.FC = () => {
                 <select
                   value={form.primaryLocale}
                   onChange={(e) => setForm({ ...form, primaryLocale: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 >
                   <option value="ar-SA">العربية (المملكة العربية السعودية)</option>
                   <option value="en-US">English (United States)</option>
@@ -444,7 +446,7 @@ export const SettingsView: React.FC = () => {
                 <select
                   value={form.timezone}
                   onChange={(e) => setForm({ ...form, timezone: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 >
                   <option value="Asia/Riyadh">Asia/Riyadh (GMT+3)</option>
                   <option value="Asia/Dubai">Asia/Dubai (GMT+4)</option>
@@ -457,7 +459,7 @@ export const SettingsView: React.FC = () => {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 shadow-sm disabled:opacity-50 transition-all"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#0D6E4F] text-white font-semibold hover:bg-[#0A583F] shadow-sm disabled:opacity-50 transition-all"
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 حفظ التغييرات
@@ -471,15 +473,15 @@ export const SettingsView: React.FC = () => {
           {/* Subscription Card */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-900 flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-indigo-600" />
+              <CreditCard className="w-5 h-5 text-[#0D6E4F]" />
               باقة الاشتراك والحدود
             </h3>
 
             {data?.subscription ? (
               <div className="space-y-3 text-xs text-slate-600">
-                <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl">
-                  <div className="font-bold text-indigo-900 text-sm mb-1">{data.subscription.planCode}</div>
-                  <span className="text-[11px] text-indigo-600 font-semibold bg-white px-2 py-0.5 rounded-full border border-indigo-200">
+                <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                  <div className="font-bold text-slate-900 text-sm mb-1">{data.subscription.planCode}</div>
+                  <span className="text-[11px] text-[#0D6E4F] font-semibold bg-white px-2 py-0.5 rounded-full border border-emerald-200">
                     الحالة: {data.subscription.status}
                   </span>
                 </div>
@@ -515,7 +517,7 @@ export const SettingsView: React.FC = () => {
           {/* Industry Packs Card */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-900 flex items-center gap-2">
-              <Layers className="w-5 h-5 text-indigo-600" />
+              <Layers className="w-5 h-5 text-[#0D6E4F]" />
               القطاعات المفعلة
             </h3>
 
@@ -527,7 +529,7 @@ export const SettingsView: React.FC = () => {
                 >
                   <span className="font-bold text-slate-800">{pack.industry}</span>
                   {pack.isPrimary && (
-                    <span className="text-[10px] bg-slate-900 text-white px-2 py-0.5 rounded-md font-semibold">
+                    <span className="text-[10px] bg-emerald-50 text-[#0D6E4F] border border-emerald-200 px-2 py-0.5 rounded-md font-semibold">
                       القطاع الأساسي
                     </span>
                   )}

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 
 export interface IndustryPackConfig {
   id: string;
@@ -77,7 +78,7 @@ export const AVAILABLE_PACKS: IndustryPackConfig[] = [
       'متابعة هدر نهاية اليوم (End-of-day Waste Tracking)',
       'تسعير الصواني والقطع (Tray & Piece Pricing)',
     ],
-    badgeColor: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    badgeColor: 'bg-amber-50 text-amber-800 border-amber-200',
   },
   {
     id: 'CATERING',
@@ -117,6 +118,7 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
   onToggleIndustry,
 }) => {
   const { hierarchy } = useAuth();
+  const { dir } = useLocale();
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<{ maxBranches: number; maxDevices: number; planCode: string } | null>(null);
   const [serverPacks, setServerPacks] = useState<string[] | null>(null);
@@ -158,45 +160,45 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={dir}>
       {/* Toast */}
       {successToast && (
-        <div className="bg-slate-900 border border-emerald-500/50 text-emerald-400 px-6 py-3.5 rounded-2xl flex items-center justify-between text-sm font-semibold shadow-xl animate-in slide-in-from-top duration-200">
+        <div className="bg-emerald-50 border border-emerald-200 text-[#0D6E4F] px-6 py-3.5 rounded-2xl flex items-center justify-between text-sm font-semibold shadow-sm animate-in slide-in-from-top duration-200">
           <div className="flex items-center gap-2.5">
-            <CheckCircle2 size={18} className="text-emerald-400" />
+            <CheckCircle2 size={18} className="text-[#0D6E4F]" />
             <span>{successToast}</span>
           </div>
         </div>
       )}
 
       {/* Subscription Plan Overview Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 text-slate-900 shadow-sm relative overflow-hidden">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-[#0D6E4F] border border-emerald-200">
               <Sparkles size={14} />
               <span>اشتراك المنشأة: الباقة الاحترافية (Multi-Industry Enterprise)</span>
             </div>
-            <h2 className="text-2xl font-black">إدارة قطاعات المنشأة وصلاحيات SaaS</h2>
-            <p className="text-sm text-slate-300 max-w-2xl">
+            <h2 className="text-2xl font-black text-slate-900">إدارة قطاعات المنشأة وصلاحيات SaaS</h2>
+            <p className="text-sm text-slate-600 max-w-2xl">
               تتيح لك منصة Restaurant Cloud تفعيل قطاعات تشغيلية متعددة داخل نفس الحساب وتحت نفس الشركة القانونية والفروع، دون الحاجة لفتح اشتراكات منفصلة أو تشتيت بيانات المحاسبة.
             </p>
           </div>
 
           <div className="flex gap-4">
-            <div className="bg-slate-900/80 border border-slate-700/60 p-4 rounded-2xl text-center min-w-[6.5rem]">
-              <span className="text-xs text-slate-400">القطاعات المفعلة</span>
-              <p className="text-2xl font-black text-emerald-400 mt-0.5">{effectiveActive.length}</p>
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center min-w-[6.5rem]">
+              <span className="text-xs text-slate-500">القطاعات المفعلة</span>
+              <p className="text-2xl font-black text-[#0D6E4F] mt-0.5">{effectiveActive.length}</p>
             </div>
-            <div className="bg-slate-900/80 border border-slate-700/60 p-4 rounded-2xl text-center min-w-[6.5rem]">
-              <span className="text-xs text-slate-400">الفروع المتاحة</span>
-              <p className="text-2xl font-black text-indigo-400 mt-0.5">
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center min-w-[6.5rem]">
+              <span className="text-xs text-slate-500">الفروع المتاحة</span>
+              <p className="text-2xl font-black text-blue-700 mt-0.5">
                 {hierarchy?.branches.length ?? 0} / {subscription?.maxBranches ?? '—'}
               </p>
             </div>
-            <div className="bg-slate-900/80 border border-slate-700/60 p-4 rounded-2xl text-center min-w-[6.5rem]">
-              <span className="text-xs text-slate-400">أجهزة POS</span>
-              <p className="text-2xl font-black text-white mt-0.5">
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center min-w-[6.5rem]">
+              <span className="text-xs text-slate-500">أجهزة POS</span>
+              <p className="text-2xl font-black text-slate-900 mt-0.5">
                 {hierarchy?.devices.length ?? 0} / {subscription?.maxDevices ?? '—'}
               </p>
             </div>
@@ -215,7 +217,7 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
               key={pack.id}
               className={`bg-white rounded-3xl border transition-all p-6 flex flex-col justify-between ${
                 isActive
-                  ? 'border-indigo-600 shadow-lg shadow-indigo-600/5 ring-1 ring-indigo-600'
+                  ? 'border-[#0D6E4F] shadow-lg shadow-[#0D6E4F]/5 ring-1 ring-[#0D6E4F]'
                   : 'border-slate-200 hover:border-slate-300 shadow-sm'
               }`}
             >
@@ -225,7 +227,7 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                        isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'
+                        isActive ? 'bg-[#0D6E4F] text-white' : 'bg-slate-100 text-slate-700'
                       }`}
                     >
                       <Icon size={24} />
@@ -255,7 +257,7 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
                   <div className="text-[11px] font-semibold text-slate-400">الوظائف والقدرات المتخصصة:</div>
                   {pack.capabilities.map((cap, idx) => (
                     <div key={idx} className="flex items-center gap-2 text-xs text-slate-700">
-                      <CheckCircle2 size={13} className={isActive ? 'text-indigo-600' : 'text-slate-400'} />
+                      <CheckCircle2 size={13} className={isActive ? 'text-[#0D6E4F]' : 'text-slate-400'} />
                       <span>{cap}</span>
                     </div>
                   ))}
@@ -269,7 +271,7 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
                   className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
                     isActive
                       ? 'bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 border border-slate-200'
-                      : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20'
+                      : 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white shadow-md shadow-[#0D6E4F]/20'
                   }`}
                 >
                   {isActive ? (

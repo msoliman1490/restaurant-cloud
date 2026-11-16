@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 import {
   Users,
   UserPlus,
@@ -52,9 +53,20 @@ export const UsersView: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const toast = useToast();
+  const { dir } = useLocale();
 
   // Invite Modal
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isInviteModalOpen) {
+        setIsInviteModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isInviteModalOpen]);
   const [inviteForm, setInviteForm] = useState({
     displayName: '',
     email: '',
@@ -155,12 +167,12 @@ export const UsersView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8" dir="rtl">
+    <div className="space-y-8" dir={dir}>
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <Users className="w-7 h-7 text-indigo-600" />
+            <Users className="w-7 h-7 text-[#0D6E4F]" />
             المستخدمون والصلاحيات
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -173,7 +185,7 @@ export const UsersView: React.FC = () => {
             setError(null);
             setIsInviteModalOpen(true);
           }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-sm transition-all"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0D6E4F] text-white font-semibold text-sm hover:bg-[#0A583F] shadow-sm transition-all"
         >
           <UserPlus className="w-4 h-4" />
           إضافة مستخدم جديد
@@ -210,7 +222,7 @@ export const UsersView: React.FC = () => {
           </div>
           <button
             onClick={fetchData}
-            className="p-2 text-slate-400 hover:text-indigo-600 rounded-xl hover:bg-slate-50 transition-all"
+            className="p-2 text-slate-400 hover:text-[#0D6E4F] rounded-xl hover:bg-slate-50 transition-all"
             title="تحديث"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -248,7 +260,7 @@ export const UsersView: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
                         <Shield className="w-3.5 h-3.5" />
                         {m.roleName}
                       </span>
@@ -348,7 +360,7 @@ export const UsersView: React.FC = () => {
                   value={inviteForm.displayName}
                   onChange={(e) => setInviteForm({ ...inviteForm, displayName: e.target.value })}
                   placeholder="مثال: أحمد عبد الله"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 />
               </div>
 
@@ -360,7 +372,7 @@ export const UsersView: React.FC = () => {
                   value={inviteForm.email}
                   onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
                   placeholder="ahmed@example.com"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 />
               </div>
 
@@ -372,7 +384,7 @@ export const UsersView: React.FC = () => {
                     value={inviteForm.phone}
                     onChange={(e) => setInviteForm({ ...inviteForm, phone: e.target.value })}
                     placeholder="0501234567"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   />
                 </div>
                 <div>
@@ -384,7 +396,7 @@ export const UsersView: React.FC = () => {
                     value={inviteForm.password}
                     onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
                     placeholder="8 محارف كحد أدنى"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                   />
                 </div>
               </div>
@@ -395,7 +407,7 @@ export const UsersView: React.FC = () => {
                   required
                   value={inviteForm.roleId}
                   onChange={(e) => setInviteForm({ ...inviteForm, roleId: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 >
                   {roles.map((r) => (
                     <option key={r.id} value={r.id}>
@@ -432,7 +444,7 @@ export const UsersView: React.FC = () => {
                               });
                             }
                           }}
-                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                          className="rounded text-[#0D6E4F] focus:ring-[#0D6E4F]"
                         />
                         <span>{b.name} ({b.code})</span>
                       </label>
@@ -452,7 +464,7 @@ export const UsersView: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-[#0D6E4F] text-white font-semibold hover:bg-[#0A583F] disabled:opacity-50"
                 >
                   {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   إضافة المستخدم

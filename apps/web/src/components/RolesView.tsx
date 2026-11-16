@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 import {
   ShieldCheck,
   Plus,
@@ -39,9 +40,20 @@ export const RolesView: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const toast = useToast();
+  const { dir } = useLocale();
 
   // Create Role Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isModalOpen) {
+        setIsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isModalOpen]);
   const [roleForm, setRoleForm] = useState({
     code: '',
     name: '',
@@ -105,12 +117,12 @@ export const RolesView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8" dir="rtl">
+    <div className="space-y-8" dir={dir}>
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <ShieldCheck className="w-7 h-7 text-indigo-600" />
+            <ShieldCheck className="w-7 h-7 text-[#0D6E4F]" />
             الأدوار والصلاحيات (RBAC)
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -122,7 +134,7 @@ export const RolesView: React.FC = () => {
             setRoleForm({ code: '', name: '', permissionIds: [] });
             setIsModalOpen(true);
           }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-sm transition-all"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0D6E4F] text-white font-semibold text-sm hover:bg-[#0A583F] shadow-sm transition-all"
         >
           <Plus className="w-4 h-4" />
           إنشاء دور مخصص
@@ -159,7 +171,7 @@ export const RolesView: React.FC = () => {
           </div>
           <button
             onClick={fetchData}
-            className="p-2 text-slate-400 hover:text-indigo-600 rounded-xl hover:bg-slate-50 transition-all"
+            className="p-2 text-slate-400 hover:text-[#0D6E4F] rounded-xl hover:bg-slate-50 transition-all"
             title="تحديث"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -175,7 +187,7 @@ export const RolesView: React.FC = () => {
             {roles.map((r) => (
               <div
                 key={r.id}
-                className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-indigo-300 transition-all shadow-sm space-y-3"
+                className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-[#0D6E4F]/40 transition-all shadow-sm space-y-3"
               >
                 <div className="flex items-start justify-between">
                   <div>
@@ -187,7 +199,7 @@ export const RolesView: React.FC = () => {
                     </div>
                   </div>
                   {r.isSystemRole ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full border border-indigo-100">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full border border-blue-200">
                       <Lock className="w-3 h-3" />
                       دور نظام قياسي
                     </span>
@@ -251,7 +263,7 @@ export const RolesView: React.FC = () => {
                   value={roleForm.code}
                   onChange={(e) => setRoleForm({ ...roleForm, code: e.target.value.toUpperCase() })}
                   placeholder="مثال: SHIFT_SUPERVISOR"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 />
               </div>
 
@@ -263,7 +275,7 @@ export const RolesView: React.FC = () => {
                   value={roleForm.name}
                   onChange={(e) => setRoleForm({ ...roleForm, name: e.target.value })}
                   placeholder="مثال: مشرف وردية"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0D6E4F]/20"
                 />
               </div>
 
@@ -290,7 +302,7 @@ export const RolesView: React.FC = () => {
                             });
                           }
                         }}
-                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                        className="rounded text-[#0D6E4F] focus:ring-[#0D6E4F]"
                       />
                       <span className="font-mono">{p.code}</span>
                     </label>
@@ -309,7 +321,7 @@ export const RolesView: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-[#0D6E4F] text-white font-semibold hover:bg-[#0A583F] disabled:opacity-50"
                 >
                   {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   إنشاء الدور

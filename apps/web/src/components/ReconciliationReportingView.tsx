@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 import { exportToCsv } from '../utils/export';
 
 type ReportTab =
@@ -70,6 +71,7 @@ const fmt = (val: string | number | undefined | null) =>
 
 export const ReconciliationReportingView: React.FC = () => {
   const { showToast } = useToast();
+  const { dir } = useLocale();
   const [activeTab, setActiveTab] = useState<ReportTab>('dashboard');
   const [entities, setEntities] = useState<LegalEntityOption[]>([]);
   const [branches, setBranches] = useState<BranchOption[]>([]);
@@ -107,6 +109,17 @@ export const ReconciliationReportingView: React.FC = () => {
 
   // Drill-down modal
   const [drillDownData, setDrillDownData] = useState<any>(null);
+
+  useEffect(() => {
+    if (!drillDownData) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDrillDownData(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [drillDownData]);
 
   useEffect(() => {
     (async () => {
@@ -269,7 +282,7 @@ export const ReconciliationReportingView: React.FC = () => {
               ) : (
                 <span className="w-5 inline-block" />
               )}
-              <span className="font-mono text-xs text-indigo-700">{node.accountCode}</span>
+              <span className="font-mono text-xs text-[#0D6E4F]">{node.accountCode}</span>
               <span className="text-slate-800">{node.name}</span>
             </div>
           </td>
@@ -287,7 +300,7 @@ export const ReconciliationReportingView: React.FC = () => {
                   setSelectedAccountId(node.accountId);
                   setActiveTab('account-statement');
                 }}
-                className="text-xs text-indigo-600 hover:underline inline-flex items-center gap-1"
+                className="text-xs text-[#0D6E4F] hover:underline inline-flex items-center gap-1"
               >
                 <Eye className="w-3.5 h-3.5" /> كشف
               </button>
@@ -379,11 +392,11 @@ export const ReconciliationReportingView: React.FC = () => {
   const filteredBranches = branches.filter((b) => !legalEntityId || b.legalEntityId === legalEntityId);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" dir={dir}>
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+          <div className="w-11 h-11 rounded-xl bg-emerald-50 text-[#0D6E4F] flex items-center justify-center">
             <Scale className="w-6 h-6" />
           </div>
           <div>
@@ -402,7 +415,7 @@ export const ReconciliationReportingView: React.FC = () => {
           <button
             onClick={handleRunSnapshot}
             disabled={loading || !legalEntityId}
-            className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium inline-flex items-center gap-1.5"
+            className="px-4 py-2 rounded-lg bg-[#0D6E4F] text-white hover:bg-[#0A583F] text-sm font-medium inline-flex items-center gap-1.5"
           >
             <Play className="w-4 h-4" /> حفظ لقطة مصالحة
           </button>
@@ -483,7 +496,7 @@ export const ReconciliationReportingView: React.FC = () => {
             key={t.id}
             onClick={() => setActiveTab(t.id)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              activeTab === t.id ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+              activeTab === t.id ? 'bg-[#0D6E4F] text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             {t.label}
@@ -519,7 +532,7 @@ export const ReconciliationReportingView: React.FC = () => {
               <div className="space-y-2 text-xs">
                 {reconRuns.map((r) => (
                   <div key={r.id} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-                    <span className="font-mono font-semibold text-indigo-700">{r.runNumber}</span>
+                    <span className="font-mono font-semibold text-[#0D6E4F]">{r.runNumber}</span>
                     <span>الفحوصات: {r.totalChecks} | المتطابق: {r.matchedCount} | الفروقات: {r.discrepancyCount}</span>
                     <span className="font-mono">{fmt(r.totalVariance)}</span>
                     <span className="text-slate-400">{new Date(r.createdAt).toLocaleString('ar-SA')}</span>
@@ -625,14 +638,14 @@ export const ReconciliationReportingView: React.FC = () => {
             <tbody>
               {glRows.map((r) => (
                 <tr key={r.lineId} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="py-2.5 px-3 font-mono text-xs text-indigo-700">{r.journalNumber}</td>
+                  <td className="py-2.5 px-3 font-mono text-xs text-[#0D6E4F]">{r.journalNumber}</td>
                   <td className="py-2.5 px-3 text-xs text-slate-500">{new Date(r.entryDate).toLocaleDateString('en-CA')}</td>
                   <td className="py-2.5 px-3 text-xs">{r.accountCode} - {r.accountName}</td>
                   <td className="py-2.5 px-3 text-xs text-slate-700">{r.description}</td>
                   <td className="py-2.5 px-3 font-mono text-xs text-left text-emerald-700">{fmt(r.debit)}</td>
                   <td className="py-2.5 px-3 font-mono text-xs text-left text-rose-700">{fmt(r.credit)}</td>
                   <td className="py-2.5 px-3 text-center">
-                    <button onClick={() => openDrillDown(r.journalEntryId)} className="text-xs text-indigo-600 hover:underline">
+                    <button onClick={() => openDrillDown(r.journalEntryId)} className="text-xs text-[#0D6E4F] hover:underline">
                       تتبع القيد
                     </button>
                   </td>
@@ -681,7 +694,7 @@ export const ReconciliationReportingView: React.FC = () => {
                 <div>أول المدة: <span className="font-mono font-bold">{fmt(statementData.openingBalance)}</span></div>
                 <div>مدين الفترة: <span className="font-mono font-bold text-emerald-700">{fmt(statementData.periodDebit)}</span></div>
                 <div>دائن الفترة: <span className="font-mono font-bold text-rose-700">{fmt(statementData.periodCredit)}</span></div>
-                <div>الرصيد الختامي: <span className="font-mono font-bold text-indigo-700">{fmt(statementData.closingBalance)}</span></div>
+                <div>الرصيد الختامي: <span className="font-mono font-bold text-[#0D6E4F]">{fmt(statementData.closingBalance)}</span></div>
                 <button
                   type="button"
                   disabled={!statementData.data?.length}
@@ -731,14 +744,14 @@ export const ReconciliationReportingView: React.FC = () => {
                 <tbody>
                   {(statementData.data ?? []).map((r: any) => (
                     <tr key={r.lineId} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-2.5 px-3 font-mono text-xs text-indigo-700">{r.journalNumber}</td>
+                      <td className="py-2.5 px-3 font-mono text-xs text-[#0D6E4F]">{r.journalNumber}</td>
                       <td className="py-2.5 px-3 text-xs text-slate-500">{new Date(r.entryDate).toLocaleDateString('en-CA')}</td>
                       <td className="py-2.5 px-3 text-xs">{r.description}</td>
                       <td className="py-2.5 px-3 font-mono text-xs text-left text-emerald-700">{fmt(r.debit)}</td>
                       <td className="py-2.5 px-3 font-mono text-xs text-left text-rose-700">{fmt(r.credit)}</td>
                       <td className="py-2.5 px-3 font-mono text-xs font-semibold text-left">{fmt(r.runningBalance)}</td>
                       <td className="py-2.5 px-3 text-center">
-                        <button onClick={() => openDrillDown(r.journalEntryId)} className="text-xs text-indigo-600 hover:underline">
+                        <button onClick={() => openDrillDown(r.journalEntryId)} className="text-xs text-[#0D6E4F] hover:underline">
                           تفاصيل
                         </button>
                       </td>
@@ -809,7 +822,7 @@ export const ReconciliationReportingView: React.FC = () => {
                   <tr key={d.id} className="border-b border-slate-100">
                     <td className="py-2.5 px-4 text-xs font-medium">{d.source_domain}</td>
                     <td className="py-2.5 px-4 text-xs">{d.discrepancy_type}</td>
-                    <td className="py-2.5 px-4 font-mono text-xs text-indigo-700">{d.reference_number}</td>
+                    <td className="py-2.5 px-4 font-mono text-xs text-[#0D6E4F]">{d.reference_number}</td>
                     <td className="py-2.5 px-4 font-mono text-xs text-left text-rose-700">{fmt(d.amount)}</td>
                     <td className="py-2.5 px-4 text-xs">{d.status}</td>
                     <td className="py-2.5 px-4 text-xs text-slate-600">{d.description}</td>
@@ -835,11 +848,11 @@ export const ReconciliationReportingView: React.FC = () => {
 
       {/* Drill-Down Modal */}
       {drillDownData && (
-        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-3xl w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-indigo-600" />
+                <FileText className="w-5 h-5 text-[#0D6E4F]" />
                 <h3 className="font-bold text-slate-900">
                   تفاصيل القيد: {drillDownData.journalEntry?.journalNumber}
                 </h3>
@@ -853,29 +866,31 @@ export const ReconciliationReportingView: React.FC = () => {
               <div>الحالة: <span className="font-semibold">{drillDownData.journalEntry?.status}</span></div>
               <div className="col-span-2">البيان: {drillDownData.journalEntry?.description}</div>
             </div>
-            <table className="w-full text-xs text-right border rounded-lg overflow-hidden">
-              <thead className="bg-slate-100">
-                <tr>
-                  <th className="py-2 px-3">الحساب</th>
-                  <th className="py-2 px-3">البيان</th>
-                  <th className="py-2 px-3 text-left">مدين</th>
-                  <th className="py-2 px-3 text-left">دائن</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(drillDownData.lines ?? []).map((l: any) => (
-                  <tr key={l.id} className="border-t">
-                    <td className="py-2 px-3 font-mono">{l.accountCode} - {l.accountName}</td>
-                    <td className="py-2 px-3">{l.description}</td>
-                    <td className="py-2 px-3 font-mono text-left text-emerald-700">{fmt(l.debit)}</td>
-                    <td className="py-2 px-3 font-mono text-left text-rose-700">{fmt(l.credit)}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-right border rounded-lg overflow-hidden">
+                <thead className="bg-slate-100">
+                  <tr>
+                    <th className="py-2 px-3">الحساب</th>
+                    <th className="py-2 px-3">البيان</th>
+                    <th className="py-2 px-3 text-left">مدين</th>
+                    <th className="py-2 px-3 text-left">دائن</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(drillDownData.lines ?? []).map((l: any) => (
+                    <tr key={l.id} className="border-t">
+                      <td className="py-2 px-3 font-mono">{l.accountCode} - {l.accountName}</td>
+                      <td className="py-2 px-3">{l.description}</td>
+                      <td className="py-2 px-3 font-mono text-left text-emerald-700">{fmt(l.debit)}</td>
+                      <td className="py-2 px-3 font-mono text-left text-rose-700">{fmt(l.credit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {drillDownData.sourceDocument && (
-              <div className="bg-indigo-50/60 border border-indigo-100 p-3 rounded-lg text-xs space-y-1">
-                <div className="font-bold text-indigo-900 flex items-center gap-1.5">
+              <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-xs space-y-1">
+                <div className="font-bold text-blue-800 flex items-center gap-1.5">
                   <Building2 className="w-4 h-4" /> المستند التشغيلي الأصلي ({drillDownData.sourceDocument.type})
                 </div>
                 <pre className="text-[11px] overflow-x-auto text-slate-700" dir="ltr">

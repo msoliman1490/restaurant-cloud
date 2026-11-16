@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 
 export interface PosShiftRecord {
   id: string;
@@ -109,6 +110,7 @@ export const PosShiftClosingView: React.FC<PosShiftClosingViewProps> = ({
   defaultBranchId = '',
 }) => {
   const toast = useToast();
+  const { dir } = useLocale();
   const isDark = theme === 'dark';
 
   const [shifts, setShifts] = useState<PosShiftRecord[]>([]);
@@ -132,6 +134,18 @@ export const PosShiftClosingView: React.FC<PosShiftClosingViewProps> = ({
   // Close Shift Modal / Detail Drawer
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
   const [shiftSummary, setShiftSummary] = useState<ShiftSummaryDetail | null>(null);
+
+  useEffect(() => {
+    if (!selectedShiftId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedShiftId(null);
+        setShiftSummary(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedShiftId]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [countedCashInput, setCountedCashInput] = useState<string>('');
   const [closeNotes, setCloseNotes] = useState<string>('');
@@ -296,7 +310,7 @@ export const PosShiftClosingView: React.FC<PosShiftClosingViewProps> = ({
   }`;
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       {/* Header & KPIs */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

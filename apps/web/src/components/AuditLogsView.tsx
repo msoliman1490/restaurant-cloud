@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
+import { useLocale } from '../context/LocaleContext';
 import {
   FileText,
   ShieldCheck,
@@ -35,6 +36,7 @@ interface AuditQueryResponse {
 }
 
 export const AuditLogsView: React.FC = () => {
+  const { dir } = useLocale();
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -46,6 +48,16 @@ export const AuditLogsView: React.FC = () => {
 
   // Snapshot Detail Modal
   const [inspectEntry, setInspectEntry] = useState<AuditLogEntry | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && inspectEntry) {
+        setInspectEntry(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [inspectEntry]);
 
   const fetchLogs = async () => {
     setIsLoading(true);
@@ -79,7 +91,7 @@ export const AuditLogsView: React.FC = () => {
     try {
       const parsed = JSON.parse(jsonStr);
       return (
-        <pre className="text-xs font-mono bg-slate-900 text-slate-200 p-4 rounded-xl overflow-x-auto text-left" dir="ltr">
+        <pre className="text-xs font-mono bg-slate-100 text-slate-800 border border-slate-200 p-4 rounded-xl overflow-x-auto text-left" dir="ltr">
           {JSON.stringify(parsed, null, 2)}
         </pre>
       );
@@ -89,12 +101,12 @@ export const AuditLogsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8" dir="rtl">
+    <div className="space-y-8" dir={dir}>
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <ShieldCheck className="w-7 h-7 text-indigo-600" />
+            <ShieldCheck className="w-7 h-7 text-[#0D6E4F]" />
             سجل العمليات والرقابة (Audit Log)
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -148,7 +160,7 @@ export const AuditLogsView: React.FC = () => {
 
         <button
           onClick={fetchLogs}
-          className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:text-indigo-600 hover:bg-slate-50 transition-all flex items-center gap-1.5 text-xs font-semibold"
+          className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:text-[#0D6E4F] hover:bg-slate-50 transition-all flex items-center gap-1.5 text-xs font-semibold"
           title="تحديث"
         >
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -192,7 +204,7 @@ export const AuditLogsView: React.FC = () => {
                       {new Date(log.occurredAt).toLocaleString('ar-SA')}
                     </td>
                     <td className="px-6 py-4">
-                      <span className="font-mono text-xs font-bold px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      <span className="font-mono text-xs font-bold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
                         {log.action}
                       </span>
                     </td>
@@ -205,7 +217,7 @@ export const AuditLogsView: React.FC = () => {
                     <td className="px-6 py-4 text-center">
                       <button
                         onClick={() => setInspectEntry(log)}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 transition-all inline-flex items-center gap-1 text-xs font-semibold"
+                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-[#0D6E4F] hover:bg-emerald-50 transition-all inline-flex items-center gap-1 text-xs font-semibold"
                       >
                         <Eye className="w-3.5 h-3.5" />
                         فحص
@@ -252,7 +264,7 @@ export const AuditLogsView: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-indigo-600" />
+                  <FileText className="w-5 h-5 text-[#0D6E4F]" />
                   تفاصيل لقطة السجل ({inspectEntry.action})
                 </h3>
                 <span className="text-xs font-mono text-slate-400">
@@ -297,7 +309,7 @@ export const AuditLogsView: React.FC = () => {
             <div className="flex justify-end pt-3 border-t border-slate-100">
               <button
                 onClick={() => setInspectEntry(null)}
-                className="px-5 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs hover:bg-slate-800"
+                className="px-5 py-2 rounded-xl bg-[#0D6E4F] text-white font-semibold text-xs hover:bg-[#0A583F]"
               >
                 إغلاق
               </button>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 import {
   Users,
   Calendar,
@@ -114,6 +115,17 @@ export const HrEmployeesView: React.FC = () => {
 
   const [search, setSearch] = useState('');
   const [showAddEmp, setShowAddEmp] = useState(false);
+  const { dir } = useLocale();
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showAddEmp) {
+        setShowAddEmp(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showAddEmp]);
 
   const [empCode, setEmpCode] = useState('');
   const [fullNameAr, setFullNameAr] = useState('');
@@ -410,7 +422,7 @@ export const HrEmployeesView: React.FC = () => {
     employees.find((e) => e.id === id)?.fullNameAr || id.slice(0, 8);
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">الموظفون والموارد البشرية</h1>
@@ -420,7 +432,7 @@ export const HrEmployeesView: React.FC = () => {
         </div>
         <button
           onClick={() => setShowAddEmp((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0D6E4F] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#0A583F]"
         >
           <Plus className="w-4 h-4" />
           إضافة موظف
@@ -444,7 +456,7 @@ export const HrEmployeesView: React.FC = () => {
               onClick={() => setSubTab(t.id as any)}
               className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${
                 subTab === t.id
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-[#0D6E4F] text-white'
                   : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -653,7 +665,7 @@ export const HrEmployeesView: React.FC = () => {
             </select>
             <button
               type="submit"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+              className="rounded-lg bg-[#0D6E4F] px-4 py-2 text-sm text-white hover:bg-[#0A583F]"
             >
               جدولة
             </button>
@@ -796,7 +808,7 @@ export const HrEmployeesView: React.FC = () => {
             />
             <button
               type="submit"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+              className="rounded-lg bg-[#0D6E4F] px-4 py-2 text-sm text-white hover:bg-[#0A583F]"
             >
               تقديم الطلب
             </button>
@@ -871,7 +883,7 @@ export const HrEmployeesView: React.FC = () => {
             <input placeholder="رقم المستند" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             <input type="date" value={docExpiry} onChange={(e) => setDocExpiry(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             <input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(e) => setDocFile(e.target.files?.[0] || null)} className="text-xs" required />
-            <button type="submit" className="md:col-span-6 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+            <button type="submit" className="md:col-span-6 rounded-lg bg-[#0D6E4F] px-4 py-2 text-sm font-medium text-white hover:bg-[#0A583F]">
               رفع مستند الموظف
             </button>
           </form>
@@ -965,7 +977,7 @@ export const HrEmployeesView: React.FC = () => {
                           استرداد
                         </button>
                       )}
-                      <button onClick={() => void handleLoadAdvanceTxs(adv.id)} className="text-xs text-indigo-600 hover:underline">
+                      <button onClick={() => void handleLoadAdvanceTxs(adv.id)} className="text-xs text-[#0D6E4F] hover:underline">
                         الحركات
                       </button>
                     </td>
@@ -1010,7 +1022,7 @@ export const HrEmployeesView: React.FC = () => {
               <option value="OTHER">أخرى</option>
             </select>
             <input placeholder="الرقم التسلسلي" value={custSerial} onChange={(e) => setCustSerial(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-            <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+            <button type="submit" className="rounded-lg bg-[#0D6E4F] px-4 py-2 text-sm font-medium text-white hover:bg-[#0A583F]">
               تسليم عهدة
             </button>
           </form>

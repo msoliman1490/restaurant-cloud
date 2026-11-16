@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 
 interface PaginationMeta {
   total: number;
@@ -119,6 +120,7 @@ interface SupplierPaymentItem {
 
 export const PurchasingView = () => {
   const { activeLegalEntity, hierarchy } = useAuth();
+  const { dir } = useLocale();
   const [requests, setRequests] = useState<PurchaseRequestRow[]>([]);
   const [requestsMeta, setRequestsMeta] = useState<PaginationMeta>({ total: 0, page: 1, limit: 20, totalPages: 1 });
   const [prStatusFilter, setPrStatusFilter] = useState<string>('');
@@ -164,6 +166,21 @@ export const PurchasingView = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [convertPrTarget, setConvertPrTarget] = useState<PurchaseRequestRow | null>(null);
   const [convertSupplierId, setConvertSupplierId] = useState('');
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (convertPrTarget) setConvertPrTarget(null);
+        else if (rejectPrTarget) setRejectPrTarget(null);
+        else if (selectedPrDetail) setSelectedPrDetail(null);
+        else if (isPrModalOpen) setIsPrModalOpen(false);
+        else if (isPaymentModalOpen) setIsPaymentModalOpen(false);
+        else if (isModalOpen) setIsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [convertPrTarget, rejectPrTarget, selectedPrDetail, isPrModalOpen, isPaymentModalOpen, isModalOpen]);
 
   const extractPaginated = <T,>(res: any, fallbackPage: number): { items: T[]; meta: PaginationMeta } => {
     if (Array.isArray(res)) {
@@ -538,7 +555,7 @@ export const PurchasingView = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={dir}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -550,7 +567,7 @@ export const PurchasingView = () => {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setIsPrModalOpen(true)}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
+            className="flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
           >
             <ClipboardList className="w-4 h-4" />
             <span>طلب شراء جديد (PR)</span>
@@ -564,7 +581,7 @@ export const PurchasingView = () => {
           </button>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm shadow-indigo-600/20"
+            className="flex items-center gap-2 bg-[#0D6E4F] hover:bg-[#0A583F] text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
             <span>إصدار أمر شراء جديد (PO)</span>
@@ -577,7 +594,7 @@ export const PurchasingView = () => {
         <button
           onClick={() => setActiveTab('requests')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
-            activeTab === 'requests' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'requests' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <ClipboardList className="w-4 h-4" />
@@ -586,7 +603,7 @@ export const PurchasingView = () => {
         <button
           onClick={() => setActiveTab('orders')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
-            activeTab === 'orders' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'orders' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <ShoppingCart className="w-4 h-4" />
@@ -595,7 +612,7 @@ export const PurchasingView = () => {
         <button
           onClick={() => setActiveTab('receipts')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'receipts' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'receipts' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <PackageCheck className="w-4 h-4" />
@@ -604,7 +621,7 @@ export const PurchasingView = () => {
         <button
           onClick={() => setActiveTab('invoices')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'invoices' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'invoices' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <FileText className="w-4 h-4" />
@@ -613,7 +630,7 @@ export const PurchasingView = () => {
         <button
           onClick={() => setActiveTab('returns')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'returns' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'returns' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <RotateCcw className="w-4 h-4" />
@@ -622,7 +639,7 @@ export const PurchasingView = () => {
         <button
           onClick={() => setActiveTab('payments')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'payments' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'payments' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Banknote className="w-4 h-4" />
@@ -690,7 +707,7 @@ export const PurchasingView = () => {
             </select>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-xs">
             <table className="w-full text-right border-collapse text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
@@ -705,7 +722,7 @@ export const PurchasingView = () => {
               <tbody className="divide-y divide-slate-100">
                 {requests.map((pr) => (
                   <tr key={pr.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3.5 px-4 font-mono font-bold text-xs text-indigo-600">{pr.requestNumber}</td>
+                    <td className="py-3.5 px-4 font-mono font-bold text-xs text-[#0D6E4F]">{pr.requestNumber}</td>
                     <td className="py-3.5 px-4 font-mono text-xs text-slate-600">
                       {(hierarchy?.warehouses || []).find((w: any) => w.id === pr.warehouseId)?.name || pr.warehouseId.slice(0, 8)}
                     </td>
@@ -721,7 +738,7 @@ export const PurchasingView = () => {
                           pr.status === 'APPROVED'
                             ? 'bg-emerald-100 text-emerald-800'
                             : pr.status === 'CONVERTED_TO_PO'
-                            ? 'bg-indigo-100 text-indigo-800'
+                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
                             : pr.status === 'REJECTED'
                             ? 'bg-rose-100 text-rose-800'
                             : pr.status === 'SUBMITTED'
@@ -766,7 +783,7 @@ export const PurchasingView = () => {
                           <button
                             type="button"
                             onClick={() => setConvertPrTarget(pr)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-medium"
                           >
                             <ArrowRightLeft className="w-3.5 h-3.5" />
                             <span>تحويل إلى PO</span>
@@ -792,7 +809,7 @@ export const PurchasingView = () => {
 
       {/* Table of Orders */}
       {activeTab === 'orders' && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-xs">
           <table className="w-full text-right border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
@@ -809,7 +826,7 @@ export const PurchasingView = () => {
             <tbody className="divide-y divide-slate-100">
               {orders.map((po) => (
                 <tr key={po.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-indigo-600">{po.orderNumber}</td>
+                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-[#0D6E4F]">{po.orderNumber}</td>
                   <td className="py-3.5 px-4 font-medium text-slate-800">{po.supplierName}</td>
                   <td className="py-3.5 px-4 text-slate-600 text-xs">{po.warehouseName}</td>
                   <td className="py-3.5 px-4 text-center font-mono">{po.itemCount}</td>
@@ -865,7 +882,7 @@ export const PurchasingView = () => {
                         <button
                           type="button"
                           onClick={() => handleQuickReceivePo(po)}
-                          className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
+                          className="px-2.5 py-1 rounded-lg bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-medium"
                         >
                           استلام GRN
                         </button>
@@ -891,7 +908,7 @@ export const PurchasingView = () => {
 
       {/* Table of Supplier Payments */}
       {activeTab === 'payments' && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-xs">
           <table className="w-full text-right border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
@@ -930,7 +947,7 @@ export const PurchasingView = () => {
 
       {/* Goods Receipts (GRN) Tab */}
       {activeTab === 'receipts' && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-xs">
           <table className="w-full text-right border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
@@ -944,7 +961,7 @@ export const PurchasingView = () => {
             <tbody className="divide-y divide-slate-100">
               {receipts.map((r) => (
                 <tr key={r.id} className="hover:bg-slate-50/80">
-                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-indigo-600">{r.receiptNumber}</td>
+                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-[#0D6E4F]">{r.receiptNumber}</td>
                   <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{r.purchaseOrderId ? r.purchaseOrderId.slice(0, 8) : '-'}</td>
                   <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{r.warehouseId.slice(0, 8)}</td>
                   <td className="py-3.5 px-4 font-mono text-xs text-slate-500">{(r.receivedAt || r.createdAt || '').slice(0, 10)}</td>
@@ -970,7 +987,7 @@ export const PurchasingView = () => {
 
       {/* Supplier Invoices (AP) Tab */}
       {activeTab === 'invoices' && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-xs">
           <table className="w-full text-right border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
@@ -984,7 +1001,7 @@ export const PurchasingView = () => {
             <tbody className="divide-y divide-slate-100">
               {invoices.map((inv) => (
                 <tr key={inv.id} className="hover:bg-slate-50/80">
-                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-indigo-600">{inv.invoiceNumber}</td>
+                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-[#0D6E4F]">{inv.invoiceNumber}</td>
                   <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{inv.supplierId.slice(0, 8)}</td>
                   <td className="py-3.5 px-4 text-left font-mono font-bold text-slate-900">
                     {Number(inv.grandTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })} ر.س
@@ -1012,7 +1029,7 @@ export const PurchasingView = () => {
 
       {/* Purchase Returns Tab */}
       {activeTab === 'returns' && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-xs">
           <table className="w-full text-right border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
@@ -1054,7 +1071,7 @@ export const PurchasingView = () => {
 
       {/* New Payment Modal */}
       {isPaymentModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
             <h3 className="font-bold text-lg text-slate-800 mb-4 pb-2 border-b border-slate-100">
               تسجيل سند صرف وسداد لمورد (AP Payment)
@@ -1118,7 +1135,7 @@ export const PurchasingView = () => {
 
       {/* New PO Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
             <h3 className="font-bold text-lg text-slate-800 mb-4 pb-2 border-b border-slate-100">
               إنشاء أمر شراء جديد للمورد
@@ -1155,7 +1172,7 @@ export const PurchasingView = () => {
                 />
               </div>
 
-              <div className="p-3 bg-indigo-50/50 rounded-xl text-xs text-indigo-700 border border-indigo-100">
+              <div className="p-3 bg-blue-50 rounded-xl text-xs text-blue-800 border border-blue-200">
                 يتم تحديث المخزون بطبقات التكلفة (FIFO Cost Layers) آلياً بمجرد تأكيد سند الاستلام (GRN).
               </div>
 
@@ -1169,7 +1186,7 @@ export const PurchasingView = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium"
+                  className="px-5 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-sm font-medium"
                 >
                   تأكيد وإصدار أمر الشراء
                 </button>
@@ -1181,7 +1198,7 @@ export const PurchasingView = () => {
 
       {/* Create Purchase Request Modal */}
       {isPrModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
             <h3 className="font-bold text-lg text-slate-800 mb-4 pb-2 border-b border-slate-100">
               إنشاء طلب شراء جديد (Purchase Request)
@@ -1277,7 +1294,7 @@ export const PurchasingView = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium"
+                  className="px-5 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-sm font-medium"
                 >
                   إرسال طلب الشراء
                 </button>
@@ -1289,12 +1306,12 @@ export const PurchasingView = () => {
 
       {/* PR Detail Modal */}
       {selectedPrDetail && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-bold text-lg text-slate-800">
-                  تفاصيل طلب الشراء: <span className="font-mono text-indigo-600">{selectedPrDetail.requestNumber}</span>
+                  تفاصيل طلب الشراء: <span className="font-mono text-[#0D6E4F]">{selectedPrDetail.requestNumber}</span>
                 </h3>
                 <p className="text-xs text-slate-500">
                   الحالة: <span className="font-semibold">{selectedPrDetail.status}</span>
@@ -1318,7 +1335,7 @@ export const PurchasingView = () => {
               </div>
             )}
 
-            <div className="border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="border border-slate-200 rounded-2xl overflow-x-auto">
               <table className="w-full text-right text-xs">
                 <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                   <tr>
@@ -1364,7 +1381,7 @@ export const PurchasingView = () => {
                 <button
                   type="button"
                   onClick={() => setConvertPrTarget(selectedPrDetail)}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium"
+                  className="px-4 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-medium"
                 >
                   تحويل إلى أمر شراء (PO)
                 </button>
@@ -1376,7 +1393,7 @@ export const PurchasingView = () => {
 
       {/* Reject PR Modal */}
       {rejectPrTarget && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
             <h3 className="font-bold text-lg text-slate-800 mb-3">
               رفض طلب الشراء ({rejectPrTarget.requestNumber})
@@ -1415,7 +1432,7 @@ export const PurchasingView = () => {
 
       {/* Convert PR to PO Modal */}
       {convertPrTarget && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
             <h3 className="font-bold text-lg text-slate-800 mb-3">
               تحويل طلب الشراء ({convertPrTarget.requestNumber}) إلى أمر شراء (PO)
@@ -1446,7 +1463,7 @@ export const PurchasingView = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium"
+                  className="px-5 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-sm font-medium"
                 >
                   تحويل وإنشاء PO
                 </button>

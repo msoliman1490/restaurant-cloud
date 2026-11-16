@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BookOpen,
   Scale,
@@ -13,8 +13,6 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
-  Sun,
-  Moon,
   Trash2,
   Copy,
   AlertCircle,
@@ -30,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 import { apiClient } from '../api/client';
 import { exportToCsv } from '../utils/export';
 import { FinancialResourcesView } from './FinancialResourcesView';
@@ -146,11 +145,12 @@ export interface BusinessPartnerItem {
 
 export const AccountingView: React.FC = () => {
   const { activeLegalEntity, activeBranch } = useAuth();
+  const { dir } = useLocale();
   const legalEntityId = activeLegalEntity?.id || '00000000-0000-0000-0000-000000000001';
 
   // Navigation & Theme
   const [activeTab, setActiveTab] = useState<'coa' | 'journals' | 'vouchers' | 'vaults_banks' | 'shifts' | 'settlements' | 'mappings' | 'reports'>('journals');
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme] = useState<'light' | 'dark'>('light');
   const toast = useToast();
 
   // Core Data States
@@ -194,6 +194,20 @@ export const AccountingView: React.FC = () => {
   const [isReversalModalOpen, setIsReversalModalOpen] = useState(false);
   const [reversalTargetEntry, setReversalTargetEntry] = useState<JournalEntryHeader | null>(null);
   const [reversalReason, setReversalReason] = useState('');
+
+  useEffect(() => {
+    if (!isJournalDrawerOpen && !isAccountModalOpen && !isTransferModalOpen && !isReversalModalOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsJournalDrawerOpen(false);
+        setIsAccountModalOpen(false);
+        setIsTransferModalOpen(false);
+        setIsReversalModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isJournalDrawerOpen, isAccountModalOpen, isTransferModalOpen, isReversalModalOpen]);
 
   // Multi-Line Journal Editor Form State
   const [journalForm, setJournalForm] = useState<{
@@ -1044,16 +1058,10 @@ export const AccountingView: React.FC = () => {
         <div
           className={`flex items-center justify-between py-2.5 px-3 rounded-lg transition text-sm ${
             depth === 0
-              ? theme === 'dark'
-                ? 'bg-slate-800/80 font-bold text-slate-100 border border-slate-700/60 my-1'
-                : 'bg-slate-100 font-bold text-slate-900 border border-slate-200 my-1'
+              ? 'bg-slate-100 font-bold text-slate-900 border border-slate-200 my-1'
               : depth === 1
-              ? theme === 'dark'
-                ? 'hover:bg-slate-800/50 text-slate-200'
-                : 'hover:bg-slate-50 text-slate-800'
-              : theme === 'dark'
-              ? 'hover:bg-slate-800/30 text-slate-300'
-              : 'hover:bg-slate-50/70 text-slate-700'
+              ? 'hover:bg-slate-100 text-slate-800'
+              : 'hover:bg-slate-50 text-slate-700'
           }`}
           style={{ paddingRight: `${Math.max(12, depth * 24)}px` }}
         >
@@ -1101,7 +1109,7 @@ export const AccountingView: React.FC = () => {
           {/* Right: Balances & Actions */}
           <div className="flex items-center gap-4">
             <div className="text-left font-mono font-semibold">
-              <span className={netBal >= 0 ? 'text-slate-900 dark:text-slate-100' : 'text-red-500'}>
+              <span className={netBal >= 0 ? 'text-slate-900' : 'text-red-500'}>
                 {netBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
               </span>
             </div>
@@ -1111,7 +1119,7 @@ export const AccountingView: React.FC = () => {
                 type="button"
                 title="إضافة حساب فرعي"
                 onClick={() => handleOpenAccountModal(undefined, node.id)}
-                className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 hover:text-emerald-500 transition"
+                className="p-1.5 hover:bg-slate-200 rounded text-slate-500 hover:text-emerald-500 transition"
               >
                 <Plus className="w-3.5 h-3.5" />
               </button>
@@ -1119,7 +1127,7 @@ export const AccountingView: React.FC = () => {
                 type="button"
                 title="تعديل الحساب"
                 onClick={() => handleOpenAccountModal(node)}
-                className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 hover:text-blue-500 transition"
+                className="p-1.5 hover:bg-slate-200 rounded text-slate-500 hover:text-blue-500 transition"
               >
                 <FileText className="w-3.5 h-3.5" />
               </button>
@@ -1127,7 +1135,7 @@ export const AccountingView: React.FC = () => {
                 type="button"
                 title="حذف الحساب"
                 onClick={() => handleDeleteAccount(node)}
-                className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 hover:text-red-500 transition"
+                className="p-1.5 hover:bg-slate-200 rounded text-slate-500 hover:text-red-500 transition"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -1149,10 +1157,8 @@ export const AccountingView: React.FC = () => {
 
   return (
     <div
-      className={`min-h-screen transition-colors duration-200 font-sans ${
-        theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
-      }`}
-      dir="rtl"
+      className="min-h-screen transition-colors duration-200 font-sans bg-slate-50 text-slate-900"
+      dir={dir}
     >
       {/* Toast Feedback Notification */}
       {feedbackMessage && (
@@ -1172,7 +1178,7 @@ export const AccountingView: React.FC = () => {
       )}
 
       {/* Main Top Header */}
-      <div className={`border-b ${theme === 'dark' ? 'bg-slate-900/90 border-slate-800' : 'bg-white border-slate-200'} px-6 py-4`}>
+      <div className={`border-b ${'bg-white border-slate-200'} px-6 py-4`}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
@@ -1181,7 +1187,7 @@ export const AccountingView: React.FC = () => {
               </div>
               <div>
                 <h1 className="text-xl font-bold tracking-tight">الوحدة المحاسبية وإدارة العمليات المالية</h1>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5">
                   منظومة القيد المزدوج المتوازن، دليل الحسابات الشجري، وإدارة التدفقات النقدية والتقارير القانونية
                 </p>
               </div>
@@ -1189,30 +1195,12 @@ export const AccountingView: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Dark / Light Mode Switcher */}
-            <button
-              type="button"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className={`p-2.5 rounded-xl border transition flex items-center gap-2 text-xs font-medium ${
-                theme === 'dark'
-                  ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
-              <span>{theme === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن'}</span>
-            </button>
-
             {/* Refresh Button */}
             <button
               type="button"
               onClick={refreshAllData}
               disabled={loading}
-              className={`p-2.5 rounded-xl border transition ${
-                theme === 'dark'
-                  ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                  : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
-              }`}
+              className="p-2.5 rounded-xl border transition bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -1230,7 +1218,7 @@ export const AccountingView: React.FC = () => {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center gap-2 mt-6 border-b border-slate-200 dark:border-slate-800 -mb-4">
+        <div className="flex items-center gap-2 mt-6 border-b border-slate-200 -mb-4">
           {[
             { id: 'journals', label: 'قيود اليومية ومحرر القيود', icon: BookOpen },
             { id: 'coa', label: 'دليل الحسابات الشجري (COA)', icon: FolderTree },
@@ -1250,8 +1238,8 @@ export const AccountingView: React.FC = () => {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`flex items-center gap-2 px-4 py-3 font-medium text-sm rounded-t-xl transition border-b-2 ${
                   active
-                    ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-500/10'
-                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    ? 'border-emerald-500 text-emerald-600 bg-emerald-50/50'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -1271,19 +1259,19 @@ export const AccountingView: React.FC = () => {
           <div className="flex flex-col gap-6">
             {/* Journal Metrics Bar */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className={`p-4 rounded-xl border ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className={`p-4 rounded-xl border ${'bg-white border-slate-200'}`}>
                 <p className="text-xs text-slate-500">إجمالي القيود المرحلة</p>
-                <p className="text-2xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">
+                <p className="text-2xl font-bold mt-1 text-emerald-600">
                   {journals.filter((j) => j.status === 'POSTED').length}
                 </p>
               </div>
-              <div className={`p-4 rounded-xl border ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className={`p-4 rounded-xl border ${'bg-white border-slate-200'}`}>
                 <p className="text-xs text-slate-500">مسودات القيود (قيد المراجعة)</p>
-                <p className="text-2xl font-bold mt-1 text-blue-600 dark:text-blue-400">
+                <p className="text-2xl font-bold mt-1 text-blue-600">
                   {journals.filter((j) => j.status === 'DRAFT').length}
                 </p>
               </div>
-              <div className={`p-4 rounded-xl border ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className={`p-4 rounded-xl border ${'bg-white border-slate-200'}`}>
                 <p className="text-xs text-slate-500">القيود المعكوسة (تسويات)</p>
                 <p className="text-2xl font-bold mt-1 text-slate-500">
                   {journals.filter((j) => j.status === 'REVERSED').length}
@@ -1302,7 +1290,7 @@ export const AccountingView: React.FC = () => {
                     onChange={(e) => setJournalSearch(e.target.value)}
                     placeholder="البحث برقم القيد أو البيان العام..."
                     className={`w-full pr-9 pl-4 py-2 text-sm rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200'
+                      'bg-white border-slate-200 text-slate-900'
                     }`}
                   />
                 </div>
@@ -1313,7 +1301,7 @@ export const AccountingView: React.FC = () => {
                   value={journalStatusFilter}
                   onChange={(e) => setJournalStatusFilter(e.target.value)}
                   className={`px-3 py-2 text-xs rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200'
+                    'bg-white border-slate-200 text-slate-800'
                   }`}
                 >
                   <option value="ALL">جميع الحالات</option>
@@ -1348,7 +1336,7 @@ export const AccountingView: React.FC = () => {
                       ]
                     )
                   }
-                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white transition"
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-white hover:bg-slate-50 border border-slate-200 disabled:opacity-50 text-slate-700 transition"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>تصدير CSV</span>
@@ -1357,10 +1345,10 @@ export const AccountingView: React.FC = () => {
             </div>
 
             {/* Journals Table */}
-            <div className={`rounded-xl border overflow-hidden shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className={`rounded-xl border overflow-hidden shadow-sm ${'bg-white border-slate-200'}`}>
               <div className="overflow-x-auto">
                 <table className="w-full text-right text-sm">
-                  <thead className={`text-xs uppercase font-semibold ${theme === 'dark' ? 'bg-slate-800/60 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>
+                  <thead className={`text-xs uppercase font-semibold ${'bg-slate-100 text-slate-600'}`}>
                     <tr>
                       <th className="py-3.5 px-4">رقم القيد</th>
                       <th className="py-3.5 px-4">تاريخ القيد</th>
@@ -1372,7 +1360,7 @@ export const AccountingView: React.FC = () => {
                       <th className="py-3.5 px-4 text-center">الإجراءات</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  <tbody className="divide-y divide-slate-200">
                     {filteredJournals.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="py-12 text-center text-slate-500">
@@ -1382,8 +1370,8 @@ export const AccountingView: React.FC = () => {
                     ) : (
                       filteredJournals.map((j) => (
                         <React.Fragment key={j.id}>
-                          <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition`}>
-                            <td className="py-3 px-4 font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                          <tr className={`hover:bg-slate-50 transition`}>
+                            <td className="py-3 px-4 font-mono font-semibold text-emerald-600">
                               {j.journalNumber}
                             </td>
                             <td className="py-3 px-4 text-slate-500 font-mono text-xs">
@@ -1394,13 +1382,13 @@ export const AccountingView: React.FC = () => {
                                 {j.journalType}
                               </span>
                             </td>
-                            <td className="py-3 px-4 max-w-xs truncate text-slate-700 dark:text-slate-300">
+                            <td className="py-3 px-4 max-w-xs truncate text-slate-700">
                               {j.description || '-'}
                             </td>
-                            <td className="py-3 px-4 text-left font-mono font-semibold text-slate-900 dark:text-slate-100">
+                            <td className="py-3 px-4 text-left font-mono font-semibold text-slate-900">
                               {parseFloat(j.debitTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </td>
-                            <td className="py-3 px-4 text-left font-mono font-semibold text-slate-900 dark:text-slate-100">
+                            <td className="py-3 px-4 text-left font-mono font-semibold text-slate-900">
                               {parseFloat(j.creditTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </td>
                             <td className="py-3 px-4 text-center">
@@ -1428,7 +1416,7 @@ export const AccountingView: React.FC = () => {
                                       type="button"
                                       title="تعديل المسودة"
                                       onClick={() => handleOpenEditDraft(j)}
-                                      className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-950 text-blue-600 rounded transition flex items-center gap-1 text-xs font-semibold"
+                                      className="p-1.5 hover:bg-blue-50 text-blue-600 rounded transition flex items-center gap-1 text-xs font-semibold"
                                     >
                                       <Pencil className="w-3.5 h-3.5" />
                                       <span>تعديل</span>
@@ -1445,7 +1433,7 @@ export const AccountingView: React.FC = () => {
                                           setFeedbackMessage({ type: 'error', text: err.message || 'فشل ترحيل المسودة' });
                                         }
                                       }}
-                                      className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950 text-emerald-600 rounded transition"
+                                      className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded transition"
                                     >
                                       <CheckCircle2 className="w-4 h-4" />
                                     </button>
@@ -1462,7 +1450,7 @@ export const AccountingView: React.FC = () => {
                                           setFeedbackMessage({ type: 'error', text: err.message || 'فشل حذف المسودة' });
                                         }
                                       }}
-                                      className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950 text-red-500 rounded transition"
+                                      className="p-1.5 hover:bg-red-50 text-red-500 rounded transition"
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>
@@ -1478,7 +1466,7 @@ export const AccountingView: React.FC = () => {
                                       setReversalModalError(null);
                                       setIsReversalModalOpen(true);
                                     }}
-                                    className="p-1.5 hover:bg-amber-50 dark:hover:bg-amber-950 text-amber-600 rounded transition flex items-center gap-1 text-xs"
+                                    className="p-1.5 hover:bg-amber-50 text-amber-600 rounded transition flex items-center gap-1 text-xs"
                                   >
                                     <Undo2 className="w-3.5 h-3.5" />
                                     <span>عكس</span>
@@ -1490,9 +1478,9 @@ export const AccountingView: React.FC = () => {
 
                           {/* Multi-Lines expansion */}
                           {j.lines && j.lines.length > 0 && (
-                            <tr className={`${theme === 'dark' ? 'bg-slate-900/60' : 'bg-slate-50/60'}`}>
+                            <tr className={`${'bg-slate-50/60'}`}>
                               <td colSpan={8} className="p-3">
-                                <div className={`border rounded-lg p-3 text-xs ${theme === 'dark' ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-white'}`}>
+                                <div className="border rounded-lg p-3 text-xs border-slate-200 bg-white overflow-x-auto">
                                   <table className="w-full text-right font-mono">
                                     <thead>
                                       <tr className="text-slate-400 border-b border-slate-700/30">
@@ -1537,7 +1525,7 @@ export const AccountingView: React.FC = () => {
         {activeTab === 'coa' && (
           <div className="flex flex-col gap-6">
             {/* Header Actions */}
-            <div className={`flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className={`flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border ${'bg-white border-slate-200'}`}>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -1551,7 +1539,7 @@ export const AccountingView: React.FC = () => {
                 <button
                   type="button"
                   onClick={expandAllCoa}
-                  className={`px-3 py-2 rounded-xl text-xs border font-medium transition ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'}`}
+                  className={`px-3 py-2 rounded-xl text-xs border font-medium transition ${'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'}`}
                 >
                   توسيع الكل
                 </button>
@@ -1559,7 +1547,7 @@ export const AccountingView: React.FC = () => {
                 <button
                   type="button"
                   onClick={collapseAllCoa}
-                  className={`px-3 py-2 rounded-xl text-xs border font-medium transition ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'}`}
+                  className={`px-3 py-2 rounded-xl text-xs border font-medium transition ${'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'}`}
                 >
                   طي الكل
                 </button>
@@ -1575,7 +1563,7 @@ export const AccountingView: React.FC = () => {
                     onChange={(e) => setCoaSearch(e.target.value)}
                     placeholder="البحث بالرمز أو الاسم..."
                     className={`w-full pr-9 pl-3 py-1.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200'
+                      'bg-slate-50 border-slate-200 text-slate-900'
                     }`}
                   />
                 </div>
@@ -1584,7 +1572,7 @@ export const AccountingView: React.FC = () => {
                   value={coaTypeFilter}
                   onChange={(e) => setCoaTypeFilter(e.target.value)}
                   className={`px-3 py-1.5 text-xs rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200 text-slate-800'
                   }`}
                 >
                   <option value="ALL">جميع الأنواع</option>
@@ -1599,7 +1587,7 @@ export const AccountingView: React.FC = () => {
             </div>
 
             {/* Tree Container */}
-            <div className={`p-4 rounded-xl border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className={`p-4 rounded-xl border shadow-sm ${'bg-white border-slate-200'}`}>
               <div className="flex flex-col gap-1">
                 {coaTree.length === 0 ? (
                   <div className="py-12 text-center text-slate-500">جاري تحميل شجرة الحسابات أو لا توجد حسابات مسجلة...</div>
@@ -1625,7 +1613,7 @@ export const AccountingView: React.FC = () => {
                   className={`px-4 py-2 rounded-xl text-xs font-semibold transition ${
                     voucherTypeTab === 'RECEIPT'
                       ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                      : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      : 'bg-slate-200 text-slate-600'
                   }`}
                 >
                   سندات القبض (Receipt Vouchers)
@@ -1636,7 +1624,7 @@ export const AccountingView: React.FC = () => {
                   className={`px-4 py-2 rounded-xl text-xs font-semibold transition ${
                     voucherTypeTab === 'PAYMENT'
                       ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                      : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      : 'bg-slate-200 text-slate-600'
                   }`}
                 >
                   سندات الصرف (Payment Vouchers)
@@ -1651,17 +1639,17 @@ export const AccountingView: React.FC = () => {
                   onChange={(e) => setVoucherSearch(e.target.value)}
                   placeholder="بحث برقم السند أو الطرف..."
                   className={`w-full pr-9 pl-3 py-1.5 text-xs rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200'
+                    'bg-white border-slate-200 text-slate-900'
                   }`}
                 />
               </div>
             </div>
 
             {/* Table */}
-            <div className={`rounded-xl border overflow-hidden shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className={`rounded-xl border overflow-hidden shadow-sm ${'bg-white border-slate-200'}`}>
               <div className="overflow-x-auto">
                 <table className="w-full text-right text-sm">
-                  <thead className={`text-xs uppercase font-semibold ${theme === 'dark' ? 'bg-slate-800/60 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>
+                  <thead className={`text-xs uppercase font-semibold ${'bg-slate-100 text-slate-600'}`}>
                     <tr>
                       <th className="py-3 px-4">رقم السند</th>
                       <th className="py-3 px-4">التاريخ</th>
@@ -1672,7 +1660,7 @@ export const AccountingView: React.FC = () => {
                       <th className="py-3 px-4 text-center">الحالة</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  <tbody className="divide-y divide-slate-200">
                     {filteredVouchers.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="py-12 text-center text-slate-500">
@@ -1681,23 +1669,23 @@ export const AccountingView: React.FC = () => {
                       </tr>
                     ) : (
                       filteredVouchers.map((v) => (
-                        <tr key={v.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                          <td className="py-3 px-4 font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                        <tr key={v.id} className="hover:bg-slate-50 transition">
+                          <td className="py-3 px-4 font-mono font-semibold text-emerald-600">
                             {v.voucherNumber}
                           </td>
                           <td className="py-3 px-4 text-slate-500 text-xs font-mono">
                             {new Date(v.voucherDate).toLocaleDateString('ar-SA')}
                           </td>
-                          <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-200">
+                          <td className="py-3 px-4 font-medium text-slate-800">
                             {v.payerName || v.beneficiaryName || '-'}
                           </td>
                           <td className="py-3 px-4 text-xs text-slate-500">
                             {v.paymentMethod}
                           </td>
-                          <td className="py-3 px-4 text-left font-mono font-bold text-slate-900 dark:text-slate-100">
+                          <td className="py-3 px-4 text-left font-mono font-bold text-slate-900">
                             {parseFloat(v.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} SAR
                           </td>
-                          <td className="py-3 px-4 text-left font-mono font-semibold text-blue-600 dark:text-blue-400">
+                          <td className="py-3 px-4 text-left font-mono font-semibold text-blue-600">
                             {parseFloat(v.unallocatedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} SAR
                           </td>
                           <td className="py-3 px-4 text-center">
@@ -1762,7 +1750,7 @@ export const AccountingView: React.FC = () => {
         {activeTab === 'reports' && (
           <div className="flex flex-col gap-6">
             {/* Report Sub Tabs */}
-            <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
               {[
                 { id: 'trial_balance', label: 'ميزان المراجعة (Trial Balance)' },
                 { id: 'income_statement', label: 'قائمة الدخل (P&L)' },
@@ -1776,7 +1764,7 @@ export const AccountingView: React.FC = () => {
                   className={`px-3.5 py-2 text-xs font-semibold rounded-xl transition ${
                     reportSubTab === r.id
                       ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                      : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      : 'bg-slate-200 text-slate-600'
                   }`}
                 >
                   {r.label}
@@ -1786,8 +1774,8 @@ export const AccountingView: React.FC = () => {
 
             {/* Trial Balance Report */}
             {reportSubTab === 'trial_balance' && (
-              <div className={`p-5 rounded-xl border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className={`p-5 rounded-xl border shadow-sm ${'bg-white border-slate-200'}`}>
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                   <div>
                     <h4 className="font-bold text-base">ميزان المراجعة بالأرصدة والمجاميع</h4>
                     <p className="text-xs text-slate-400 mt-0.5">مطابقة تامة لإجمالي المدين مع إجمالي الدائن</p>
@@ -1832,7 +1820,7 @@ export const AccountingView: React.FC = () => {
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-right text-xs font-mono">
-                    <thead className={`font-semibold ${theme === 'dark' ? 'bg-slate-800/60 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>
+                    <thead className={`font-semibold ${'bg-slate-100 text-slate-600'}`}>
                       <tr>
                         <th className="py-2.5 px-3">رمز الحساب</th>
                         <th className="py-2.5 px-3 font-sans">اسم الحساب</th>
@@ -1841,11 +1829,11 @@ export const AccountingView: React.FC = () => {
                         <th className="py-2.5 px-3 text-left">صافي الرصيد</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    <tbody className="divide-y divide-slate-100">
                       {trialBalanceData?.accounts?.map((acc: any) => (
-                        <tr key={acc.accountId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <tr key={acc.accountId} className="hover:bg-slate-50">
                           <td className="py-2 px-3 text-emerald-500 font-semibold">{acc.accountCode}</td>
-                          <td className="py-2 px-3 font-sans text-slate-700 dark:text-slate-300">
+                          <td className="py-2 px-3 font-sans text-slate-700">
                             {acc.accountName || acc.nameAr || acc.name || acc.nameEn || '-'}
                           </td>
                           <td className="py-2 px-3 text-left">{parseFloat(acc.totalDebit).toFixed(2)}</td>
@@ -1854,7 +1842,7 @@ export const AccountingView: React.FC = () => {
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className={`font-bold border-t-2 border-slate-300 dark:border-slate-700 ${theme === 'dark' ? 'bg-slate-800/80' : 'bg-slate-100'}`}>
+                    <tfoot className="font-bold border-t-2 border-slate-300 bg-slate-100">
                       <tr>
                         <td colSpan={2} className="py-3 px-3 font-sans">الإجمالي العام للميزان:</td>
                         <td className="py-3 px-3 text-left text-emerald-500">
@@ -1875,8 +1863,8 @@ export const AccountingView: React.FC = () => {
 
             {/* Income Statement Report */}
             {reportSubTab === 'income_statement' && (
-              <div className={`p-5 rounded-xl border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className={`p-5 rounded-xl border shadow-sm ${'bg-white border-slate-200'}`}>
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                   <h4 className="font-bold text-base">
                     قائمة الأرباح والخسائر (Income Statement)
                   </h4>
@@ -1929,8 +1917,8 @@ export const AccountingView: React.FC = () => {
 
             {/* Balance Sheet */}
             {reportSubTab === 'balance_sheet' && (
-              <div className={`p-5 rounded-xl border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className={`p-5 rounded-xl border shadow-sm ${'bg-white border-slate-200'}`}>
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                   <h4 className="font-bold text-base">
                     الميزانية العمومية والمركز المالي (Balance Sheet)
                   </h4>
@@ -1970,9 +1958,9 @@ export const AccountingView: React.FC = () => {
                       {parseFloat(balanceSheetData?.liabilities?.total || '0').toFixed(2)} SAR
                     </p>
                   </div>
-                  <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                  <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
                     <p className="text-xs text-slate-500">حقوق الملكية (Equity)</p>
-                    <p className="text-xl font-bold font-mono text-purple-600 mt-1">
+                    <p className="text-xl font-bold font-mono text-blue-800 mt-1">
                       {parseFloat(balanceSheetData?.equity?.total || '0').toFixed(2)} SAR
                     </p>
                   </div>
@@ -1982,8 +1970,8 @@ export const AccountingView: React.FC = () => {
 
             {/* VAT Return */}
             {reportSubTab === 'vat_return' && (
-              <div className={`p-5 rounded-xl border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className={`p-5 rounded-xl border shadow-sm ${'bg-white border-slate-200'}`}>
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                   <h4 className="font-bold text-base">
                     إقرار ضريبة القيمة المضافة لهيئة الزكاة والضريبة والجمارك (ZATCA VAT Return 15%)
                   </h4>
@@ -2011,21 +1999,21 @@ export const AccountingView: React.FC = () => {
                   </button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div className="p-4 rounded-xl border border-slate-200">
                     <p className="text-xs text-slate-500">ضريبة المخرجات للمبيعات (15%)</p>
                     <p className="text-xl font-bold font-mono text-red-500 mt-1">
                       {parseFloat(vatReturnData?.totalOutputVat || '0').toFixed(2)} SAR
                     </p>
                   </div>
-                  <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div className="p-4 rounded-xl border border-slate-200">
                     <p className="text-xs text-slate-500">ضريبة المدخلات للمشتريات (15%)</p>
                     <p className="text-xl font-bold font-mono text-emerald-500 mt-1">
                       {parseFloat(vatReturnData?.totalInputVat || '0').toFixed(2)} SAR
                     </p>
                   </div>
-                  <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
                     <p className="text-xs text-slate-500">صافي الضريبة المستحقة للسداد</p>
-                    <p className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
+                    <p className="text-xl font-bold font-mono text-slate-900 mt-1">
                       {parseFloat(vatReturnData?.netVatPayableOrRefund || '0').toFixed(2)} SAR
                     </p>
                   </div>
@@ -2043,11 +2031,11 @@ export const AccountingView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
           <div
             className={`w-full max-w-5xl rounded-2xl border shadow-2xl flex flex-col max-h-[92vh] overflow-hidden ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+              'bg-white border-slate-200 text-slate-900'
             }`}
           >
             {/* Drawer Header */}
-            <div className={`p-4 border-b flex items-center justify-between ${theme === 'dark' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+            <div className={`p-4 border-b flex items-center justify-between ${'border-slate-200 bg-slate-50'}`}>
               <div className="flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-emerald-500" />
                 <h3 className="font-bold text-base">
@@ -2083,7 +2071,7 @@ export const AccountingView: React.FC = () => {
                     value={journalForm.journalNumber}
                     onChange={(e) => setJournalForm({ ...journalForm, journalNumber: e.target.value })}
                     className={`w-full px-3 py-2 text-xs font-mono rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200'
+                      'bg-slate-50 border-slate-200 text-slate-900'
                     }`}
                   />
                 </div>
@@ -2095,7 +2083,7 @@ export const AccountingView: React.FC = () => {
                     value={journalForm.entryDate}
                     onChange={(e) => setJournalForm({ ...journalForm, entryDate: e.target.value })}
                     className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200'
+                      'bg-slate-50 border-slate-200 text-slate-900'
                     }`}
                   />
                 </div>
@@ -2106,7 +2094,7 @@ export const AccountingView: React.FC = () => {
                     value={journalForm.journalType}
                     onChange={(e) => setJournalForm({ ...journalForm, journalType: e.target.value })}
                     className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200'
+                      'bg-slate-50 border-slate-200 text-slate-900'
                     }`}
                   >
                     <option value="GENERAL">عام (GENERAL)</option>
@@ -2124,7 +2112,7 @@ export const AccountingView: React.FC = () => {
                     type="text"
                     disabled
                     value={activeBranch?.name || 'الفرع الرئيسي'}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-700/50 bg-slate-800/30 text-slate-400"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 text-slate-600"
                   />
                 </div>
 
@@ -2136,7 +2124,7 @@ export const AccountingView: React.FC = () => {
                     onChange={(e) => setJournalForm({ ...journalForm, description: e.target.value })}
                     placeholder="شرح وتوضيح العملية المحاسبية..."
                     className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200'
+                      'bg-slate-50 border-slate-200 text-slate-900'
                     }`}
                   />
                 </div>
@@ -2159,9 +2147,9 @@ export const AccountingView: React.FC = () => {
                   </button>
                 </div>
 
-                <div className={`rounded-xl border overflow-hidden ${theme === 'dark' ? 'border-slate-800 bg-slate-950' : 'border-slate-200 bg-slate-50/50'}`}>
+                <div className="rounded-xl border overflow-x-auto border-slate-200 bg-slate-50/50">
                   <table className="w-full text-right text-xs">
-                    <thead className={`font-semibold border-b ${theme === 'dark' ? 'bg-slate-800/60 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+                    <thead className={`font-semibold border-b ${'bg-slate-100 border-slate-200 text-slate-600'}`}>
                       <tr>
                         <th className="py-2.5 px-3 w-10 text-center">#</th>
                         <th className="py-2.5 px-3 w-64">الحساب المحاسبي</th>
@@ -2176,7 +2164,7 @@ export const AccountingView: React.FC = () => {
                       {journalForm.lines.map((line, idx) => {
                         const isControlAcc = line.accountCode === '113000' || line.accountCode === '211000';
                         return (
-                          <tr key={line.id} className="hover:bg-slate-800/20 transition">
+                          <tr key={line.id} className="hover:bg-slate-50 transition">
                             <td className="py-2.5 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
                             <td className="py-2.5 px-3">
                               <select
@@ -2186,10 +2174,8 @@ export const AccountingView: React.FC = () => {
                                 onKeyDown={(e) => handleKeyDown(e, 'account', idx)}
                                 className={`w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                                   !line.isPostable
-                                    ? 'border-amber-500 bg-amber-500/10'
-                                    : theme === 'dark'
-                                    ? 'bg-slate-900 border-slate-700 text-slate-100'
-                                    : 'bg-white border-slate-300'
+                                    ? 'border-amber-500 bg-amber-50'
+                                    : 'bg-white border-slate-300 text-slate-900'
                                 }`}
                               >
                                 <option value="">-- اختر الحساب --</option>
@@ -2215,9 +2201,7 @@ export const AccountingView: React.FC = () => {
                                   setJournalForm({ ...journalForm, lines: updated });
                                 }}
                                 placeholder="بيان السطر..."
-                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                  theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-300'
-                                }`}
+                                className="w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white border-slate-300 text-slate-900"
                               />
                             </td>
 
@@ -2265,7 +2249,7 @@ export const AccountingView: React.FC = () => {
                                 }}
                                 className={`w-full text-left font-mono font-semibold px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                                   line.debit && parseFloat(line.debit) > 0 ? 'border-emerald-500 text-emerald-500 font-bold bg-emerald-500/5' : ''
-                                } ${theme === 'dark' ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`}
+                                } bg-white border-slate-300 text-slate-900`}
                               />
                             </td>
 
@@ -2288,7 +2272,7 @@ export const AccountingView: React.FC = () => {
                                 }}
                                 className={`w-full text-left font-mono font-semibold px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                                   line.credit && parseFloat(line.credit) > 0 ? 'border-emerald-500 text-emerald-500 font-bold bg-emerald-500/5' : ''
-                                } ${theme === 'dark' ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`}
+                                } bg-white border-slate-300 text-slate-900`}
                               />
                             </td>
 
@@ -2366,7 +2350,7 @@ export const AccountingView: React.FC = () => {
             </div>
 
             {/* Drawer Footer Actions */}
-            <div className={`p-4 border-t flex items-center justify-between gap-4 ${theme === 'dark' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+            <div className={`p-4 border-t flex items-center justify-between gap-4 ${'border-slate-200 bg-slate-50'}`}>
               <button
                 type="button"
                 onClick={() => setIsJournalDrawerOpen(false)}
@@ -2410,7 +2394,7 @@ export const AccountingView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
           <div
             className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl flex flex-col gap-4 ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+              'bg-white border-slate-200 text-slate-900'
             }`}
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-700/50">
@@ -2441,7 +2425,7 @@ export const AccountingView: React.FC = () => {
                   onChange={(e) => setAccountForm({ ...accountForm, accountCode: e.target.value })}
                   placeholder="مثال: 111105"
                   className={`w-full px-3 py-2 font-mono rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 />
               </div>
@@ -2452,7 +2436,7 @@ export const AccountingView: React.FC = () => {
                   value={accountForm.parentId || ''}
                   onChange={(e) => handleParentChange(e.target.value || null)}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- بدون حساب أب (حساب جذر) --</option>
@@ -2474,7 +2458,7 @@ export const AccountingView: React.FC = () => {
                   onChange={(e) => setAccountForm({ ...accountForm, nameAr: e.target.value })}
                   placeholder="اسم الحساب الرسمي بالعربية..."
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 />
               </div>
@@ -2487,7 +2471,7 @@ export const AccountingView: React.FC = () => {
                   onChange={(e) => setAccountForm({ ...accountForm, nameEn: e.target.value })}
                   placeholder="Official Account Name (EN)..."
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 />
               </div>
@@ -2507,7 +2491,7 @@ export const AccountingView: React.FC = () => {
                     }
                   }}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="ASSET">أصول (ASSET)</option>
@@ -2518,7 +2502,7 @@ export const AccountingView: React.FC = () => {
                   <option value="EXPENSE">مصروفات (EXPENSE)</option>
                 </select>
                 {accountForm.parentId && (
-                  <p className="text-[10px] text-indigo-400 mt-1">موروث إجبارياً من الحساب الأب لضمان تماسك الدليل</p>
+                  <p className="text-[10px] text-[#0D6E4F] mt-1">موروث إجبارياً من الحساب الأب لضمان تماسك الدليل</p>
                 )}
               </div>
 
@@ -2528,7 +2512,7 @@ export const AccountingView: React.FC = () => {
                   value={accountForm.normalBalance}
                   disabled={true}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none opacity-80 cursor-not-allowed ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="DEBIT">مدين (DEBIT)</option>
@@ -2540,7 +2524,7 @@ export const AccountingView: React.FC = () => {
               </div>
 
               {/* Contra Account Toggle */}
-              <div className="col-span-2 flex items-center justify-between p-3 rounded-xl border border-slate-700/50 bg-slate-800/10">
+              <div className="col-span-2 flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50">
                 <div>
                   <span className="block font-bold">حساب مقابل (Contra Account)</span>
                   <span className="text-slate-400 text-[11px]">
@@ -2596,7 +2580,7 @@ export const AccountingView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
           <div
             className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl flex flex-col gap-4 ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+              'bg-white border-slate-200 text-slate-900'
             }`}
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-700/50">
@@ -2629,7 +2613,7 @@ export const AccountingView: React.FC = () => {
                 placeholder="توضيح سبب إلغاء القيد والتسوية..."
                 rows={3}
                 className={`w-full p-2.5 text-xs rounded-xl border focus:outline-none ${
-                  theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200'
+                  'bg-slate-50 border-slate-200 text-slate-900'
                 }`}
               />
             </div>
@@ -2661,7 +2645,7 @@ export const AccountingView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
           <div
             className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl flex flex-col gap-4 ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+              'bg-white border-slate-200 text-slate-900'
             }`}
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-700/50">
@@ -2689,7 +2673,7 @@ export const AccountingView: React.FC = () => {
                 <select
                   value={transferForm.sourceType}
                   onChange={(e) => setTransferForm({ ...transferForm, sourceType: e.target.value as any, sourceId: '' })}
-                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${'bg-slate-50 border-slate-200'}`}
                 >
                   <option value="BANK">حساب بنكي</option>
                   <option value="VAULT">خزينة / صندوق</option>
@@ -2701,7 +2685,7 @@ export const AccountingView: React.FC = () => {
                 <select
                   value={transferForm.sourceId}
                   onChange={(e) => setTransferForm({ ...transferForm, sourceId: e.target.value })}
-                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${'bg-slate-50 border-slate-200'}`}
                 >
                   <option value="">-- اختر المصدر --</option>
                   {transferForm.sourceType === 'BANK'
@@ -2744,7 +2728,7 @@ export const AccountingView: React.FC = () => {
                 <select
                   value={transferForm.destinationType}
                   onChange={(e) => setTransferForm({ ...transferForm, destinationType: e.target.value as any, destinationId: '' })}
-                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${'bg-slate-50 border-slate-200'}`}
                 >
                   <option value="VAULT">خزينة / صندوق</option>
                   <option value="BANK">حساب بنكي</option>
@@ -2756,7 +2740,7 @@ export const AccountingView: React.FC = () => {
                 <select
                   value={transferForm.destinationId}
                   onChange={(e) => setTransferForm({ ...transferForm, destinationId: e.target.value })}
-                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${'bg-slate-50 border-slate-200'}`}
                 >
                   <option value="">-- اختر الوجهة --</option>
                   {transferForm.destinationType === 'BANK'
@@ -2831,7 +2815,7 @@ export const AccountingView: React.FC = () => {
                   onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
                   placeholder="0.00"
                   className={`w-full px-3 py-2 font-mono font-bold text-sm rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200 text-slate-900'
                   }`}
                 />
               </div>
@@ -2844,7 +2828,7 @@ export const AccountingView: React.FC = () => {
                   onChange={(e) => setTransferForm({ ...transferForm, notes: e.target.value })}
                   placeholder="مثال: تغذية عهدة الصندوق أو إيداع إيرادات..."
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200 text-slate-900'
                   }`}
                 />
               </div>

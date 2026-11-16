@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChefHat, Factory, Trash2, Loader2, Sparkles, Scale, CheckCircle2, XCircle, Calculator, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 import { useToast } from '../context/ToastContext';
 
 interface RecipeItem {
@@ -40,6 +41,7 @@ interface WasteRecordRow {
 
 export const ProductionView = () => {
   const { activeLegalEntity } = useAuth();
+  const { dir } = useLocale();
   const { showToast } = useToast();
   const [recipes, setRecipes] = useState<RecipeItem[]>([]);
   const [batches, setBatches] = useState<ProductionBatchRow[]>([]);
@@ -107,7 +109,7 @@ export const ProductionView = () => {
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-800">
@@ -123,7 +125,7 @@ export const ProductionView = () => {
         <button
           onClick={() => setActiveTab('recipes')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'recipes' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'recipes' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <ChefHat className="w-4 h-4" />
@@ -132,7 +134,7 @@ export const ProductionView = () => {
         <button
           onClick={() => setActiveTab('batches')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'batches' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'batches' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Factory className="w-4 h-4" />
@@ -141,7 +143,7 @@ export const ProductionView = () => {
         <button
           onClick={() => setActiveTab('waste')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'waste' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'waste' ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Trash2 className="w-4 h-4" />
@@ -187,7 +189,7 @@ export const ProductionView = () => {
             <tbody className="divide-y divide-slate-100">
               {recipes.map((r) => (
                 <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-indigo-600">
+                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-[#0D6E4F]">
                     {r.code || r.recipeCode || r.id.slice(0, 8)}
                   </td>
                   <td className="py-3.5 px-4">
@@ -209,7 +211,7 @@ export const ProductionView = () => {
                       </span>
                       <button
                         onClick={() => void handleInspectCost(r.id)}
-                        className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+                        className="inline-flex items-center gap-1 text-xs text-[#0D6E4F] hover:underline"
                       >
                         <Calculator className="w-3.5 h-3.5" />
                         التكلفة الفعلية
@@ -246,7 +248,7 @@ export const ProductionView = () => {
             <tbody className="divide-y divide-slate-100">
               {batches.map((b) => (
                 <tr key={b.id} className="hover:bg-slate-50/80">
-                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-indigo-600">{b.batchNumber}</td>
+                  <td className="py-3.5 px-4 font-mono font-bold text-xs text-[#0D6E4F]">{b.batchNumber}</td>
                   <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{b.recipeId.slice(0, 8)}</td>
                   <td className="py-3.5 px-4 text-center font-mono">{Number(b.plannedQuantity)}</td>
                   <td className="py-3.5 px-4 text-center font-mono">{b.actualQuantity ?? '-'}</td>
@@ -328,12 +330,12 @@ export const ProductionView = () => {
       )}
 
       {selectedCost && (
-        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 text-sm space-y-2">
+        <div className="rounded-2xl border border-[#0D6E4F]/30 bg-emerald-50/50 p-4 text-sm space-y-2">
           <div className="flex items-center justify-between">
             <span className="font-bold text-slate-800">
               تفاصيل تكلفة الوصفة ({selectedCost.recipeCode})
             </span>
-            <span className="font-mono font-bold text-indigo-700">
+            <span className="font-mono font-bold text-[#0D6E4F]">
               تكلفة الوحدة: {selectedCost.unitServingCost} ر.س | الإجمالي: {selectedCost.totalBatchCost} ر.س
             </span>
           </div>

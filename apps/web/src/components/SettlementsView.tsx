@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
   CreditCard,
   Upload,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 
 interface SettlementsViewProps {
   legalEntityId: string;
@@ -30,6 +31,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
   defaultBranchId,
 }) => {
   const { showToast } = useToast();
+  const { dir } = useLocale();
   const [subTab, setSubTab] = useState<SubTab>('batches');
   const [loading, setLoading] = useState(false);
 
@@ -87,6 +89,19 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
   const [newProvNameEn, setNewProvNameEn] = useState('');
   const [newProvCategory, setNewProvCategory] = useState<'PAYMENT_GATEWAY' | 'DELIVERY_AGGREGATOR'>('PAYMENT_GATEWAY');
   const [newProvFeeRate, setNewProvFeeRate] = useState('1.5000');
+
+  useEffect(() => {
+    if (!selectedBatchDetail && !resolvingDisc && !showNewProvider) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedBatchDetail(null);
+        setResolvingDisc(null);
+        setShowNewProvider(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedBatchDetail, resolvingDisc, showNewProvider]);
 
   const loadReferenceData = useCallback(async () => {
     if (!legalEntityId) return;
@@ -321,16 +336,16 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
       DISCREPANCY_PENDING: 'bg-amber-500/15 text-amber-500 border-amber-500/30',
       OPEN: 'bg-rose-500/15 text-rose-500 border-rose-500/30',
       RESOLVED_APPROVED: 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30',
-      RESOLVED_SUSPENSE: 'bg-indigo-500/15 text-indigo-500 border-indigo-500/30',
+      RESOLVED_SUSPENSE: 'bg-blue-50 text-blue-800 border-blue-200',
     };
     return map[st] || 'bg-slate-500/15 text-slate-400 border-slate-500/30';
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       {/* KPI Summary Bar */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="p-4 rounded-2xl border border-slate-200 bg-white">
           <div className="text-xs text-slate-500 mb-1">عمليات بانتظار التسوية (Clearing)</div>
           <div className="text-2xl font-bold text-amber-500">
             {Number(summary?.unsettledAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ر.س
@@ -338,7 +353,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
           <div className="text-xs text-slate-400 mt-1">{summary?.unsettledCount || 0} عملية غير مسوّاة</div>
         </div>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="p-4 rounded-2xl border border-slate-200 bg-white">
           <div className="text-xs text-slate-500 mb-1">صافي التسويات المودعة بالبنك</div>
           <div className="text-2xl font-bold text-emerald-500">
             {Number(summary?.totalPostedNetBank || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ر.س
@@ -346,7 +361,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
           <div className="text-xs text-slate-400 mt-1">{summary?.postedBatches || 0} دفعة مرحّلة</div>
         </div>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="p-4 rounded-2xl border border-slate-200 bg-white">
           <div className="text-xs text-slate-500 mb-1">إجمالي العمولات والمحتجز</div>
           <div className="text-2xl font-bold text-sky-500">
             {Number(summary?.totalFees || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ر.س
@@ -356,7 +371,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="p-4 rounded-2xl border border-slate-200 bg-white">
           <div className="text-xs text-slate-500 mb-1">فروقات معلقة للمراجعة</div>
           <div className="text-2xl font-bold text-rose-500">{summary?.openDiscrepancies || 0}</div>
           <div className="text-xs text-slate-400 mt-1">
@@ -366,7 +381,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
       </div>
 
       {/* Sub-Navigation */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
         <div className="flex flex-wrap items-center gap-2">
           {[
             { id: 'batches', label: 'دفعات التسوية والمطابقة', icon: ArrowLeftRight },
@@ -383,8 +398,8 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 onClick={() => setSubTab(t.id as SubTab)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition ${
                   active
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-[#0D6E4F] hover:bg-[#0A583F] text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -401,7 +416,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
             if (subTab === 'batches') loadBatches();
             if (subTab === 'discrepancies') loadDiscrepancies();
           }}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs border border-slate-200 hover:bg-slate-100"
         >
           <RefreshCw className="w-3.5 h-3.5" />
           تحديث
@@ -411,7 +426,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
       {/* TAB 1: Batches List & Filters */}
       {subTab === 'batches' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 p-4 rounded-2xl border border-slate-200 bg-white">
             <div className="relative md:col-span-2">
               <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-400" />
               <input
@@ -422,7 +437,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                   setBatchPage(1);
                   setFilterSearch(e.target.value);
                 }}
-                className="w-full pr-9 pl-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+                className="w-full pr-9 pl-3 py-2 rounded-xl border border-slate-200 bg-transparent text-sm"
               />
             </div>
 
@@ -432,7 +447,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 setBatchPage(1);
                 setFilterCategory(e.target.value);
               }}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm"
             >
               <option value="">كل الأنواع</option>
               <option value="PAYMENT_GATEWAY">بوابات الدفع</option>
@@ -445,7 +460,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 setBatchPage(1);
                 setFilterProvider(e.target.value);
               }}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm"
             >
               <option value="">كل المزودين</option>
               {providers.map((p) => (
@@ -461,7 +476,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 setBatchPage(1);
                 setFilterStatus(e.target.value);
               }}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm"
             >
               <option value="">كل الحالات</option>
               <option value="RECONCILING">جاهز للاعتماد</option>
@@ -474,20 +489,20 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 type="date"
                 value={filterDateFrom}
                 onChange={(e) => setFilterDateFrom(e.target.value)}
-                className="w-full px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-xs"
+                className="w-full px-2 py-2 rounded-xl border border-slate-200 bg-transparent text-xs"
               />
               <input
                 type="date"
                 value={filterDateTo}
                 onChange={(e) => setFilterDateTo(e.target.value)}
-                className="w-full px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-xs"
+                className="w-full px-2 py-2 rounded-xl border border-slate-200 bg-transparent text-xs"
               />
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
             <table className="w-full text-sm text-right">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs">
+              <thead className="bg-slate-50 text-slate-500 text-xs">
                 <tr>
                   <th className="p-3">رقم الدفعة</th>
                   <th className="p-3">المزود / المنصة</th>
@@ -500,7 +515,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                   <th className="p-3">إجراء</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
                     <td colSpan={9} className="p-8 text-center text-slate-400">
@@ -515,7 +530,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                   </tr>
                 ) : (
                   batches.map((b) => (
-                    <tr key={b.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <tr key={b.id} className="hover:bg-slate-50">
                       <td className="p-3 font-mono text-xs font-semibold">{b.batchNumber}</td>
                       <td className="p-3">{b.providerNameAr}</td>
                       <td className="p-3 text-xs">{String(b.settlementDate).slice(0, 10)}</td>
@@ -536,7 +551,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                         <button
                           type="button"
                           onClick={() => openBatchDetails(b.id)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 text-xs font-medium hover:bg-indigo-100"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-[#0D6E4F] border border-emerald-200 text-xs font-medium hover:bg-emerald-100"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           تفاصيل / ترحيل
@@ -579,10 +594,10 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
       {subTab === 'import' && (
         <form
           onSubmit={handleImportSubmit}
-          className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4 max-w-3xl"
+          className="p-6 rounded-2xl border border-slate-200 bg-white space-y-4 max-w-3xl"
         >
           <h3 className="text-base font-bold flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-indigo-500" />
+            <FileSpreadsheet className="w-5 h-5 text-[#0D6E4F]" />
             استيراد كشف تسوية مزود دفع أو منصة توصيل
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -592,7 +607,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 required
                 value={importProviderId}
                 onChange={(e) => setImportProviderId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm"
               >
                 <option value="">اختر المزود...</option>
                 {providers.map((p) => (
@@ -608,7 +623,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
               <select
                 value={importBranchId}
                 onChange={(e) => setImportBranchId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm"
               >
                 <option value="">على مستوى المنشأة</option>
                 {branches.map((br) => (
@@ -626,7 +641,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 required
                 value={importDate}
                 onChange={(e) => setImportDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-transparent text-sm"
               />
             </div>
           </div>
@@ -637,7 +652,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
               type="file"
               accept=".csv,.xlsx"
               onChange={handleFileUpload}
-              className="block w-full text-sm file:ml-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white"
+              className="block w-full text-sm file:ml-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-[#0D6E4F] file:text-white"
             />
           </div>
 
@@ -649,7 +664,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 value={importCsvText}
                 onChange={(e) => setImportCsvText(e.target.value)}
                 placeholder="externalRef,orderNumber,grossAmount,feeAmount,feeTaxAmount,withheldAmount,netAmount"
-                className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent font-mono text-xs"
+                className="w-full p-3 rounded-xl border border-slate-200 bg-transparent font-mono text-xs"
               />
             </div>
           )}
@@ -657,7 +672,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
           <button
             type="submit"
             disabled={importing}
-            className="px-6 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+            className="px-6 py-2.5 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-sm font-semibold disabled:opacity-50"
           >
             {importing ? 'جارٍ الاستيراد والمطابقة...' : 'استيراد ومطابقة الكشف'}
           </button>
@@ -671,7 +686,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
             <select
               value={discStatusFilter}
               onChange={(e) => setDiscStatusFilter(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm"
             >
               <option value="">كل الحالات</option>
               <option value="OPEN">مفتوح (OPEN)</option>
@@ -681,9 +696,9 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
             </select>
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
             <table className="w-full text-sm text-right">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs">
+              <thead className="bg-slate-50 text-slate-500 text-xs">
                 <tr>
                   <th className="p-3">رقم الدفعة</th>
                   <th className="p-3">التصنيف</th>
@@ -694,7 +709,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                   <th className="p-3">إجراء</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              <tbody className="divide-y divide-slate-100">
                 {discrepancies.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-slate-400">
@@ -745,14 +760,14 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
               <button
                 type="button"
                 onClick={handleSeedProviders}
-                className="px-4 py-2 rounded-xl border border-indigo-500 text-indigo-500 text-xs font-semibold hover:bg-indigo-500/10"
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50"
               >
                 تفعيل المزودين القياسيين (Mada, HyperPay, HungerStation...)
               </button>
               <button
                 type="button"
                 onClick={() => setShowNewProvider(true)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-semibold"
               >
                 <Plus className="w-4 h-4" />
                 إضافة مزود مخصص
@@ -764,11 +779,11 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
             {providers.map((p) => (
               <div
                 key={p.id}
-                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2"
+                className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2"
               >
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-sm">{p.nameAr}</span>
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800">
+                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-100">
                     {p.code}
                   </span>
                 </div>
@@ -790,8 +805,8 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
       {/* Batch Detail & Posting Modal */}
       {selectedBatchDetail && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
                 <h3 className="text-lg font-bold">
                   دفعة التسوية #{selectedBatchDetail.batch.batchNumber}
@@ -801,27 +816,27 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedBatchDetail(null)}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="p-1.5 rounded-lg hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+              <div className="p-3 rounded-xl bg-slate-50">
                 <div className="text-slate-500">إجمالي العمليات</div>
                 <div className="font-bold text-sm mt-1">
                   {Number(selectedBatchDetail.batch.grossAmount).toFixed(2)} ر.س
                 </div>
               </div>
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+              <div className="p-3 rounded-xl bg-slate-50">
                 <div className="text-slate-500">العمولة + ضريبتها</div>
                 <div className="font-bold text-sm mt-1">
                   {Number(selectedBatchDetail.batch.feeAmount).toFixed(2)} +{' '}
                   {Number(selectedBatchDetail.batch.feeTaxAmount).toFixed(2)} ر.س
                 </div>
               </div>
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+              <div className="p-3 rounded-xl bg-slate-50">
                 <div className="text-slate-500">المحتجز / خصم المطعم</div>
                 <div className="font-bold text-sm mt-1">
                   {Number(selectedBatchDetail.batch.withheldAmount).toFixed(2)} /{' '}
@@ -829,17 +844,17 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                 </div>
               </div>
               <div className="p-3 rounded-xl bg-emerald-500/10">
-                <div className="text-emerald-600 dark:text-emerald-400">الصافي المتوقع للبنك</div>
-                <div className="font-bold text-sm text-emerald-600 dark:text-emerald-400 mt-1">
+                <div className="text-emerald-600">الصافي المتوقع للبنك</div>
+                <div className="font-bold text-sm text-emerald-600 mt-1">
                   {Number(selectedBatchDetail.batch.netExpectedAmount).toFixed(2)} ر.س
                 </div>
               </div>
             </div>
 
             {/* Lines preview */}
-            <div className="max-h-48 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+            <div className="max-h-48 overflow-y-auto overflow-x-auto border border-slate-200 rounded-xl">
               <table className="w-full text-xs text-right">
-                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500">
+                <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="p-2">#</th>
                     <th className="p-2">المرجع / الطلب</th>
@@ -849,7 +864,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                     <th className="p-2">المطابقة</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tbody className="divide-y divide-slate-100">
                   {(selectedBatchDetail.lines || []).map((l: any) => (
                     <tr key={l.id}>
                       <td className="p-2">{l.lineNumber}</td>
@@ -876,7 +891,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
             {selectedBatchDetail.batch.status !== 'POSTED' && (
               <form onSubmit={handlePostBatch} className="space-y-4 border-t pt-4">
                 <h4 className="font-bold text-sm flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                  <ShieldCheck className="w-4 h-4 text-[#0D6E4F]" />
                   اعتماد وترحيل التسوية إلى الأستاذ العام والبنك
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -886,7 +901,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                       required
                       value={postBankAccountId}
                       onChange={(e) => setPostBankAccountId(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm"
                     >
                       <option value="">اختر الحساب البنكي...</option>
                       {bankAccounts.map((ba) => (
@@ -903,7 +918,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                       required
                       value={postBankReceived}
                       onChange={(e) => setPostBankReceived(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-transparent text-sm"
                     />
                   </div>
                   <div>
@@ -913,7 +928,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                       required
                       value={postBankRef}
                       onChange={(e) => setPostBankRef(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-transparent text-sm"
                     />
                   </div>
                 </div>
@@ -951,7 +966,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
                     placeholder="رقم الفاتورة الضريبية للمزود..."
                     value={postTaxInvNum}
                     onChange={(e) => setPostTaxInvNum(e.target.value)}
-                    className="w-full md:w-1/2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+                    className="w-full md:w-1/2 px-3 py-2 rounded-xl border border-slate-200 bg-transparent text-sm"
                   />
                 )}
 
@@ -982,14 +997,14 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <form
             onSubmit={handleResolveDiscrepancy}
-            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 space-y-4"
+            className="bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 space-y-4"
           >
             <h4 className="font-bold">معالجة فرق تسوية ({resolvingDisc.discrepancyType})</h4>
             <p className="text-xs text-slate-500">{resolvingDisc.description}</p>
             <select
               value={resolveStatus}
               onChange={(e) => setResolveStatus(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm"
             >
               <option value="RESOLVED_APPROVED">اعتماد التسوية (RESOLVED_APPROVED)</option>
               <option value="RESOLVED_SUSPENSE">ترحيل لحساب المعلق (AGGREGATOR_SUSPENSE)</option>
@@ -1001,7 +1016,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
               placeholder="ملاحظات المعالجة المحاسبية..."
               value={resolveNotes}
               onChange={(e) => setResolveNotes(e.target.value)}
-              className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+              className="w-full p-3 rounded-xl border border-slate-200 bg-transparent text-sm"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -1011,7 +1026,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
               >
                 إلغاء
               </button>
-              <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold">
+              <button type="submit" className="px-4 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-semibold">
                 حفظ المعالجة
               </button>
             </div>
@@ -1024,10 +1039,10 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <form
             onSubmit={handleCreateProvider}
-            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 space-y-3"
+            className="bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 space-y-3"
           >
             <h4 className="font-bold flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-indigo-500" />
+              <Building2 className="w-4 h-4 text-[#0D6E4F]" />
               إضافة مزود تسوية جديد
             </h4>
             <input
@@ -1053,7 +1068,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
             <select
               value={newProvCategory}
               onChange={(e) => setNewProvCategory(e.target.value as any)}
-              className="w-full px-3 py-2 rounded-xl border text-sm bg-white dark:bg-slate-900"
+              className="w-full px-3 py-2 rounded-xl border text-sm bg-white"
             >
               <option value="PAYMENT_GATEWAY">بوابة دفع</option>
               <option value="DELIVERY_AGGREGATOR">منصة توصيل</option>
@@ -1073,7 +1088,7 @@ export const SettlementsView: React.FC<SettlementsViewProps> = ({
               >
                 إلغاء
               </button>
-              <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold">
+              <button type="submit" className="px-4 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-semibold">
                 حفظ المزود
               </button>
             </div>

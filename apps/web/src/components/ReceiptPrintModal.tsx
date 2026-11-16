@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Printer, X, FileText, Receipt, QrCode } from 'lucide-react';
 import { triggerPrint } from '../utils/export';
 
@@ -58,6 +58,17 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
   const [format, setFormat] = useState<ReceiptPrintFormat>(defaultFormat);
   const isEn = locale === 'en';
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !receipt) {
     return null;
   }
@@ -108,7 +119,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 aria-label={isEn ? '80mm Thermal Format' : 'تنسيق حراري 80mm'}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
                   format === '80mm'
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-[#0D6E4F] text-white'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -121,7 +132,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 aria-label={isEn ? 'A4 Tax Invoice Format' : 'تنسيق فاتورة A4'}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
                   format === 'a4'
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-[#0D6E4F] text-white'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -240,6 +251,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
             </div>
 
             {/* Line Items */}
+            <div className="overflow-x-auto print:overflow-visible">
             <table className="w-full border-collapse mb-3">
               <thead>
                 <tr className="border-b border-slate-300 text-slate-600 text-[11px]">
@@ -278,6 +290,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 ))}
               </tbody>
             </table>
+            </div>
 
             {/* Totals */}
             <div className="border-t border-dashed border-slate-300 pt-2.5 space-y-1.5 print-avoid-break">

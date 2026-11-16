@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 import { useToast } from '../context/ToastContext';
 import {
   Plus,
@@ -48,6 +49,7 @@ const PRODUCT_TYPES = [
 
 export const CatalogView: React.FC = () => {
   const { activeLegalEntity } = useAuth();
+  const { dir } = useLocale();
   const { showToast } = useToast();
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([ALL_CATEGORIES_OPTION]);
@@ -162,6 +164,19 @@ export const CatalogView: React.FC = () => {
     isBlocked: false,
     message: '',
   });
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (deleteAlertModal.isOpen) setDeleteAlertModal((prev) => ({ ...prev, isOpen: false }));
+        else if (isCostModalOpen) setIsCostModalOpen(false);
+        else if (isPriceModalOpen) setIsPriceModalOpen(false);
+        else if (isProductModalOpen) setIsProductModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [deleteAlertModal.isOpen, isCostModalOpen, isPriceModalOpen, isProductModalOpen]);
 
   // Product Form State
   const [formData, setFormData] = useState({
@@ -528,13 +543,13 @@ export const CatalogView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       {/* Top Header & Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold text-slate-800">إدارة كتالوج الأصناف والمنتجات</h2>
-            <span className="bg-indigo-50 text-indigo-700 text-xs px-2.5 py-0.5 rounded-full font-semibold border border-indigo-200">
+            <span className="bg-blue-50 text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-semibold border border-blue-200">
               إجمالي {products.length} صنف
             </span>
           </div>
@@ -568,7 +583,7 @@ export const CatalogView: React.FC = () => {
 
           <button
             onClick={handleOpenCreateModal}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm shadow-indigo-600/20"
+            className="flex items-center gap-2 bg-[#0D6E4F] hover:bg-[#0A583F] text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
             <span>إضافة صنف جديد</span>
@@ -586,7 +601,7 @@ export const CatalogView: React.FC = () => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="البحث بالاسم، رمز SKU، أو الباركود..."
-              className="w-full pl-4 pr-10 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+              className="w-full pl-4 pr-10 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-[#0D6E4F]/20 focus:border-[#0D6E4F]"
             />
           </div>
 
@@ -595,7 +610,7 @@ export const CatalogView: React.FC = () => {
             <select
               value={selectedProductType}
               onChange={(e) => setSelectedProductType(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20"
+              className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-hidden focus:ring-2 focus:ring-[#0D6E4F]/20"
             >
               <option value="ALL">جميع أنواع المنتجات</option>
               {PRODUCT_TYPES.map((pt) => (
@@ -642,7 +657,7 @@ export const CatalogView: React.FC = () => {
               onClick={() => setSelectedCategory(c.id)}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors ${
                 selectedCategory === c.id
-                  ? 'bg-slate-900 text-white shadow-xs'
+                  ? 'bg-[#0D6E4F] text-white shadow-xs'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
               }`}
             >
@@ -655,7 +670,7 @@ export const CatalogView: React.FC = () => {
       {/* Products Display (Loading / Error / Empty / Table or Grid) */}
       {loading ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 flex flex-col items-center justify-center text-slate-500 gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#0D6E4F]" />
           <p className="text-sm font-medium">جاري تحميل بيانات الكتالوج والأصناف...</p>
         </div>
       ) : error ? (
@@ -664,7 +679,7 @@ export const CatalogView: React.FC = () => {
           <p className="text-sm font-bold text-rose-700">{error}</p>
           <button
             onClick={() => void loadCatalog()}
-            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-2 transition-colors"
+            className="px-4 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A583F] text-white text-xs font-semibold flex items-center gap-2 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>إعادة المحاولة</span>
@@ -724,7 +739,7 @@ export const CatalogView: React.FC = () => {
                         <div className="font-semibold text-slate-800">{p.nameAr}</div>
                         <div className="text-xs text-slate-400 font-sans">{p.nameEn}</div>
                         {p.barcode && (
-                          <div className="text-xs font-mono text-indigo-600 mt-0.5">
+                          <div className="text-xs font-mono text-[#0D6E4F] mt-0.5">
                             📊 {p.barcode}
                           </div>
                         )}
@@ -792,7 +807,7 @@ export const CatalogView: React.FC = () => {
                           <button
                             onClick={() => handleOpenEditModal(p)}
                             title="تعديل المواصفات العامة (item.update)"
-                            className="p-1.5 rounded-lg text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                            className="p-1.5 rounded-lg text-slate-600 hover:text-[#0D6E4F] hover:bg-emerald-50 transition-colors"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
@@ -864,7 +879,7 @@ export const CatalogView: React.FC = () => {
                     ) : (
                       <ImageIcon className="w-10 h-10 text-slate-300" />
                     )}
-                    <span className="absolute top-2 right-2 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-mono px-2 py-0.5 rounded-md">
+                    <span className="absolute top-2 right-2 bg-black/70 backdrop-blur-xs text-white text-[10px] font-mono px-2 py-0.5 rounded-md">
                       {p.sku}
                     </span>
                     {p.isArchived && (
@@ -879,7 +894,7 @@ export const CatalogView: React.FC = () => {
                       <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                         {p.categoryName}
                       </span>
-                      <span className="text-[10px] font-mono text-indigo-600">{p.barcode}</span>
+                      <span className="text-[10px] font-mono text-[#0D6E4F]">{p.barcode}</span>
                     </div>
 
                     <h3 className="font-bold text-slate-800 text-base line-clamp-1">{p.nameAr}</h3>
@@ -913,7 +928,7 @@ export const CatalogView: React.FC = () => {
                     <button
                       onClick={() => handleOpenEditModal(p)}
                       title="تعديل المواصفات"
-                      className="p-1 rounded text-indigo-600 hover:bg-indigo-100"
+                      className="p-1 rounded text-[#0D6E4F] hover:bg-emerald-100"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
@@ -936,7 +951,7 @@ export const CatalogView: React.FC = () => {
       {/* 1. Modal: Full Product Add / Edit (Tabbed Enterprise Architecture)    */}
       {/* ==================================================================== */}
       {isProductModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
@@ -965,7 +980,7 @@ export const CatalogView: React.FC = () => {
                 onClick={() => setActiveTab('basic')}
                 className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-xl transition-colors border-b-2 ${
                   activeTab === 'basic'
-                    ? 'border-indigo-600 bg-white text-indigo-700 shadow-xs'
+                    ? 'border-[#0D6E4F] bg-white text-[#0D6E4F] shadow-xs'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -978,7 +993,7 @@ export const CatalogView: React.FC = () => {
                 onClick={() => setActiveTab('pricing')}
                 className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-xl transition-colors border-b-2 ${
                   activeTab === 'pricing'
-                    ? 'border-indigo-600 bg-white text-indigo-700 shadow-xs'
+                    ? 'border-[#0D6E4F] bg-white text-[#0D6E4F] shadow-xs'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -991,7 +1006,7 @@ export const CatalogView: React.FC = () => {
                 onClick={() => setActiveTab('inventory')}
                 className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-xl transition-colors border-b-2 ${
                   activeTab === 'inventory'
-                    ? 'border-indigo-600 bg-white text-indigo-700 shadow-xs'
+                    ? 'border-[#0D6E4F] bg-white text-[#0D6E4F] shadow-xs'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -1004,7 +1019,7 @@ export const CatalogView: React.FC = () => {
                 onClick={() => setActiveTab('media')}
                 className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-xl transition-colors border-b-2 ${
                   activeTab === 'media'
-                    ? 'border-indigo-600 bg-white text-indigo-700 shadow-xs'
+                    ? 'border-[#0D6E4F] bg-white text-[#0D6E4F] shadow-xs'
                     : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -1029,7 +1044,7 @@ export const CatalogView: React.FC = () => {
                         value={formData.sku}
                         onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
                         placeholder="e.g. BRG-001"
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:ring-2 focus:ring-[#0D6E4F]/20 focus:border-[#0D6E4F]"
                       />
                     </div>
 
@@ -1040,7 +1055,7 @@ export const CatalogView: React.FC = () => {
                       <select
                         value={formData.productType}
                         onChange={(e) => setFormData({ ...formData, productType: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-[#0D6E4F]/20 focus:border-[#0D6E4F]"
                       >
                         {PRODUCT_TYPES.map((pt) => (
                           <option key={pt.value} value={pt.value}>
@@ -1060,7 +1075,7 @@ export const CatalogView: React.FC = () => {
                         value={formData.nameAr}
                         onChange={(e) => setFormData({ ...formData, nameAr: e.target.value })}
                         placeholder="مثال: برجر دجاج كلاسيك"
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-[#0D6E4F]/20 focus:border-[#0D6E4F]"
                       />
                     </div>
 
@@ -1074,7 +1089,7 @@ export const CatalogView: React.FC = () => {
                         value={formData.nameEn}
                         onChange={(e) => setFormData({ ...formData, nameEn: e.target.value })}
                         placeholder="e.g. Classic Chicken Burger"
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-sans focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-sans focus:ring-2 focus:ring-[#0D6E4F]/20 focus:border-[#0D6E4F]"
                       />
                     </div>
 
@@ -1085,7 +1100,7 @@ export const CatalogView: React.FC = () => {
                       <select
                         value={formData.categoryId}
                         onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-[#0D6E4F]/20 focus:border-[#0D6E4F]"
                       >
                         {categories.filter((c) => c.id !== 'cat-all').map((c) => (
                           <option key={c.id} value={c.id}>
@@ -1102,7 +1117,7 @@ export const CatalogView: React.FC = () => {
                       <select
                         value={formData.baseUom}
                         onChange={(e) => setFormData({ ...formData, baseUom: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-[#0D6E4F]/20 focus:border-[#0D6E4F]"
                       >
                         <option value="PCS (حبة)">PCS (حبة)</option>
                         <option value="KG (كيلوجرام)">KG (كيلوجرام)</option>
@@ -1125,12 +1140,12 @@ export const CatalogView: React.FC = () => {
                         value={tempBarcode}
                         onChange={(e) => setTempBarcode(e.target.value)}
                         placeholder="أدخل الباركود واضغط إضافة..."
-                        className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-mono bg-white focus:ring-2 focus:ring-indigo-500/20"
+                        className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-mono bg-white focus:ring-2 focus:ring-[#0D6E4F]/20"
                       />
                       <button
                         type="button"
                         onClick={handleAddBarcode}
-                        className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-colors"
+                        className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-4 py-2 rounded-xl text-xs font-semibold transition-colors"
                       >
                         إضافة باركود
                       </button>
@@ -1143,12 +1158,12 @@ export const CatalogView: React.FC = () => {
                             key={idx}
                             className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-mono ${
                               b.isPrimary
-                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                ? 'bg-emerald-100 text-[#0D6E4F] border border-emerald-200'
                                 : 'bg-white text-slate-700 border border-slate-200'
                             }`}
                           >
                             <span>{b.barcode}</span>
-                            {b.isPrimary && <span className="text-[10px] bg-indigo-600 text-white px-1.5 rounded">رئيسي</span>}
+                            {b.isPrimary && <span className="text-[10px] bg-[#0D6E4F] text-white px-1.5 rounded">رئيسي</span>}
                             <button
                               type="button"
                               onClick={() => handleRemoveBarcode(b.barcode)}
@@ -1173,7 +1188,7 @@ export const CatalogView: React.FC = () => {
                       value={formData.description}
                       onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                       placeholder="أدخل وصفًا تفصيليًا للمكونات أو طريقة التقديم..."
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500/20"
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-[#0D6E4F]/20"
                     />
                   </div>
                 </div>
@@ -1239,7 +1254,7 @@ export const CatalogView: React.FC = () => {
                       <select
                         value={formData.taxRate}
                         onChange={(e) => setFormData({ ...formData, taxRate: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500/20"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-[#0D6E4F]/20"
                       >
                         <option value="0.15">15% (النسبة القياسية بالسعودية)</option>
                         <option value="0.00">0% (معفى من الضريبة)</option>
@@ -1308,7 +1323,7 @@ export const CatalogView: React.FC = () => {
                         type="checkbox"
                         checked={formData.isSold}
                         onChange={(e) => setFormData({ ...formData, isSold: e.target.checked })}
-                        className="w-4 h-4 text-indigo-600 rounded"
+                        className="w-4 h-4 text-[#0D6E4F] rounded"
                       />
                       <span className="text-sm text-slate-700">صنف متاح للبيع في نقاط البيع والتطبيقات (POS / Online)</span>
                     </label>
@@ -1318,7 +1333,7 @@ export const CatalogView: React.FC = () => {
                         type="checkbox"
                         checked={formData.isPurchased}
                         onChange={(e) => setFormData({ ...formData, isPurchased: e.target.checked })}
-                        className="w-4 h-4 text-indigo-600 rounded"
+                        className="w-4 h-4 text-[#0D6E4F] rounded"
                       />
                       <span className="text-sm text-slate-700">صنف قابل للشراء بأوامر الشراء من الموردين (Purchasable)</span>
                     </label>
@@ -1328,7 +1343,7 @@ export const CatalogView: React.FC = () => {
                         type="checkbox"
                         checked={formData.isRecipeIngredient}
                         onChange={(e) => setFormData({ ...formData, isRecipeIngredient: e.target.checked })}
-                        className="w-4 h-4 text-indigo-600 rounded"
+                        className="w-4 h-4 text-[#0D6E4F] rounded"
                       />
                       <span className="text-sm text-slate-700">مكون يدخل في وصفات تصنيع المطبخ (Recipe Ingredient)</span>
                     </label>
@@ -1338,7 +1353,7 @@ export const CatalogView: React.FC = () => {
                         type="checkbox"
                         checked={formData.isActive}
                         onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                        className="w-4 h-4 text-indigo-600 rounded"
+                        className="w-4 h-4 text-[#0D6E4F] rounded"
                       />
                       <span className="text-sm text-slate-700">تفعيل الصنف في النظام (Active)</span>
                     </label>
@@ -1349,7 +1364,7 @@ export const CatalogView: React.FC = () => {
               {/* TAB 4: MEDIA & GALLERY */}
               {activeTab === 'media' && (
                 <div className="space-y-4">
-                  <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center hover:border-indigo-500 transition-colors bg-slate-50">
+                  <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center hover:border-[#0D6E4F] transition-colors bg-slate-50">
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -1359,7 +1374,7 @@ export const CatalogView: React.FC = () => {
                     />
 
                     <div className="flex flex-col items-center gap-2">
-                      <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 text-[#0D6E4F] flex items-center justify-center">
                         <Upload className="w-6 h-6" />
                       </div>
                       <p className="text-sm font-semibold text-slate-700">
@@ -1374,7 +1389,7 @@ export const CatalogView: React.FC = () => {
                           type="button"
                           disabled={isUploadingImage}
                           onClick={() => fileInputRef.current?.click()}
-                          className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5"
+                          className="bg-[#0D6E4F] hover:bg-[#0A583F] disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5"
                         >
                           {isUploadingImage && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                           <span>{isUploadingImage ? 'جاري الرفع...' : 'اختيار ملف من الجهاز'}</span>
@@ -1403,16 +1418,16 @@ export const CatalogView: React.FC = () => {
                             <div
                               key={idx}
                               className={`relative rounded-xl overflow-hidden border-2 aspect-square group ${
-                                isPrimary ? 'border-indigo-600 ring-2 ring-indigo-500/20' : 'border-slate-200'
+                                isPrimary ? 'border-[#0D6E4F] ring-2 ring-[#0D6E4F]/20' : 'border-slate-200'
                               }`}
                             >
                               <img src={imgUrl} alt="Product media" className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
                                 {!isPrimary && (
                                   <button
                                     type="button"
                                     onClick={() => setFormData({ ...formData, primaryImageUrl: imgUrl })}
-                                    className="bg-white text-indigo-700 text-[10px] font-bold px-2 py-1 rounded shadow-xs"
+                                    className="bg-white text-[#0D6E4F] text-[10px] font-bold px-2 py-1 rounded shadow-xs"
                                   >
                                     تعيين كرئيسية
                                   </button>
@@ -1433,7 +1448,7 @@ export const CatalogView: React.FC = () => {
                                 </button>
                               </div>
                               {isPrimary && (
-                                <span className="absolute top-1 right-1 bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                                <span className="absolute top-1 right-1 bg-[#0D6E4F] text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
                                   رئيسية
                                 </span>
                               )}
@@ -1460,7 +1475,7 @@ export const CatalogView: React.FC = () => {
 
                 <button
                   type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl text-sm font-semibold shadow-sm shadow-indigo-600/20"
+                  className="bg-[#0D6E4F] hover:bg-[#0A583F] text-white px-6 py-2 rounded-xl text-sm font-semibold shadow-sm"
                 >
                   {modalMode === 'create' ? 'حفظ وإضافة الصنف' : 'حفظ التعديلات'}
                 </button>
@@ -1474,7 +1489,7 @@ export const CatalogView: React.FC = () => {
       {/* 2. Dedicated Modal: Price Change (item.change_price)                 */}
       {/* ==================================================================== */}
       {isPriceModalOpen && targetProductForPrice && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
@@ -1552,7 +1567,7 @@ export const CatalogView: React.FC = () => {
       {/* 3. Dedicated Modal: Cost Change (item.change_cost)                   */}
       {/* ==================================================================== */}
       {isCostModalOpen && targetProductForCost && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
@@ -1629,7 +1644,7 @@ export const CatalogView: React.FC = () => {
       {/* 4. Modal: Conditional Delete / Rejection Alert Dialog                 */}
       {/* ==================================================================== */}
       {deleteAlertModal.isOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div

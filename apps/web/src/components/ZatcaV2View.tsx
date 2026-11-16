@@ -10,11 +10,13 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 
 type ZatcaTab = 'config' | 'egs' | 'documents' | 'outbox' | 'reports';
 
 export const ZatcaV2View: React.FC = () => {
   const { showToast } = useToast();
+  const { dir } = useLocale();
   const [activeTab, setActiveTab] = useState<ZatcaTab>('config');
   const [entities, setEntities] = useState<any[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState('');
@@ -128,7 +130,7 @@ export const ZatcaV2View: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
@@ -214,7 +216,7 @@ export const ZatcaV2View: React.FC = () => {
               <label htmlFor="v2Toggle" className="text-sm text-slate-700">تفعيل الربط المباشر للفوترة الإلكترونية</label>
             </div>
           </div>
-          <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">حفظ إعدادات المنشأة</button>
+          <button type="submit" className="px-4 py-2 bg-[#0D6E4F] hover:bg-[#0A583F] text-white rounded-lg text-sm font-medium">حفظ إعدادات المنشأة</button>
           {config && <div className="text-xs text-slate-500">آخر تحديث: {String(config.updatedAt).slice(0, 19).replace('T', ' ')}</div>}
         </form>
       )}
@@ -284,7 +286,7 @@ export const ZatcaV2View: React.FC = () => {
       {activeTab === 'outbox' && (
         <div className="space-y-4">
           <div className="flex gap-3">
-            <button onClick={handleProcessOutbox} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">تشغيل دفعة الإرسال (Outbox)</button>
+            <button onClick={handleProcessOutbox} className="px-4 py-2 bg-[#0D6E4F] hover:bg-[#0A583F] text-white rounded-lg text-sm font-medium">تشغيل دفعة الإرسال (Outbox)</button>
             <button onClick={handleWatchdog} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium">إعادة معالجة العمليات المتعثرة</button>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">

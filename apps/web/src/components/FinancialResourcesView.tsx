@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
   Wallet,
   Landmark,
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useLocale } from '../context/LocaleContext';
 import { AccountNode } from './AccountingView';
 
 export interface CashVault {
@@ -136,10 +137,11 @@ interface FinancialResourcesViewProps {
 
 export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
   legalEntityId,
-  theme,
+  theme: _theme,
   flatAccounts,
 }) => {
   const toast = useToast();
+  const { dir } = useLocale();
 
   // Active Sub-Tab
   const [subTab, setSubTab] = useState<'vaults' | 'banks' | 'payment_methods' | 'pos_devices' | 'terminals'>('vaults');
@@ -164,6 +166,48 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isCountModalOpen, setIsCountModalOpen] = useState(false);
   const [isVoucherModalOpen, setIsVoucherModalOpen] = useState(false);
+
+  useEffect(() => {
+    const anyOpen =
+      isVaultModalOpen ||
+      isBankModalOpen ||
+      isBranchAccessModalOpen ||
+      isPayMethodModalOpen ||
+      isPosDeviceModalOpen ||
+      isTerminalModalOpen ||
+      isTransferModalOpen ||
+      isTxModalOpen ||
+      isCountModalOpen ||
+      isVoucherModalOpen;
+    if (!anyOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsVaultModalOpen(false);
+        setIsBankModalOpen(false);
+        setIsBranchAccessModalOpen(false);
+        setIsPayMethodModalOpen(false);
+        setIsPosDeviceModalOpen(false);
+        setIsTerminalModalOpen(false);
+        setIsTransferModalOpen(false);
+        setIsTxModalOpen(false);
+        setIsCountModalOpen(false);
+        setIsVoucherModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    isVaultModalOpen,
+    isBankModalOpen,
+    isBranchAccessModalOpen,
+    isPayMethodModalOpen,
+    isPosDeviceModalOpen,
+    isTerminalModalOpen,
+    isTransferModalOpen,
+    isTxModalOpen,
+    isCountModalOpen,
+    isVoucherModalOpen,
+  ]);
 
   // Modal Error States (In-Place)
   const [vaultModalError, setVaultModalError] = useState<string | null>(null);
@@ -953,10 +997,10 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" dir={dir}>
       {/* Unified Sub-Tabs Navigation */}
       <div className={`flex items-center gap-2 p-1.5 rounded-2xl border ${
-        theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-100 border-slate-200'
+        'bg-slate-100 border-slate-200'
       }`}>
         <button
           type="button"
@@ -964,7 +1008,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
             subTab === 'vaults'
               ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <Wallet className="w-4 h-4" />
@@ -977,7 +1021,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
             subTab === 'banks'
               ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <Landmark className="w-4 h-4" />
@@ -989,8 +1033,8 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
           onClick={() => setSubTab('payment_methods')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
             subTab === 'payment_methods'
-              ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
-              : 'text-slate-400 hover:text-white'
+              ? 'bg-[#0D6E4F] text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <CreditCard className="w-4 h-4" />
@@ -1003,7 +1047,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
             subTab === 'pos_devices'
               ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <Monitor className="w-4 h-4" />
@@ -1016,7 +1060,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
             subTab === 'terminals'
               ? 'bg-teal-600 text-white shadow-md shadow-teal-600/30'
-              : 'text-slate-400 hover:text-white'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <Cpu className="w-4 h-4" />
@@ -1028,9 +1072,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
             type="button"
             onClick={loadAll}
             disabled={loading}
-            className={`p-2 rounded-xl border hover:opacity-80 transition ${
-              theme === 'dark' ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-600'
-            }`}
+            className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
             title="تحديث البيانات"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -1078,7 +1120,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <div
                 key={vault.id}
                 className={`p-4 rounded-2xl border flex flex-col justify-between transition hover:shadow-lg ${
-                  theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                  'bg-white border-slate-200'
                 }`}
               >
                 <div>
@@ -1106,7 +1148,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
 
                   <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
                     {vault.branchId ? (
-                      <span className="flex items-center gap-1 text-slate-300">
+                      <span className="flex items-center gap-1 text-slate-700">
                         <Store className="w-3.5 h-3.5 text-amber-400" />
                         <span>فرع: {vault.branchName || vault.branchId}</span>
                       </span>
@@ -1122,7 +1164,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     حساب الدليل: {vault.accountCode} - {vault.accountName}
                   </p>
 
-                  <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between">
+                  <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between">
                     <div>
                       <span className="text-[11px] text-slate-400 block">الرصيد التشغيلي:</span>
                       <span className="font-mono font-bold text-lg text-emerald-400">
@@ -1134,7 +1176,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenVaultModal(vault)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                        className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
                         title="تعديل بيانات الخزينة"
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -1152,11 +1194,11 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                 </div>
 
                 {/* Granular Operational Action Toolbar */}
-                <div className="mt-4 pt-3 border-t border-slate-800/60 grid grid-cols-4 gap-1.5">
+                <div className="mt-4 pt-3 border-t border-slate-200 grid grid-cols-4 gap-1.5">
                   <button
                     type="button"
                     onClick={() => handleOpenTransactionsModal(vault)}
-                    className="flex flex-col items-center justify-center p-2 rounded-xl text-[11px] font-semibold bg-slate-800/70 hover:bg-slate-800 text-slate-300 transition"
+                    className="flex flex-col items-center justify-center p-2 rounded-xl text-[11px] font-semibold bg-slate-100/70 hover:bg-slate-100 text-slate-700 transition"
                     title="عرض سجل حركات الخزينة الكامل"
                   >
                     <History className="w-3.5 h-3.5 mb-1 text-blue-400" />
@@ -1167,10 +1209,10 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     type="button"
                     onClick={() => handleOpenCountModal(vault)}
                     disabled={vault.status !== 'ACTIVE'}
-                    className="flex flex-col items-center justify-center p-2 rounded-xl text-[11px] font-semibold bg-slate-800/70 hover:bg-slate-800 text-slate-300 transition disabled:opacity-40"
+                    className="flex flex-col items-center justify-center p-2 rounded-xl text-[11px] font-semibold bg-slate-100/70 hover:bg-slate-100 text-slate-700 transition disabled:opacity-40"
                     title="جرد الخزينة الفعلي وتسوية الفروقات"
                   >
-                    <ClipboardCheck className="w-3.5 h-3.5 mb-1 text-purple-400" />
+                    <ClipboardCheck className="w-3.5 h-3.5 mb-1 text-[#0D6E4F]" />
                     <span>جرد فعلي</span>
                   </button>
 
@@ -1230,7 +1272,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <div
                 key={bank.id}
                 className={`p-4 rounded-2xl border flex flex-col justify-between transition hover:shadow-lg ${
-                  theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                  'bg-white border-slate-200'
                 }`}
               >
                 <div>
@@ -1254,7 +1296,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   {bank.iban && <p className="text-[11px] text-slate-500 font-mono mt-0.5">IBAN: {bank.iban}</p>}
 
                   {/* Authorized Branches Section */}
-                  <div className="mt-3 pt-2 border-t border-slate-800/40">
+                  <div className="mt-3 pt-2 border-t border-slate-200/40">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold text-slate-400">الفروع المصرح لها:</span>
                       <button
@@ -1272,7 +1314,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                         bank.authorizedBranches.map((ab) => (
                           <span
                             key={ab.branchId}
-                            className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-medium"
+                            className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium"
                           >
                             {ab.branchName}
                           </span>
@@ -1286,7 +1328,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between">
                   <div>
                     <span className="text-[11px] text-slate-400 block">الرصيد الدفتري:</span>
                     <span className="font-mono font-bold text-lg text-blue-400">
@@ -1298,7 +1340,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleOpenBankModal(bank)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                    className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
                     title="تعديل بيانات الحساب البنكي"
                   >
                     <Pencil className="w-3.5 h-3.5" />
@@ -1327,7 +1369,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <button
                 type="button"
                 onClick={handleSeedDefaults}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-purple-900/30 text-purple-300 border border-purple-700/50 hover:bg-purple-900/50 transition"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 transition"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>توليد وسائل الدفع القياسية</span>
@@ -1336,7 +1378,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <button
                 type="button"
                 onClick={() => handleOpenPayMethodModal()}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30 transition"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-[#0D6E4F] hover:bg-[#0A583F] text-white shadow-sm transition"
               >
                 <Plus className="w-4 h-4" />
                 <span>إضافة طريقة دفع</span>
@@ -1344,9 +1386,9 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
             </div>
           </div>
 
-          <div className="rounded-2xl border overflow-hidden border-slate-800">
+          <div className="rounded-2xl border overflow-x-auto border-slate-200 bg-white">
             <table className="w-full text-right text-xs">
-              <thead className="bg-slate-900/90 text-slate-400 font-bold border-b border-slate-800">
+              <thead className="bg-slate-50 text-slate-400 font-bold border-b border-slate-200">
                 <tr>
                   <th className="p-3">الترتيب</th>
                   <th className="p-3">الرمز</th>
@@ -1359,15 +1401,15 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   <th className="p-3 text-center">الإجراءات</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-slate-200">
                 {paymentMethods.map((pm) => (
-                  <tr key={pm.id} className="hover:bg-slate-800/40 transition">
+                  <tr key={pm.id} className="hover:bg-slate-50 transition">
                     <td className="p-3 font-mono text-slate-400">{pm.displayOrder}</td>
-                    <td className="p-3 font-mono font-bold text-purple-400">{pm.code}</td>
+                    <td className="p-3 font-mono font-bold text-[#0D6E4F]">{pm.code}</td>
                     <td className="p-3 font-bold">{pm.nameAr}</td>
                     <td className="p-3 text-slate-400">{pm.nameEn || '—'}</td>
                     <td className="p-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 font-bold">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-100 text-slate-700 font-bold">
                         {pm.type}
                       </span>
                     </td>
@@ -1399,7 +1441,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                         <button
                           type="button"
                           onClick={() => handleOpenPayMethodModal(pm)}
-                          className="p-1 rounded text-slate-400 hover:text-white"
+                          className="p-1 rounded text-slate-600 hover:text-slate-900"
                           title="تعديل طريقة الدفع"
                         >
                           <Pencil className="w-3.5 h-3.5" />
@@ -1450,7 +1492,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <div
                 key={dev.id}
                 className={`p-4 rounded-2xl border flex flex-col justify-between transition hover:shadow-lg ${
-                  theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                  'bg-white border-slate-200'
                 }`}
               >
                 <div>
@@ -1490,7 +1532,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between">
                   <span className="text-[10px] text-slate-500 uppercase font-bold font-mono">
                     النوع: {dev.deviceType}
                   </span>
@@ -1499,7 +1541,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleOpenPosDeviceModal(dev)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                      className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
                       title="تعديل جهاز POS"
                     >
                       <Pencil className="w-3.5 h-3.5" />
@@ -1548,7 +1590,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <div
                 key={term.id}
                 className={`p-4 rounded-2xl border flex flex-col justify-between transition hover:shadow-lg ${
-                  theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                  'bg-white border-slate-200'
                 }`}
               >
                 <div>
@@ -1594,7 +1636,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between">
                   <span className="text-[10px] text-slate-500 font-mono">
                     {term.model ? `الموديل: ${term.model}` : 'EDC Terminal'}
                   </span>
@@ -1603,7 +1645,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleOpenTerminalModal(term)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                      className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
                       title="تعديل جهاز الدفع"
                     >
                       <Pencil className="w-3.5 h-3.5" />
@@ -1631,15 +1673,15 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-lg rounded-3xl border p-6 flex flex-col gap-4 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              'bg-white border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-800">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
               <h4 className="font-bold text-sm flex items-center gap-2">
                 <Wallet className="w-4 h-4 text-emerald-400" />
                 <span>{vaultForm.id ? 'تعديل بيانات الخزينة النقدية' : 'إضافة خزينة نقدية جديدة'}</span>
               </h4>
-              <button type="button" onClick={() => setIsVaultModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button type="button" onClick={() => setIsVaultModalOpen(false)} className="text-slate-600 hover:text-slate-900">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1660,7 +1702,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={vaultForm.code}
                   onChange={(e) => setVaultForm({ ...vaultForm, code: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="مثال: VLT-101"
                 />
@@ -1673,7 +1715,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={vaultForm.branchId}
                   onChange={(e) => setVaultForm({ ...vaultForm, branchId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- خزينة مركزية للشركة (بدون فرع) --</option>
@@ -1692,7 +1734,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={vaultForm.nameAr}
                   onChange={(e) => setVaultForm({ ...vaultForm, nameAr: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="مثال: خزينة كاشير 1"
                 />
@@ -1705,7 +1747,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={vaultForm.nameEn}
                   onChange={(e) => setVaultForm({ ...vaultForm, nameEn: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="e.g. Cashier 1 Safe"
                 />
@@ -1718,7 +1760,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={vaultForm.accountId}
                   onChange={(e) => setVaultForm({ ...vaultForm, accountId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- اختر حساب نقدي فرعي من الدليل --</option>
@@ -1737,7 +1779,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     value={vaultForm.status}
                     onChange={(e) => setVaultForm({ ...vaultForm, status: e.target.value as any })}
                     className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      'bg-slate-50 border-slate-200'
                     }`}
                   >
                     <option value="ACTIVE">نشط (ACTIVE)</option>
@@ -1748,11 +1790,11 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setIsVaultModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-900"
               >
                 إلغاء
               </button>
@@ -1775,15 +1817,15 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-lg rounded-3xl border p-6 flex flex-col gap-4 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              'bg-white border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-800">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
               <h4 className="font-bold text-sm flex items-center gap-2">
                 <Landmark className="w-4 h-4 text-blue-400" />
                 <span>{bankForm.id ? 'تعديل بيانات الحساب البنكي' : 'إضافة حساب بنكي جديد'}</span>
               </h4>
-              <button type="button" onClick={() => setIsBankModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button type="button" onClick={() => setIsBankModalOpen(false)} className="text-slate-600 hover:text-slate-900">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1803,7 +1845,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={bankForm.bankName}
                   onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="مثال: مصرف الراجحي"
                 />
@@ -1817,7 +1859,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={bankForm.accountNumber}
                   onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="SA000000000000000000"
                 />
@@ -1830,7 +1872,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={bankForm.iban}
                   onChange={(e) => setBankForm({ ...bankForm, iban: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="SA..."
                 />
@@ -1843,7 +1885,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={bankForm.swiftCode}
                   onChange={(e) => setBankForm({ ...bankForm, swiftCode: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="RJHI..."
                 />
@@ -1856,7 +1898,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={bankForm.accountId}
                   onChange={(e) => setBankForm({ ...bankForm, accountId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- اختر حساب بنكي فرعي من الدليل --</option>
@@ -1871,7 +1913,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               {!bankForm.id && (
                 <div className="col-span-2">
                   <label className="block font-semibold mb-1 text-slate-400">الفروع المصرح لها بالاستخدام:</label>
-                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 rounded-xl border border-slate-800 bg-slate-950/40">
+                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 rounded-xl border border-slate-200 bg-slate-50">
                     {branchesList.map((b) => (
                       <label key={b.id} className="flex items-center gap-1.5 cursor-pointer text-xs">
                         <input
@@ -1897,11 +1939,11 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setIsBankModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-900"
               >
                 إلغاء
               </button>
@@ -1924,10 +1966,10 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-md rounded-3xl border p-6 flex flex-col gap-4 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              'bg-white border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-800">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
               <div>
                 <h4 className="font-bold text-sm flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-blue-400" />
@@ -1938,7 +1980,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsBranchAccessModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-600 hover:text-slate-900"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1959,8 +2001,8 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     key={b.id}
                     className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition ${
                       isChecked
-                        ? 'border-blue-500/50 bg-blue-500/10 text-white'
-                        : 'border-slate-800 bg-slate-950/40 text-slate-400'
+                        ? 'border-blue-300 bg-blue-50 text-blue-900'
+                        : 'border-slate-200 bg-slate-50 text-slate-400'
                     }`}
                   >
                     <div className="flex items-center gap-2">
@@ -1984,7 +2026,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               })}
             </div>
 
-            <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
+            <div className="flex items-center justify-between pt-3 border-t border-slate-200 text-xs">
               <button
                 type="button"
                 onClick={() => setSelectedBranchIds(branchesList.map((b) => b.id))}
@@ -1996,7 +2038,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsBranchAccessModalOpen(false)}
-                  className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white"
+                  className="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900"
                 >
                   إلغاء
                 </button>
@@ -2020,15 +2062,15 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-md rounded-3xl border p-6 flex flex-col gap-4 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              'bg-white border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-800">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
               <h4 className="font-bold text-sm flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-purple-400" />
+                <CreditCard className="w-4 h-4 text-[#0D6E4F]" />
                 <span>{payMethodForm.id ? 'تعديل طريقة الدفع' : 'إضافة طريقة دفع جديدة'}</span>
               </h4>
-              <button type="button" onClick={() => setIsPayMethodModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button type="button" onClick={() => setIsPayMethodModalOpen(false)} className="text-slate-600 hover:text-slate-900">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -2049,7 +2091,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={payMethodForm.code}
                   onChange={(e) => setPayMethodForm({ ...payMethodForm, code: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono uppercase focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="MADA, VISA..."
                 />
@@ -2061,7 +2103,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={payMethodForm.type}
                   onChange={(e) => setPayMethodForm({ ...payMethodForm, type: e.target.value as any })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="CARD">بطاقة بنكية (CARD)</option>
@@ -2079,7 +2121,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={payMethodForm.nameAr}
                   onChange={(e) => setPayMethodForm({ ...payMethodForm, nameAr: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="مدى..."
                 />
@@ -2092,7 +2134,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={payMethodForm.nameEn}
                   onChange={(e) => setPayMethodForm({ ...payMethodForm, nameEn: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="Mada Debit..."
                 />
@@ -2105,7 +2147,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={payMethodForm.displayOrder}
                   onChange={(e) => setPayMethodForm({ ...payMethodForm, displayOrder: Number(e.target.value) })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 />
               </div>
@@ -2116,7 +2158,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     type="checkbox"
                     checked={payMethodForm.requiresTerminal}
                     onChange={(e) => setPayMethodForm({ ...payMethodForm, requiresTerminal: e.target.checked })}
-                    className="accent-purple-500 rounded"
+                    className="accent-[#0D6E4F] rounded"
                   />
                   <span>يتطلب جهاز شبكة (EDC)</span>
                 </label>
@@ -2126,25 +2168,25 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     type="checkbox"
                     checked={payMethodForm.requiresReference}
                     onChange={(e) => setPayMethodForm({ ...payMethodForm, requiresReference: e.target.checked })}
-                    className="accent-purple-500 rounded"
+                    className="accent-[#0D6E4F] rounded"
                   />
                   <span>يتطلب رقم مرجع العملية</span>
                 </label>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setIsPayMethodModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-900"
               >
                 إلغاء
               </button>
               <button
                 type="button"
                 onClick={handleSavePayMethod}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-[#0D6E4F] hover:bg-[#0A583F] text-white shadow-sm"
               >
                 حفظ وسيلة الدفع
               </button>
@@ -2160,15 +2202,15 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-lg rounded-3xl border p-6 flex flex-col gap-4 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              'bg-white border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-800">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
               <h4 className="font-bold text-sm flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-amber-400" />
                 <span>{posDeviceForm.id ? 'تعديل جهاز نقطة البيع POS' : 'إضافة جهاز POS جديد'}</span>
               </h4>
-              <button type="button" onClick={() => setIsPosDeviceModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button type="button" onClick={() => setIsPosDeviceModalOpen(false)} className="text-slate-600 hover:text-slate-900">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -2189,7 +2231,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={posDeviceForm.deviceCode}
                   onChange={(e) => setPosDeviceForm({ ...posDeviceForm, deviceCode: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="POS-01"
                 />
@@ -2202,7 +2244,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={posDeviceForm.branchId}
                   onChange={(e) => setPosDeviceForm({ ...posDeviceForm, branchId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   {branchesList.map((b) => (
@@ -2220,7 +2262,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={posDeviceForm.name}
                   onChange={(e) => setPosDeviceForm({ ...posDeviceForm, name: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="كاشير الصالة 1"
                 />
@@ -2232,7 +2274,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={posDeviceForm.cashVaultId}
                   onChange={(e) => setPosDeviceForm({ ...posDeviceForm, cashVaultId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- بدون خزينة مرتبطة --</option>
@@ -2252,7 +2294,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={posDeviceForm.deviceType}
                   onChange={(e) => setPosDeviceForm({ ...posDeviceForm, deviceType: e.target.value as any })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="POS">نقطة بيع رئيسية (POS)</option>
@@ -2269,18 +2311,18 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={posDeviceForm.ipAddress}
                   onChange={(e) => setPosDeviceForm({ ...posDeviceForm, ipAddress: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="192.168.1.100"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setIsPosDeviceModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-900"
               >
                 إلغاء
               </button>
@@ -2303,15 +2345,15 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-lg rounded-3xl border p-6 flex flex-col gap-4 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              'bg-white border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-800">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
               <h4 className="font-bold text-sm flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-teal-400" />
                 <span>{terminalForm.id ? 'تعديل جهاز الدفع الإلكتروني EDC' : 'إضافة جهاز دفع إلكتروني جديد'}</span>
               </h4>
-              <button type="button" onClick={() => setIsTerminalModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button type="button" onClick={() => setIsTerminalModalOpen(false)} className="text-slate-600 hover:text-slate-900">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -2332,7 +2374,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={terminalForm.terminalCode}
                   onChange={(e) => setTerminalForm({ ...terminalForm, terminalCode: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="EDC-01"
                 />
@@ -2345,7 +2387,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={terminalForm.branchId}
                   onChange={(e) => setTerminalForm({ ...terminalForm, branchId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   {branchesList.map((b) => (
@@ -2363,7 +2405,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={terminalForm.name}
                   onChange={(e) => setTerminalForm({ ...terminalForm, name: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="جهاز شبكة الكاشير 1"
                 />
@@ -2375,7 +2417,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={terminalForm.provider}
                   onChange={(e) => setTerminalForm({ ...terminalForm, provider: e.target.value as any })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="GEIDEA">جيديا (GEIDEA)</option>
@@ -2393,7 +2435,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={terminalForm.linkedPosDeviceId}
                   onChange={(e) => setTerminalForm({ ...terminalForm, linkedPosDeviceId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- جهاز مستقل (بدون ربط POS) --</option>
@@ -2414,7 +2456,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={terminalForm.serialNumber}
                   onChange={(e) => setTerminalForm({ ...terminalForm, serialNumber: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="SN12345678"
                 />
@@ -2427,7 +2469,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={terminalForm.model}
                   onChange={(e) => setTerminalForm({ ...terminalForm, model: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border font-mono focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="PAX A920, Verifone..."
                 />
@@ -2439,7 +2481,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={terminalForm.status}
                   onChange={(e) => setTerminalForm({ ...terminalForm, status: e.target.value as any })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="ACTIVE">جاهز للعمل (ACTIVE)</option>
@@ -2449,11 +2491,11 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setIsTerminalModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-900"
               >
                 إلغاء
               </button>
@@ -2476,15 +2518,15 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-md rounded-3xl border p-6 flex flex-col gap-4 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              'bg-white border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-800">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
               <h4 className="font-bold text-sm flex items-center gap-2">
                 <ArrowRightLeft className="w-4 h-4 text-blue-400" />
                 <span>تحويل نقدي بين الخزائن</span>
               </h4>
-              <button type="button" onClick={() => setIsTransferModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button type="button" onClick={() => setIsTransferModalOpen(false)} className="text-slate-600 hover:text-slate-900">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -2503,7 +2545,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={transferForm.fromVaultId}
                   onChange={(e) => setTransferForm({ ...transferForm, fromVaultId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- اختر خزينة المصدر --</option>
@@ -2521,7 +2563,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={transferForm.toVaultId}
                   onChange={(e) => setTransferForm({ ...transferForm, toVaultId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- اختر خزينة الوجهة --</option>
@@ -2542,9 +2584,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   step="0.01"
                   value={transferForm.amount}
                   onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
-                  className={`w-full px-3 py-2 rounded-xl border font-mono font-bold text-sm focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-50 border-slate-200'
-                  }`}
+                  className="w-full px-3 py-2 rounded-xl border bg-slate-50 border-slate-200 text-slate-900 font-mono font-bold text-sm focus:outline-none"
                   placeholder="0.00"
                 />
               </div>
@@ -2556,18 +2596,18 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={transferForm.notes}
                   onChange={(e) => setTransferForm({ ...transferForm, notes: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="مثال: إيداع نهاية الوردية..."
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setIsTransferModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-900"
               >
                 إلغاء
               </button>
@@ -2590,18 +2630,18 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+              'bg-white border-slate-200 text-slate-900'
             }`}
           >
             {/* Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <History className="w-5 h-5 text-blue-400" />
                   <h3 className="font-bold text-base">سجل الحركات النقدية الكامل للخزينة</h3>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  خزينة: <span className="font-semibold text-white">{selectedVaultForTx.nameAr}</span> ({selectedVaultForTx.code}) | الرصيد الحالي:{' '}
+                  خزينة: <span className="font-semibold text-slate-900">{selectedVaultForTx.nameAr}</span> ({selectedVaultForTx.code}) | الرصيد الحالي:{' '}
                   <span className="font-mono font-bold text-emerald-400">
                     {parseFloat(selectedVaultForTx.balance || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} SAR
                   </span>
@@ -2610,7 +2650,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsTxModalOpen(false)}
-                className="p-2 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition"
+                className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2629,9 +2669,9 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   <p className="text-sm">لا توجد حركات مالية مسجلة لهذه الخزينة حتى الآن</p>
                 </div>
               ) : (
-                <div className="border border-slate-800 rounded-xl overflow-hidden">
+                <div className="border border-slate-200 rounded-xl overflow-x-auto bg-white">
                   <table className="w-full text-right text-xs">
-                    <thead className="bg-slate-800/60 text-slate-400 font-semibold border-b border-slate-800">
+                    <thead className="bg-slate-50 text-slate-400 font-semibold border-b border-slate-200">
                       <tr>
                         <th className="py-2.5 px-3">التاريخ والوقت</th>
                         <th className="py-2.5 px-3">نوع الحركة</th>
@@ -2641,12 +2681,12 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                         <th className="py-2.5 px-3">المستخدم المنفذ</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/40">
+                    <tbody className="divide-y divide-slate-200/40">
                       {vaultTxList.map((tx) => {
                         const isCredit = tx.transactionType === 'WITHDRAWAL' || tx.transactionType === 'TRANSFER_OUT';
                         return (
-                          <tr key={tx.id} className="hover:bg-slate-800/30 transition">
-                            <td className="py-2.5 px-3 font-mono text-slate-300">
+                          <tr key={tx.id} className="hover:bg-slate-50 transition">
+                            <td className="py-2.5 px-3 font-mono text-slate-700">
                               {new Date(tx.createdAt).toLocaleString('ar-SA')}
                             </td>
                             <td className="py-2.5 px-3">
@@ -2659,8 +2699,8 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                                     : tx.transactionType === 'TRANSFER_IN'
                                     ? 'bg-blue-500/10 text-blue-400'
                                     : tx.transactionType === 'TRANSFER_OUT'
-                                    ? 'bg-purple-500/10 text-purple-400'
-                                    : 'bg-indigo-500/10 text-indigo-400'
+                                    ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                                    : 'bg-emerald-50 text-[#0D6E4F] border border-emerald-200'
                                 }`}
                               >
                                 {tx.transactionType === 'DEPOSIT' && 'إيداع نقدي'}
@@ -2676,10 +2716,10 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                                 {parseFloat(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} SAR
                               </span>
                             </td>
-                            <td className="py-2.5 px-3 font-mono text-slate-200">
+                            <td className="py-2.5 px-3 font-mono text-slate-800">
                               {parseFloat(tx.balanceAfter).toLocaleString('en-US', { minimumFractionDigits: 2 })} SAR
                             </td>
-                            <td className="py-2.5 px-3 text-slate-300">
+                            <td className="py-2.5 px-3 text-slate-700">
                               <span>{tx.notes || '-'}</span>
                               {tx.sourceDocumentType && (
                                 <span className="block text-[10px] text-slate-500 font-mono">
@@ -2700,11 +2740,11 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-3 border-t border-slate-800 flex items-center justify-end">
+            <div className="p-3 border-t border-slate-200 flex items-center justify-end">
               <button
                 type="button"
                 onClick={() => setIsTxModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700"
               >
                 إغلاق النافذة
               </button>
@@ -2720,18 +2760,18 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-lg rounded-2xl border p-5 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+              'bg-white border-slate-200 text-slate-900'
             }`}
           >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div className="flex items-center gap-2">
-                <ClipboardCheck className="w-5 h-5 text-purple-400" />
+                <ClipboardCheck className="w-5 h-5 text-[#0D6E4F]" />
                 <h3 className="font-bold text-base">جرد الخزينة الفعلي وتسوية الفروقات</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsCountModalOpen(false)}
-                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2745,10 +2785,10 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
             )}
 
             <div className="flex flex-col gap-4 mt-4 text-xs">
-              <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-800 flex items-center justify-between">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <span className="text-slate-400 block">الخزينة المجرودة:</span>
-                  <span className="font-bold text-sm text-white">
+                  <span className="font-bold text-sm text-slate-900">
                     {selectedVaultForCount.nameAr} ({selectedVaultForCount.code})
                   </span>
                 </div>
@@ -2761,7 +2801,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold mb-1 text-slate-300">
+                <label className="block font-semibold mb-1 text-slate-700">
                   الرصيد الفعلي المعدود (SAR): <span className="text-red-400">*</span>
                 </label>
                 <input
@@ -2771,7 +2811,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={countForm.actualAmount}
                   onChange={(e) => setCountForm({ ...countForm, actualAmount: e.target.value })}
                   className={`w-full px-3 py-2 text-base font-mono font-bold rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="0.00"
                 />
@@ -2790,7 +2830,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     <div
                       className={`p-3 rounded-xl border flex items-center justify-between ${
                         isMatch
-                          ? 'bg-slate-800/40 border-slate-700 text-slate-300'
+                          ? 'bg-slate-50 border-slate-200 text-slate-700'
                           : isSurplus
                           ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300'
                           : 'bg-amber-950/40 border-amber-800/50 text-amber-300'
@@ -2817,31 +2857,31 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               )}
 
               <div>
-                <label className="block font-semibold mb-1 text-slate-300">ملاحظات / أسباب الفروقات:</label>
+                <label className="block font-semibold mb-1 text-slate-700">ملاحظات / أسباب الفروقات:</label>
                 <input
                   type="text"
                   value={countForm.notes}
                   onChange={(e) => setCountForm({ ...countForm, notes: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                   placeholder="مثال: جرد مفاجئ في نهاية نوبة العمل..."
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-4 mt-4 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-4 mt-4 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setIsCountModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-900"
               >
                 إلغاء
               </button>
               <button
                 type="button"
                 onClick={handleExecuteCount}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-[#0D6E4F] hover:bg-[#0A583F] text-white shadow-sm"
               >
                 اعتماد الجرد والترحيل المحاسبي
               </button>
@@ -2857,10 +2897,10 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div
             className={`w-full max-w-lg rounded-2xl border p-5 shadow-2xl ${
-              theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+              'bg-white border-slate-200 text-slate-900'
             }`}
           >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 {voucherMode === 'RECEIPT' ? (
                   <ArrowDownLeft className="w-5 h-5 text-emerald-400" />
@@ -2874,7 +2914,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsVoucherModalOpen(false)}
-                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2888,10 +2928,10 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
             )}
 
             <div className="flex flex-col gap-4 mt-4 text-xs">
-              <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-800 flex items-center justify-between">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <span className="text-slate-400 block">الخزينة المحددة:</span>
-                  <span className="font-bold text-sm text-white">
+                  <span className="font-bold text-sm text-slate-900">
                     {selectedVaultForVoucher.nameAr} ({selectedVaultForVoucher.code})
                   </span>
                 </div>
@@ -2905,7 +2945,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1 text-slate-300">
+                  <label className="block font-semibold mb-1 text-slate-700">
                     رقم السند: <span className="text-red-400">*</span>
                   </label>
                   <input
@@ -2913,13 +2953,13 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     value={voucherForm.voucherNumber}
                     onChange={(e) => setVoucherForm({ ...voucherForm, voucherNumber: e.target.value })}
                     className={`w-full px-3 py-2 rounded-xl border focus:outline-none font-mono ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      'bg-slate-50 border-slate-200'
                     }`}
                   />
                 </div>
 
                 <div>
-                  <label className="block font-semibold mb-1 text-slate-300">
+                  <label className="block font-semibold mb-1 text-slate-700">
                     {voucherMode === 'RECEIPT' ? 'اسم الدافع / العميل:' : 'اسم المستفيد / المورد:'}{' '}
                     <span className="text-red-400">*</span>
                   </label>
@@ -2929,14 +2969,14 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                     onChange={(e) => setVoucherForm({ ...voucherForm, partyName: e.target.value })}
                     placeholder={voucherMode === 'RECEIPT' ? 'اسم العميل أو جهة الدفع' : 'اسم المستفيد أو المورد'}
                     className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      'bg-slate-50 border-slate-200'
                     }`}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold mb-1 text-slate-300">
+                <label className="block font-semibold mb-1 text-slate-700">
                   {voucherMode === 'RECEIPT' ? 'الحساب الدائن (إيراد / طرف):' : 'الحساب المدين (مصروف / طرف):'}{' '}
                   <span className="text-red-400">*</span>
                 </label>
@@ -2944,7 +2984,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   value={voucherForm.accountId}
                   onChange={(e) => setVoucherForm({ ...voucherForm, accountId: e.target.value })}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="">-- اختر الحساب المقابل من الدليل المحاسبي --</option>
@@ -2959,7 +2999,7 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold mb-1 text-slate-300">
+                <label className="block font-semibold mb-1 text-slate-700">
                   المبلغ (SAR): <span className="text-red-400">*</span>
                 </label>
                 <input
@@ -2970,30 +3010,30 @@ export const FinancialResourcesView: React.FC<FinancialResourcesViewProps> = ({
                   onChange={(e) => setVoucherForm({ ...voucherForm, amount: e.target.value })}
                   placeholder="0.00"
                   className={`w-full px-3 py-2 text-base font-mono font-bold rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 />
               </div>
 
               <div>
-                <label className="block font-semibold mb-1 text-slate-300">بيان وملاحظات السند:</label>
+                <label className="block font-semibold mb-1 text-slate-700">بيان وملاحظات السند:</label>
                 <input
                   type="text"
                   value={voucherForm.notes}
                   onChange={(e) => setVoucherForm({ ...voucherForm, notes: e.target.value })}
                   placeholder="بيان تفصيلي للحركة النقدية..."
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    'bg-slate-50 border-slate-200'
                   }`}
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-4 mt-4 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-4 mt-4 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setIsVoucherModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+                className="px-4 py-2 rounded-xl text-xs text-slate-600 hover:text-slate-900"
               >
                 إلغاء
               </button>

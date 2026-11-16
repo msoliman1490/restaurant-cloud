@@ -76,6 +76,14 @@ test.describe('Restaurant Cloud — Complete UI/UX Redesign Acceptance', () => {
     const focusedPlaceholder = await page.evaluate(() => (document.activeElement as HTMLInputElement)?.placeholder || '');
     expect(focusedPlaceholder).toContain('F2');
 
+    // Verify POS defaults to Eye-Comfort Light Theme and supports Dark Theme toggle
+    const themeBtn = page.locator('button[aria-label="الوضع الداكن"]');
+    await expect(themeBtn).toBeVisible();
+    await themeBtn.click();
+    await expect(page.locator('button[aria-label="الوضع الفاتح"]')).toBeVisible();
+    await page.locator('button[aria-label="الوضع الفاتح"]').click();
+    await expect(themeBtn).toBeVisible();
+
     // Test Sidebar Collapse/Expand & Keyboard ArrowDown navigation
     const collapseBtn = page.locator('aside button[aria-label="تصغير القائمة الجانبية"]');
     await collapseBtn.click();

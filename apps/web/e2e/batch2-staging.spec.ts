@@ -198,7 +198,7 @@ test.describe('Batch 2 Staging E2E & Product Quality', () => {
     await waitForSpinnersToSettle(page, 15_000);
 
     // 1. Offline POS drawer open & close
-    const offlineBtn = page.locator('button[title="إدارة صف الفواتير المحلي (Offline POS)"]');
+    const offlineBtn = page.locator('button[title="إدارة صف الفواتير المحلي"]');
     await expect(offlineBtn).toBeVisible();
     await offlineBtn.click();
     await page.waitForTimeout(500);

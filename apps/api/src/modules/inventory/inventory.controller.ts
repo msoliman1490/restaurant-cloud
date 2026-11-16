@@ -13,13 +13,18 @@ import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
+import { OptionalLegalEntityIdPipe } from '../../common/pipes/legal-entity-id.pipe';
 import {
   CreateStockTransferRequestSchema,
+  SubmitStockTransferRequestSchema,
   ApproveStockTransferRequestSchema,
   RejectStockTransferRequestSchema,
+  CancelStockTransferRequestSchema,
   CloseStockTransferRequestSchema,
   DispatchTransferRequestSchema,
   ReceiveTransferRequestSchema,
+  ResolveTransferDiscrepancyRequestSchema,
+  ReverseTransferAfterDispatchSchema,
   CreateStockAdjustmentRequestSchema,
   CreateStocktakeOrderRequestSchema,
   RecordStocktakeCountRequestSchema,
@@ -46,6 +51,7 @@ export class InventoryController {
   // ==================================================================
 
   @Get('balances')
+  @RequirePermissions('inventory.read')
   async getBalances(
     @CurrentContext() context: TenantContext,
     @Query() query: unknown
@@ -56,10 +62,11 @@ export class InventoryController {
   }
 
   @Get('valuation')
+  @RequirePermissions('inventory.read')
   async getValuation(
     @CurrentContext() context: TenantContext,
     @Query('warehouseId') warehouseId?: string,
-    @Query('legalEntityId') legalEntityId?: string
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string
   ) {
     const data = await this.inventoryService.getInventoryValuation(context, {
       warehouseId,
@@ -69,6 +76,7 @@ export class InventoryController {
   }
 
   @Get('balances/:warehouseId/:itemId')
+  @RequirePermissions('inventory.read')
   async getBalance(
     @CurrentContext() context: TenantContext,
     @Param('warehouseId') warehouseId: string,
@@ -84,6 +92,7 @@ export class InventoryController {
   // ==================================================================
 
   @Get('movements')
+  @RequirePermissions('inventory.read')
   async getMovements(
     @CurrentContext() context: TenantContext,
     @Query() query: unknown
@@ -109,28 +118,58 @@ export class InventoryController {
   }
 
   @Get('transfers')
+  @RequirePermissions('inventory.transfer.view')
   async getTransfers(
     @CurrentContext() context: TenantContext,
     @Query('warehouseId') warehouseId?: string,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string,
+    @Query('transferType') transferType?: string,
     @Query('status') status?: TransferStatus,
+    @Query('search') search?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
   ) {
     const data = await this.inventoryService.getTransfers(context, {
       warehouseId,
+      legalEntityId,
+      transferType,
       status,
+      search,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
     });
     return { success: true, data };
   }
 
+  @Get('transfers/reports/reconciliation')
+  @RequirePermissions('inventory.transfer.view')
+  async getTransferReconciliationReport(
+    @CurrentContext() context: TenantContext,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string
+  ) {
+    const data = await this.inventoryService.getTransferReconciliationReport(context, { legalEntityId });
+    return { success: true, data };
+  }
+
   @Get('transfers/:id')
+  @RequirePermissions('inventory.transfer.view')
   async getTransferById(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string
   ) {
     const data = await this.inventoryService.getTransferById(context, id);
+    return { success: true, data };
+  }
+
+  @Post('transfers/:id/submit')
+  @RequirePermissions('inventory.transfer.create')
+  async submitTransfer(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = body ? SubmitStockTransferRequestSchema.parse(body) : undefined;
+    const data = await this.inventoryService.submitTransfer(context, id, validatedDto);
     return { success: true, data };
   }
 
@@ -158,6 +197,18 @@ export class InventoryController {
     return { success: true, data };
   }
 
+  @Post('transfers/:id/cancel')
+  @RequirePermissions('inventory.transfer.cancel')
+  async cancelTransfer(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = CancelStockTransferRequestSchema.parse(body);
+    const data = await this.inventoryService.cancelTransfer(context, id, validatedDto);
+    return { success: true, data };
+  }
+
   @Post('transfers/:id/dispatch')
   @RequirePermissions('inventory.transfer.dispatch')
   async dispatchTransfer(
@@ -179,6 +230,36 @@ export class InventoryController {
   ) {
     const validatedDto = ReceiveTransferRequestSchema.parse(body);
     const data = await this.inventoryService.receiveTransfer(context, id, validatedDto);
+    return { success: true, data };
+  }
+
+  @Post('transfers/:id/discrepancies/:discrepancyId/resolve')
+  @RequirePermissions('inventory.transfer.discrepancy.resolve')
+  async resolveTransferDiscrepancy(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Param('discrepancyId') discrepancyId: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = ResolveTransferDiscrepancyRequestSchema.parse(body);
+    const data = await this.inventoryService.resolveTransferDiscrepancy(
+      context,
+      id,
+      discrepancyId,
+      validatedDto
+    );
+    return { success: true, data };
+  }
+
+  @Post('transfers/:id/reverse-after-dispatch')
+  @RequirePermissions('inventory.transfer.cancel')
+  async reverseTransferAfterDispatch(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const validatedDto = ReverseTransferAfterDispatchSchema.parse(body);
+    const data = await this.inventoryService.reverseTransferAfterDispatch(context, id, validatedDto);
     return { success: true, data };
   }
 
@@ -210,6 +291,7 @@ export class InventoryController {
   }
 
   @Get('stocktakes')
+  @RequirePermissions('inventory.read')
   async getStocktakeOrders(
     @CurrentContext() context: TenantContext,
     @Query() query: unknown
@@ -220,6 +302,7 @@ export class InventoryController {
   }
 
   @Get('stocktakes/:id')
+  @RequirePermissions('inventory.read')
   async getStocktakeOrderById(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string
@@ -294,11 +377,12 @@ export class InventoryController {
   // ==================================================================
 
   @Get('balances/detailed')
+  @RequirePermissions('inventory.read')
   async getDetailedBalances(
     @CurrentContext() context: TenantContext,
     @Query('warehouseId') warehouseId?: string,
     @Query('itemId') itemId?: string,
-    @Query('legalEntityId') legalEntityId?: string,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string,
     @Query('stockStatus') stockStatus?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
@@ -330,9 +414,10 @@ export class InventoryController {
   }
 
   @Get('warehouses')
+  @RequirePermissions('warehouse.read')
   async listWarehouses(
     @CurrentContext() context: TenantContext,
-    @Query('legalEntityId') legalEntityId?: string,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string,
     @Query('branchId') branchId?: string,
     @Query('warehouseType') warehouseType?: string
   ) {
@@ -345,6 +430,7 @@ export class InventoryController {
   }
 
   @Get('warehouses/:id')
+  @RequirePermissions('warehouse.read')
   async getWarehouse(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string

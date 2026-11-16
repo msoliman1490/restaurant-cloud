@@ -23,7 +23,8 @@ import { eq, and, sql } from 'drizzle-orm';
 export interface UserScopeRecord {
   id: string;
   membershipId: string;
-  scopeType: 'GLOBAL' | 'LEGAL_ENTITY' | 'BRANCH' | string;
+  scopeType: 'GLOBAL' | 'TENANT' | 'LEGAL_ENTITY' | 'BRANCH' | string;
+  scopeId?: string | null;
   scopeEntityId?: string | null;
 }
 
@@ -71,16 +72,20 @@ export class OperationsFrameworkService {
       );
     }
 
-    // 3. Global scope allows all branches & entities within this tenant
-    const hasGlobal = userScopes.some((s) => s.scopeType === 'GLOBAL');
+    // 3. Global / Tenant scope allows all branches & entities within this tenant
+    const hasGlobal = userScopes.some(
+      (s) => s.scopeType === 'GLOBAL' || s.scopeType === 'TENANT'
+    );
     if (hasGlobal) {
       return;
     }
 
+    const getTargetScopeId = (s: UserScopeRecord) => s.scopeEntityId || s.scopeId;
+
     // 4. Branch Scoping Check
     if (target.branchId) {
       const allowedBranch = userScopes.some(
-        (s) => s.scopeType === 'BRANCH' && s.scopeEntityId === target.branchId
+        (s) => s.scopeType === 'BRANCH' && getTargetScopeId(s) === target.branchId
       );
       if (!allowedBranch) {
         throw new ForbiddenException(
@@ -92,7 +97,9 @@ export class OperationsFrameworkService {
     // 5. Legal Entity Scoping Check
     if (target.legalEntityId) {
       const allowedEntity = userScopes.some(
-        (s) => s.scopeType === 'LEGAL_ENTITY' && s.scopeEntityId === target.legalEntityId
+        (s) =>
+          (s.scopeType === 'LEGAL_ENTITY' && getTargetScopeId(s) === target.legalEntityId) ||
+          s.scopeType === 'BRANCH'
       );
       if (!allowedEntity) {
         throw new ForbiddenException(
@@ -111,6 +118,11 @@ export class OperationsFrameworkService {
     entityType: string,
     entityId: string
   ): Promise<void> {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(entityId)) {
+      throw new BadRequestException('Invalid entityId format: UUID required');
+    }
+
     await this.dbService.withTenantContext(context, async (tx) => {
       let referenceCount = 0;
       let referenceDescription = '';
@@ -139,14 +151,23 @@ export class OperationsFrameworkService {
           referenceCount += invUsage?.count ?? 0;
 
           // Dynamic check for other sectors if tables exist
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const IDENTIFIER_RE = /^[a-z_][a-z0-9_]*$/;
+          if (!UUID_RE.test(entityId)) {
+            throw new BadRequestException('Invalid entityId format');
+          }
+
           const dynamicCheck = async (tableName: string, colName: string) => {
+            if (!IDENTIFIER_RE.test(tableName) || !IDENTIFIER_RE.test(colName)) {
+              throw new BadRequestException('Invalid table or column identifier');
+            }
             try {
               const res = await tx.execute(
                 sql`SELECT count(*)::int as count FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ${tableName}`
               );
               if (res[0] && (res[0] as any).count > 0) {
                 const countRes = await tx.execute(
-                  sql.raw(`SELECT count(*)::int as count FROM public.${tableName} WHERE ${colName} = '${entityId}'`)
+                  sql`SELECT count(*)::int as count FROM ${sql.identifier(tableName)} WHERE ${sql.identifier(colName)} = ${entityId}`
                 );
                 return (countRes[0] as any)?.count ?? 0;
               }

@@ -13,6 +13,10 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
+  OptionalLegalEntityIdPipe,
+  RequiredLegalEntityIdPipe,
+} from '../../common/pipes/legal-entity-id.pipe';
+import {
   CreatePurchaseRequestSchema,
   CreatePurchaseOrderSchema,
   CreateGoodsReceiptSchema,
@@ -38,6 +42,80 @@ export class PurchasingController {
     return { success: true, data };
   }
 
+  @Get('requests')
+  @RequirePermissions('purchasing.read')
+  async getRequests(
+    @CurrentContext() context: TenantContext,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    const data = await this.purchasingService.getPurchaseRequests(context, {
+      legalEntityId,
+      warehouseId,
+      status,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+    return { success: true, data };
+  }
+
+  @Get('requests/:id')
+  @RequirePermissions('purchasing.read')
+  async getRequestById(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.purchasingService.getPurchaseRequestById(context, id);
+    return { success: true, data };
+  }
+
+  @Post('requests/:id/approve')
+  @RequirePermissions('purchasing.approve')
+  async approveRequest(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.purchasingService.approvePurchaseRequest(context, id);
+    return { success: true, data };
+  }
+
+  @Post('requests/:id/reject')
+  @RequirePermissions('purchasing.approve')
+  async rejectRequest(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { reason?: string }
+  ) {
+    const data = await this.purchasingService.rejectPurchaseRequest(
+      context,
+      id,
+      body?.reason || 'Rejected'
+    );
+    return { success: true, data };
+  }
+
+  @Post('requests/:id/convert-to-po')
+  @RequirePermissions('purchasing.create')
+  async convertRequestToPo(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      supplierId: string;
+      orderNumber?: string;
+      expectedDeliveryDate?: string;
+      currency?: string;
+      notes?: string;
+      submitAsDraft?: boolean;
+    }
+  ) {
+    const data = await this.purchasingService.convertPurchaseRequestToOrder(context, id, body);
+    return { success: true, data };
+  }
+
   @Post('orders')
   @RequirePermissions('purchasing.order.create')
   async createOrder(
@@ -49,12 +127,98 @@ export class PurchasingController {
     return { success: true, data };
   }
 
+  @Post('orders/:id/approve')
+  @RequirePermissions('purchasing.order.approve')
+  async approveOrder(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string
+  ) {
+    const data = await this.purchasingService.approvePurchaseOrder(context, id);
+    return { success: true, data };
+  }
+
+  @Post('orders/:id/cancel')
+  @RequirePermissions('purchasing.order.cancel')
+  async cancelOrder(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { reason?: string }
+  ) {
+    const data = await this.purchasingService.cancelPurchaseOrder(
+      context,
+      id,
+      body?.reason || 'Cancelled by user'
+    );
+    return { success: true, data };
+  }
+
   @Get('orders')
+  @RequirePermissions('purchasing.read')
   async getOrders(
     @CurrentContext() context: TenantContext,
-    @Query('legalEntityId') legalEntityId?: string
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
   ) {
-    const data = await this.purchasingService.getPurchaseOrders(context, legalEntityId);
+    const data = await this.purchasingService.getPurchaseOrders(context, legalEntityId, {
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+    return { success: true, data };
+  }
+
+  @Get('receipts')
+  @RequirePermissions('purchasing.read')
+  async getReceipts(
+    @CurrentContext() context: TenantContext,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    const data = await this.purchasingService.getGoodsReceipts(context, legalEntityId, {
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+    return { success: true, data };
+  }
+
+  @Get('invoices')
+  @RequirePermissions('purchasing.read')
+  async getInvoices(
+    @CurrentContext() context: TenantContext,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    const data = await this.purchasingService.getSupplierInvoices(context, legalEntityId, {
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+    return { success: true, data };
+  }
+
+  @Get('returns')
+  @RequirePermissions('purchasing.read')
+  async getReturns(
+    @CurrentContext() context: TenantContext,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    const data = await this.purchasingService.getPurchaseReturns(context, legalEntityId, {
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+    return { success: true, data };
+  }
+
+  @Get('payments')
+  @RequirePermissions('purchasing.read')
+  async getPayments(
+    @CurrentContext() context: TenantContext,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string
+  ) {
+    const data = await this.purchasingService.getSupplierPayments(context, legalEntityId);
     return { success: true, data };
   }
 
@@ -92,10 +256,11 @@ export class PurchasingController {
   }
 
   @Get('suppliers/:supplierId/balance')
+  @RequirePermissions('purchasing.read')
   async getSupplierBalance(
     @CurrentContext() context: TenantContext,
     @Param('supplierId') supplierId: string,
-    @Query('legalEntityId') legalEntityId: string
+    @Query('legalEntityId', RequiredLegalEntityIdPipe) legalEntityId: string
   ) {
     const data = await this.purchasingService.getSupplierBalance(
       context,

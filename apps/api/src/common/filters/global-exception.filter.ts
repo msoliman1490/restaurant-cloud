@@ -53,11 +53,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       const zodErr = exception as ZodError;
       status = HttpStatus.BAD_REQUEST;
       errorCode = 'VALIDATION_ERROR';
-      message = 'Request validation failed';
-      details = (zodErr.errors || []).map((e) => ({
+      const formattedDetails = (zodErr.errors || []).map((e) => ({
         path: (e.path || []).join('.'),
         message: e.message,
       }));
+      details = formattedDetails;
+      const detailSummary = formattedDetails
+        .map((d) => (d.path ? `${d.path}: ${d.message}` : d.message))
+        .join(', ');
+      message = detailSummary
+        ? `Request validation failed: ${detailSummary}`
+        : 'Request validation failed';
     } else if (exception instanceof Error) {
       // Internal error: Log full details securely on server, do not expose SQL or internals
       this.logger.error(

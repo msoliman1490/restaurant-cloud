@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
@@ -23,6 +24,13 @@ import {
   vaultTransactions,
   bankReconciliations,
   businessPartners,
+  branches,
+  legalEntities,
+  salesOrders,
+  posShifts,
+  settlementBatches,
+  stockTransfers,
+  purchaseOrders,
 } from '@restaurant-cloud/database';
 import {
   CreateChartOfAccount,
@@ -62,43 +70,140 @@ import {
   VoucherStatus,
   DefaultAccountMappingKey,
 } from '@restaurant-cloud/domain-kernel';
-import { eq, and, or, ilike, sql, desc, asc, inArray, gte, lte } from 'drizzle-orm';
+import { eq, and, or, ilike, sql, desc, asc, inArray, gte, lte, lt } from 'drizzle-orm';
+
+import { OperationsFrameworkService } from '../../common/operations/operations-framework.service';
 
 @Injectable()
 export class AccountingService {
   constructor(
     private readonly dbService: DatabaseService,
     private readonly auditService: AuditService,
-    private readonly postingEngine: PostingEngineService
+    private readonly postingEngine: PostingEngineService,
+    private readonly opsFramework: OperationsFrameworkService
   ) {}
 
   // ==================================================================
   // 1. Chart of Accounts (دليل الحسابات الشجري)
   // ==================================================================
 
-  async createAccount(context: TenantContext, dto: CreateChartOfAccount) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      // 1. Validate unique code within legal entity
-      const [existing] = await tx
-        .select({ id: chartOfAccounts.id })
-        .from(chartOfAccounts)
-        .where(
-          and(
-            eq(chartOfAccounts.tenantId, context.tenantId),
-            eq(chartOfAccounts.legalEntityId, dto.legalEntityId),
-            eq(chartOfAccounts.accountCode, dto.accountCode)
-          )
-        )
-        .limit(1);
+  calculateNextCode(parentCode: string, existingSiblingCodes: string[]): string {
+    const numericSiblings = existingSiblingCodes
+      .map((c) => parseInt(c, 10))
+      .filter((n) => !isNaN(n));
 
-      if (existing) {
-        throw new ConflictException(
-          `رمز الحساب '${dto.accountCode}' مسجل مسبقاً في هذه المنشأة القانونية`
+    if (parentCode.endsWith('0000')) {
+      // Level 2 -> Level 3 (step: 1000)
+      const basePrefix = parentCode.slice(0, 2);
+      const maxNum = numericSiblings.length > 0
+        ? Math.max(...numericSiblings)
+        : parseInt(`${basePrefix}0000`, 10);
+      return (maxNum + 1000).toString().padStart(6, '0');
+    }
+    if (parentCode.endsWith('000')) {
+      // Level 3 -> Level 4 (step: 100)
+      const basePrefix = parentCode.slice(0, 3);
+      const maxNum = numericSiblings.length > 0
+        ? Math.max(...numericSiblings)
+        : parseInt(`${basePrefix}000`, 10);
+      return (maxNum + 100).toString().padStart(6, '0');
+    }
+    if (parentCode.endsWith('00')) {
+      // Level 4 -> Level 5 (step: 1)
+      const basePrefix = parentCode.slice(0, 4);
+      const maxNum = numericSiblings.length > 0
+        ? Math.max(...numericSiblings)
+        : parseInt(`${basePrefix}00`, 10);
+      return (maxNum + 1).toString().padStart(6, '0');
+    }
+    // Level 5+ -> append or increment (step: 1)
+    const maxNum = numericSiblings.length > 0
+      ? Math.max(...numericSiblings)
+      : parseInt(parentCode, 10) * 10;
+    return (maxNum + 1).toString();
+  }
+
+  async getNextAccountCode(
+    context: TenantContext,
+    params: { legalEntityId: string; parentId?: string; accountType?: string }
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      if (params.parentId) {
+        const [parent] = await tx
+          .select({
+            id: chartOfAccounts.id,
+            accountCode: chartOfAccounts.accountCode,
+            level: chartOfAccounts.level,
+            accountType: chartOfAccounts.accountType,
+            normalBalance: chartOfAccounts.normalBalance,
+          })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.tenantId, context.tenantId),
+              eq(chartOfAccounts.legalEntityId, params.legalEntityId),
+              eq(chartOfAccounts.id, params.parentId)
+            )
+          )
+          .limit(1);
+
+        if (!parent) {
+          throw new NotFoundException('الحساب الأب المحدد غير موجود');
+        }
+
+        const siblings = await tx
+          .select({ accountCode: chartOfAccounts.accountCode })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.tenantId, context.tenantId),
+              eq(chartOfAccounts.legalEntityId, params.legalEntityId),
+              eq(chartOfAccounts.parentId, parent.id)
+            )
+          )
+          .orderBy(desc(chartOfAccounts.accountCode));
+
+        const nextCode = this.calculateNextCode(
+          parent.accountCode,
+          siblings.map((s) => s.accountCode)
         );
+
+        return {
+          nextCode,
+          level: (parent.level || 1) + 1,
+          accountType: parent.accountType,
+          normalBalance: parent.normalBalance,
+        };
       }
 
-      // 2. Validate parent if specified
+      const type = params.accountType || 'ASSET';
+      const rootBaseMap: Record<string, string> = {
+        ASSET: '100000',
+        LIABILITY: '200000',
+        EQUITY: '300000',
+        REVENUE: '400000',
+        EXPENSE: '500000',
+      };
+      const rootBase = rootBaseMap[type] || '100000';
+      const normalBal = (type === 'ASSET' || type === 'EXPENSE') ? 'DEBIT' : 'CREDIT';
+
+      return {
+        nextCode: rootBase,
+        level: 1,
+        accountType: type,
+        normalBalance: normalBal,
+      };
+    });
+  }
+
+  async createAccount(context: TenantContext, dto: CreateChartOfAccount) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
       let level = dto.level || 1;
+      let effectiveAccountType = dto.accountType;
+      let effectiveNormalBalance = dto.normalBalance;
+      let allocatedCode = dto.accountCode;
+
+      // 1. Lock and validate parent if specified
       if (dto.parentId) {
         const [parent] = await tx
           .select()
@@ -106,15 +211,44 @@ export class AccountingService {
           .where(
             and(
               eq(chartOfAccounts.tenantId, context.tenantId),
+              eq(chartOfAccounts.legalEntityId, dto.legalEntityId),
               eq(chartOfAccounts.id, dto.parentId)
             )
           )
+          .for('update')
           .limit(1);
 
         if (!parent) {
           throw new NotFoundException(`الحساب الرئيسي المحدد '${dto.parentId}' غير موجود`);
         }
+
         level = (parent.level || 1) + 1;
+        // Invariant: Inherit accountType strictly from parent
+        effectiveAccountType = parent.accountType as any;
+        // Invariant: Inherit normalBalance from parent unless explicitly provided
+        if (!dto.normalBalance) {
+          effectiveNormalBalance = parent.normalBalance as any;
+        }
+
+        // If code is not provided, allocate automatically using atomic sequence
+        if (!allocatedCode) {
+          const siblings = await tx
+            .select({ accountCode: chartOfAccounts.accountCode })
+            .from(chartOfAccounts)
+            .where(
+              and(
+                eq(chartOfAccounts.tenantId, context.tenantId),
+                eq(chartOfAccounts.legalEntityId, dto.legalEntityId),
+                eq(chartOfAccounts.parentId, parent.id)
+              )
+            )
+            .orderBy(desc(chartOfAccounts.accountCode));
+
+          allocatedCode = this.calculateNextCode(
+            parent.accountCode,
+            siblings.map((s) => s.accountCode)
+          );
+        }
 
         // Rule: A parent account with children must strictly be a summary account (isPostable = false)
         if (parent.isPostable) {
@@ -130,18 +264,41 @@ export class AccountingService {
         }
       }
 
+      if (!allocatedCode) {
+        throw new BadRequestException('رمز الحساب إلزامي لإنشاء حساب مالي جديد');
+      }
+
+      // 2. Validate unique code within legal entity
+      const [existing] = await tx
+        .select({ id: chartOfAccounts.id })
+        .from(chartOfAccounts)
+        .where(
+          and(
+            eq(chartOfAccounts.tenantId, context.tenantId),
+            eq(chartOfAccounts.legalEntityId, dto.legalEntityId),
+            eq(chartOfAccounts.accountCode, allocatedCode)
+          )
+        )
+        .limit(1);
+
+      if (existing) {
+        throw new ConflictException(
+          `رمز الحساب '${allocatedCode}' مسجل مسبقاً في هذه المنشأة القانونية`
+        );
+      }
+
       const [account] = await tx
         .insert(chartOfAccounts)
         .values({
           tenantId: context.tenantId,
           legalEntityId: dto.legalEntityId,
-          accountCode: dto.accountCode,
+          accountCode: allocatedCode,
           name: dto.name,
           nameAr: dto.nameAr || dto.name,
           nameEn: dto.nameEn || null,
           description: dto.description || null,
-          accountType: dto.accountType,
-          normalBalance: dto.normalBalance,
+          accountType: effectiveAccountType,
+          normalBalance: effectiveNormalBalance,
           parentId: dto.parentId || null,
           level,
           isPostable: dto.isPostable ?? true,
@@ -399,37 +556,255 @@ export class AccountingService {
   }
 
   // ==================================================================
-  // 2. Configurable Account Mappings (إعدادات ربط الحسابات التلقائي)
+  // 2. Configurable Account Mappings & Branch Overrides (Phase 3.3)
   // ==================================================================
 
-  async getAccountMappings(context: TenantContext, legalEntityId: string) {
+  validateMappingAccountCompatibility(mappingKey: string, account: { accountType: string; normalBalance: string }) {
+    const key = mappingKey.toUpperCase();
+    const type = account.accountType.toUpperCase();
+    const balance = account.normalBalance.toUpperCase();
+
+    switch (key) {
+      case DefaultAccountMappingKey.SALES:
+        if (type !== AccountType.REVENUE || balance !== NormalBalance.CREDIT) {
+          throw new BadRequestException(`مفتاح المبيعات '${mappingKey}' يتطلب حساب إيرادات بطبيعة دائنة (REVENUE / CREDIT)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.SALES_RETURNS:
+      case DefaultAccountMappingKey.SALES_DISCOUNTS:
+        if (type !== AccountType.REVENUE && type !== AccountType.EXPENSE) {
+          throw new BadRequestException(`مفتاح '${mappingKey}' يتطلب حساب إيرادات مقابل (Contra Revenue) أو حساب مصروفات`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.VAT_OUTPUT:
+        if (type !== AccountType.LIABILITY || balance !== NormalBalance.CREDIT) {
+          throw new BadRequestException(`مفتاح ضريبة المخرجات '${mappingKey}' يتطلب حساب التزامات بطبيعة دائنة (LIABILITY / CREDIT)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.VAT_INPUT:
+        if (type !== AccountType.ASSET || balance !== NormalBalance.DEBIT) {
+          throw new BadRequestException(`مفتاح ضريبة المدخلات '${mappingKey}' يتطلب حساب أصول بطبيعة مدينة (ASSET / DEBIT)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.INVENTORY:
+      case DefaultAccountMappingKey.INVENTORY_IN_TRANSIT:
+      case DefaultAccountMappingKey.DUE_FROM_AFFILIATE:
+      case DefaultAccountMappingKey.CASH_VAULT:
+      case DefaultAccountMappingKey.BANK:
+      case DefaultAccountMappingKey.MADA_CLEARING:
+      case DefaultAccountMappingKey.VISA_CLEARING:
+      case DefaultAccountMappingKey.APPLE_PAY_CLEARING:
+      case DefaultAccountMappingKey.STC_PAY_CLEARING:
+      case DefaultAccountMappingKey.CARD_CLEARING:
+      case DefaultAccountMappingKey.AGGREGATOR_RECEIVABLE:
+      case DefaultAccountMappingKey.CASH_IN_TRANSIT:
+      case DefaultAccountMappingKey.ACCOUNTS_RECEIVABLE:
+        if (type !== AccountType.ASSET || balance !== NormalBalance.DEBIT) {
+          throw new BadRequestException(`مفتاح الربط '${mappingKey}' يتطلب حساب أصول بطبيعة مدينة (ASSET / DEBIT)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.COGS:
+      case DefaultAccountMappingKey.AGGREGATOR_COMMISSION:
+      case DefaultAccountMappingKey.GATEWAY_FEES:
+      case DefaultAccountMappingKey.GENERAL_EXPENSE:
+        if (type !== AccountType.COGS && type !== AccountType.EXPENSE) {
+          throw new BadRequestException(`مفتاح الربط '${mappingKey}' يتطلب حساب تكلفة بضاعة أو مصروفات (COGS / EXPENSE)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.ACCOUNTS_PAYABLE:
+      case DefaultAccountMappingKey.DUE_TO_AFFILIATE:
+        if (type !== AccountType.LIABILITY || balance !== NormalBalance.CREDIT) {
+          throw new BadRequestException(`مفتاح الربط '${mappingKey}' يتطلب حساب التزامات بطبيعة دائنة (LIABILITY / CREDIT)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.RETAINED_EARNINGS:
+        if (type !== AccountType.EQUITY || balance !== NormalBalance.CREDIT) {
+          throw new BadRequestException(`مفتاح الربط '${mappingKey}' يتطلب حساب حقوق ملكية بطبيعة دائنة (EQUITY / CREDIT)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.ROUNDING_DIFFERENCE:
+        if (type !== AccountType.EXPENSE && type !== AccountType.REVENUE && type !== AccountType.OTHER_INCOME && type !== AccountType.OTHER_EXPENSE) {
+          throw new BadRequestException(`مفتاح الربط '${mappingKey}' يتطلب حساب مصروفات أو إيرادات لمعالجة الفروقات`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.CASH_OVER_SHORT:
+      case DefaultAccountMappingKey.INVENTORY_DAMAGE_LOSS:
+        if (type !== AccountType.EXPENSE && type !== AccountType.OTHER_EXPENSE) {
+          throw new BadRequestException(`مفتاح الربط '${mappingKey}' يتطلب حساب مصروفات أو مصروفات أخرى (EXPENSE / OTHER_EXPENSE)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.CASH_OVERAGE:
+      case DefaultAccountMappingKey.INVENTORY_GAIN:
+        if (type !== AccountType.REVENUE && type !== AccountType.OTHER_INCOME) {
+          throw new BadRequestException(`مفتاح الربط '${mappingKey}' يتطلب حساب إيرادات أو إيرادات أخرى (REVENUE / OTHER_INCOME)`);
+        }
+        break;
+
+      case DefaultAccountMappingKey.INTER_BRANCH_CLEARING:
+      case DefaultAccountMappingKey.AGGREGATOR_SUSPENSE:
+        if (type !== AccountType.ASSET && type !== AccountType.LIABILITY) {
+          throw new BadRequestException(`مفتاح الربط '${mappingKey}' يتطلب حساب تسوية وسيط (أصول أو التزامات)`);
+        }
+        break;
+    }
+  }
+
+  async getAccountMappings(
+    context: TenantContext,
+    legalEntityId: string,
+    branchId?: string,
+    includeEffective?: boolean
+  ) {
+    if (context.userScopes) {
+      this.opsFramework.verifyScope(context, context.userScopes, {
+        legalEntityId,
+        branchId: branchId || undefined,
+      });
+    }
+
     return await this.dbService.withTenantContext(context, async (tx) => {
-      return await tx
+      // Fetch raw mappings
+      const rawMappings = await tx
         .select({
           id: accountMappings.id,
+          legalEntityId: accountMappings.legalEntityId,
+          branchId: accountMappings.branchId,
+          branchName: branches.name,
           mappingKey: accountMappings.mappingKey,
           accountId: accountMappings.accountId,
           accountCode: chartOfAccounts.accountCode,
           accountName: chartOfAccounts.name,
+          accountType: chartOfAccounts.accountType,
+          normalBalance: chartOfAccounts.normalBalance,
           description: accountMappings.description,
+          isActive: accountMappings.isActive,
+          createdAt: accountMappings.createdAt,
           updatedAt: accountMappings.updatedAt,
         })
         .from(accountMappings)
         .innerJoin(chartOfAccounts, eq(accountMappings.accountId, chartOfAccounts.id))
+        .leftJoin(branches, eq(accountMappings.branchId, branches.id))
         .where(
           and(
             eq(accountMappings.tenantId, context.tenantId),
             eq(accountMappings.legalEntityId, legalEntityId)
           )
-        );
+        )
+        .orderBy(asc(accountMappings.mappingKey));
+
+      if (!includeEffective || !branchId) {
+        if (branchId) {
+          return rawMappings.filter((m) => m.branchId === branchId);
+        }
+        return rawMappings;
+      }
+
+      // If branchId and includeEffective: return full resolution view for standard approved keys
+      const approvedKeys = Object.values(DefaultAccountMappingKey);
+      const companyMap = new Map<string, (typeof rawMappings)[0]>();
+      const branchMap = new Map<string, (typeof rawMappings)[0]>();
+
+      rawMappings.forEach((m) => {
+        if (!m.branchId) {
+          companyMap.set(m.mappingKey, m);
+        } else if (m.branchId === branchId) {
+          branchMap.set(m.mappingKey, m);
+        }
+      });
+
+      return approvedKeys.map((key) => {
+        const branchOverride = branchMap.get(key);
+        const companyMapping = companyMap.get(key);
+
+        if (branchOverride && branchOverride.isActive) {
+          return {
+            mappingKey: key,
+            source: 'BRANCH_OVERRIDE' as const,
+            isOverride: true,
+            id: branchOverride.id,
+            accountId: branchOverride.accountId,
+            accountCode: branchOverride.accountCode,
+            accountName: branchOverride.accountName,
+            accountType: branchOverride.accountType,
+            normalBalance: branchOverride.normalBalance,
+            description: branchOverride.description,
+            isActive: branchOverride.isActive,
+            branchId,
+            companyAccountId: companyMapping?.accountId || null,
+            companyAccountCode: companyMapping?.accountCode || null,
+          };
+        }
+
+        if (companyMapping && companyMapping.isActive) {
+          return {
+            mappingKey: key,
+            source: 'COMPANY_MAPPING' as const,
+            isOverride: false,
+            id: companyMapping.id,
+            accountId: companyMapping.accountId,
+            accountCode: companyMapping.accountCode,
+            accountName: companyMapping.accountName,
+            accountType: companyMapping.accountType,
+            normalBalance: companyMapping.normalBalance,
+            description: companyMapping.description,
+            isActive: companyMapping.isActive,
+            branchId: null,
+            companyAccountId: companyMapping.accountId,
+            companyAccountCode: companyMapping.accountCode,
+          };
+        }
+
+        return {
+          mappingKey: key,
+          source: 'NOT_CONFIGURED' as const,
+          isOverride: false,
+          id: null,
+          accountId: null,
+          accountCode: null,
+          accountName: null,
+          accountType: null,
+          normalBalance: null,
+          description: null,
+          isActive: false,
+          branchId: null,
+          companyAccountId: null,
+          companyAccountCode: null,
+        };
+      });
     });
   }
 
   async setAccountMapping(context: TenantContext, dto: SetAccountMappingRequest) {
+    if (context.userScopes) {
+      this.opsFramework.verifyScope(context, context.userScopes, {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+      });
+    }
+
     return await this.dbService.withTenantContext(context, async (tx) => {
-      // Validate account
+      // 1. Validate Account
       const [acc] = await tx
-        .select({ id: chartOfAccounts.id, isPostable: chartOfAccounts.isPostable })
+        .select({
+          id: chartOfAccounts.id,
+          accountCode: chartOfAccounts.accountCode,
+          name: chartOfAccounts.name,
+          accountType: chartOfAccounts.accountType,
+          normalBalance: chartOfAccounts.normalBalance,
+          isPostable: chartOfAccounts.isPostable,
+          status: chartOfAccounts.status,
+          legalEntityId: chartOfAccounts.legalEntityId,
+        })
         .from(chartOfAccounts)
         .where(
           and(
@@ -440,8 +815,31 @@ export class AccountingService {
         )
         .limit(1);
 
-      if (!acc) throw new NotFoundException('الحساب المحاسبي المحدد غير موجود');
-      if (!acc.isPostable) throw new BadRequestException('لا يمكن ربط العمليات بحساب رئيسي/تجميعي');
+      if (!acc) throw new NotFoundException('الحساب المحاسبي المحدد غير موجود في هذه الشركة القانونية');
+      if (acc.status !== 'ACTIVE') throw new BadRequestException(`الحساب (${acc.accountCode} - ${acc.name}) غير نشط ولا يمكن ربطه`);
+      if (!acc.isPostable) throw new BadRequestException(`الحساب (${acc.accountCode} - ${acc.name}) رئيسي/تجميعي وغير قابل للترحيل`);
+
+      // 2. Validate Branch (if specified)
+      if (dto.branchId) {
+        const [branch] = await tx
+          .select({ id: branches.id, legalEntityId: branches.legalEntityId })
+          .from(branches)
+          .where(and(eq(branches.tenantId, context.tenantId), eq(branches.id, dto.branchId)))
+          .limit(1);
+
+        if (!branch) throw new NotFoundException('الفرع المحدد غير موجود');
+        if (branch.legalEntityId !== dto.legalEntityId) {
+          throw new ForbiddenException('الفرع المحدد لا يتبع الشركة القانونية المختارة');
+        }
+      }
+
+      // 3. Validate Account Type Compatibility
+      this.validateMappingAccountCompatibility(dto.mappingKey, acc as any);
+
+      // 4. Upsert Mapping
+      const branchCondition = dto.branchId
+        ? eq(accountMappings.branchId, dto.branchId)
+        : sql`${accountMappings.branchId} IS NULL`;
 
       const [existing] = await tx
         .select({ id: accountMappings.id })
@@ -450,22 +848,43 @@ export class AccountingService {
           and(
             eq(accountMappings.tenantId, context.tenantId),
             eq(accountMappings.legalEntityId, dto.legalEntityId),
+            branchCondition,
             eq(accountMappings.mappingKey, dto.mappingKey)
           )
         )
         .limit(1);
 
       if (existing) {
+        if (
+          context.scopes &&
+          !context.scopes.includes('*') &&
+          !context.scopes.includes('accounting.mapping.manage') &&
+          !context.scopes.includes('accounting.mapping.update')
+        ) {
+          throw new ForbiddenException('المستخدم لا يملك صلاحية تعديل الربط المحاسبي (accounting.mapping.update)');
+        }
+
         const [updated] = await tx
           .update(accountMappings)
           .set({
             accountId: dto.accountId,
             description: dto.description || null,
+            isActive: dto.isActive !== undefined ? dto.isActive : true,
             updatedAt: new Date(),
           })
           .where(eq(accountMappings.id, existing.id))
           .returning();
+
         return updated;
+      }
+
+      if (
+        context.scopes &&
+        !context.scopes.includes('*') &&
+        !context.scopes.includes('accounting.mapping.manage') &&
+        !context.scopes.includes('accounting.mapping.create')
+      ) {
+        throw new ForbiddenException('المستخدم لا يملك صلاحية إنشاء ربط محاسبي جديد (accounting.mapping.create)');
       }
 
       const [created] = await tx
@@ -473,13 +892,233 @@ export class AccountingService {
         .values({
           tenantId: context.tenantId,
           legalEntityId: dto.legalEntityId,
+          branchId: dto.branchId || null,
           mappingKey: dto.mappingKey,
           accountId: dto.accountId,
           description: dto.description || null,
+          isActive: dto.isActive !== undefined ? dto.isActive : true,
         })
         .returning();
 
       return created;
+    });
+  }
+
+  async deleteAccountMapping(context: TenantContext, id: string) {
+    if (
+      context.scopes &&
+      !context.scopes.includes('*') &&
+      !context.scopes.includes('accounting.mapping.manage') &&
+      !context.scopes.includes('accounting.mapping.delete')
+    ) {
+      throw new ForbiddenException('المستخدم لا يملك صلاحية حذف الربط المحاسبي (accounting.mapping.delete)');
+    }
+
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [mapping] = await tx
+        .select()
+        .from(accountMappings)
+        .where(and(eq(accountMappings.tenantId, context.tenantId), eq(accountMappings.id, id)))
+        .limit(1);
+
+      if (!mapping) throw new NotFoundException('إعداد الربط المحاسبي غير موجود');
+
+      if (context.userScopes) {
+        this.opsFramework.verifyScope(context, context.userScopes, {
+          legalEntityId: mapping.legalEntityId,
+          branchId: mapping.branchId || undefined,
+        });
+      }
+
+      await tx.delete(accountMappings).where(eq(accountMappings.id, id));
+      return { success: true, message: 'تم حذف إعداد الربط المحاسبي بنجاح' };
+    });
+  }
+
+  async resolveAccount(
+    context: TenantContext,
+    params: { legalEntityId: string; branchId?: string | null; mappingKey: string }
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      // 1. Branch Override
+      if (params.branchId) {
+        const [branchOverride] = await tx
+          .select({
+            id: accountMappings.id,
+            mappingKey: accountMappings.mappingKey,
+            accountId: accountMappings.accountId,
+            accountCode: chartOfAccounts.accountCode,
+            accountName: chartOfAccounts.name,
+            accountType: chartOfAccounts.accountType,
+            normalBalance: chartOfAccounts.normalBalance,
+            status: chartOfAccounts.status,
+            isPostable: chartOfAccounts.isPostable,
+          })
+          .from(accountMappings)
+          .innerJoin(chartOfAccounts, eq(accountMappings.accountId, chartOfAccounts.id))
+          .where(
+            and(
+              eq(accountMappings.tenantId, context.tenantId),
+              eq(accountMappings.legalEntityId, params.legalEntityId),
+              eq(accountMappings.branchId, params.branchId),
+              eq(accountMappings.mappingKey, params.mappingKey),
+              eq(accountMappings.isActive, true)
+            )
+          )
+          .limit(1);
+
+        if (branchOverride) {
+          if (branchOverride.status !== 'ACTIVE' || !branchOverride.isPostable) {
+            throw new BadRequestException(
+              `الحساب المخصص للفرع للمفتاح '${params.mappingKey}' (${branchOverride.accountCode}) غير نشط أو غير قابل للترحيل`
+            );
+          }
+          return {
+            ...branchOverride,
+            source: 'BRANCH_OVERRIDE' as const,
+            isOverride: true,
+            branchId: params.branchId,
+          };
+        }
+      }
+
+      // 2. Company Default Mapping
+      const [companyMapping] = await tx
+        .select({
+          id: accountMappings.id,
+          mappingKey: accountMappings.mappingKey,
+          accountId: accountMappings.accountId,
+          accountCode: chartOfAccounts.accountCode,
+          accountName: chartOfAccounts.name,
+          accountType: chartOfAccounts.accountType,
+          normalBalance: chartOfAccounts.normalBalance,
+          status: chartOfAccounts.status,
+          isPostable: chartOfAccounts.isPostable,
+        })
+        .from(accountMappings)
+        .innerJoin(chartOfAccounts, eq(accountMappings.accountId, chartOfAccounts.id))
+        .where(
+          and(
+            eq(accountMappings.tenantId, context.tenantId),
+            eq(accountMappings.legalEntityId, params.legalEntityId),
+            sql`${accountMappings.branchId} IS NULL`,
+            eq(accountMappings.mappingKey, params.mappingKey),
+            eq(accountMappings.isActive, true)
+          )
+        )
+        .limit(1);
+
+      if (companyMapping) {
+        if (companyMapping.status !== 'ACTIVE' || !companyMapping.isPostable) {
+          throw new BadRequestException(
+            `الحساب الافتراضي للمنشأة للمفتاح '${params.mappingKey}' (${companyMapping.accountCode}) غير نشط أو غير قابل للترحيل`
+          );
+        }
+        return {
+          ...companyMapping,
+          source: 'COMPANY_MAPPING' as const,
+          isOverride: false,
+          branchId: null,
+        };
+      }
+
+      // 3. System Default (Well-known standard chart codes)
+      const standardDefaultCodes: Record<string, string> = {
+        [DefaultAccountMappingKey.SALES]: '411000',
+        [DefaultAccountMappingKey.VAT_OUTPUT]: '211200',
+        [DefaultAccountMappingKey.VAT_INPUT]: '114200',
+        [DefaultAccountMappingKey.COGS]: '511000',
+        [DefaultAccountMappingKey.INVENTORY]: '112000',
+        [DefaultAccountMappingKey.CASH_VAULT]: '111100',
+        [DefaultAccountMappingKey.BANK]: '111200',
+        [DefaultAccountMappingKey.MADA_CLEARING]: '111300',
+        [DefaultAccountMappingKey.CARD_CLEARING]: '111350',
+        [DefaultAccountMappingKey.VISA_CLEARING]: '111400',
+        [DefaultAccountMappingKey.APPLE_PAY_CLEARING]: '111500',
+        [DefaultAccountMappingKey.STC_PAY_CLEARING]: '111600',
+        [DefaultAccountMappingKey.AGGREGATOR_RECEIVABLE]: '113200',
+        [DefaultAccountMappingKey.AGGREGATOR_COMMISSION]: '512000',
+        [DefaultAccountMappingKey.GATEWAY_FEES]: '512100',
+        [DefaultAccountMappingKey.AGGREGATOR_SUSPENSE]: '211900',
+        [DefaultAccountMappingKey.SALES_DISCOUNTS]: '412000',
+        [DefaultAccountMappingKey.INTER_BRANCH_CLEARING]: '119100',
+        [DefaultAccountMappingKey.INVENTORY_IN_TRANSIT]: '112900',
+        [DefaultAccountMappingKey.INVENTORY_DAMAGE_LOSS]: '519200',
+        [DefaultAccountMappingKey.INVENTORY_GAIN]: '419300',
+        [DefaultAccountMappingKey.DUE_FROM_AFFILIATE]: '119200',
+        [DefaultAccountMappingKey.DUE_TO_AFFILIATE]: '219200',
+        [DefaultAccountMappingKey.CASH_IN_TRANSIT]: '111900',
+        [DefaultAccountMappingKey.CASH_OVER_SHORT]: '519100',
+        [DefaultAccountMappingKey.CASH_OVERAGE]: '419200',
+        [DefaultAccountMappingKey.GENERAL_EXPENSE]: '519000',
+      };
+
+      const defaultCode = standardDefaultCodes[params.mappingKey];
+      if (defaultCode) {
+        const [sysDefault] = await tx
+          .select({
+            id: chartOfAccounts.id,
+            accountCode: chartOfAccounts.accountCode,
+            accountName: chartOfAccounts.name,
+            accountType: chartOfAccounts.accountType,
+            normalBalance: chartOfAccounts.normalBalance,
+            status: chartOfAccounts.status,
+            isPostable: chartOfAccounts.isPostable,
+          })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.tenantId, context.tenantId),
+              eq(chartOfAccounts.legalEntityId, params.legalEntityId),
+              eq(chartOfAccounts.accountCode, defaultCode)
+            )
+          )
+          .limit(1);
+
+        if (!sysDefault) {
+          throw new BadRequestException(
+            `لم يتم العثور على ربط محاسبي صالح للمفتاح '${params.mappingKey}' في المنشأة أو الفرع، وحساب النظام الافتراضي (${defaultCode}) غير موجود في دليل حسابات هذه المنشأة`
+          );
+        }
+
+        if (sysDefault.status !== 'ACTIVE') {
+          throw new BadRequestException(
+            `الحساب الافتراضي للنظام للمفتاح '${params.mappingKey}' (${sysDefault.accountCode} - ${sysDefault.accountName}) غير نشط ولا يمكن استخدامه`
+          );
+        }
+
+        if (!sysDefault.isPostable) {
+          throw new BadRequestException(
+            `الحساب الافتراضي للنظام للمفتاح '${params.mappingKey}' (${sysDefault.accountCode} - ${sysDefault.accountName}) رئيسي/تجميعي وغير قابل للترحيل`
+          );
+        }
+
+        // Validate account type & balance compatibility
+        this.validateMappingAccountCompatibility(params.mappingKey, {
+          accountType: sysDefault.accountType,
+          normalBalance: sysDefault.normalBalance,
+        } as any);
+
+        return {
+          id: sysDefault.id,
+          mappingKey: params.mappingKey,
+          accountId: sysDefault.id,
+          accountCode: sysDefault.accountCode,
+          accountName: sysDefault.accountName,
+          accountType: sysDefault.accountType,
+          normalBalance: sysDefault.normalBalance,
+          status: sysDefault.status,
+          isPostable: sysDefault.isPostable,
+          source: 'SYSTEM_DEFAULT' as const,
+          isOverride: false,
+          branchId: null,
+        };
+      }
+
+      // 4. Strict Rejection
+      throw new BadRequestException(
+        `لم يتم العثور على ربط محاسبي صالح للمفتاح '${params.mappingKey}' في المنشأة القانونية أو الفرع المحدد`
+      );
     });
   }
 
@@ -557,6 +1196,22 @@ export class AccountingService {
   // ==================================================================
 
   async createCashVault(context: TenantContext, dto: CreateCashVaultRequest) {
+    if (context.userScopes) {
+      if (!dto.branchId) {
+        const isBranchOnly = context.userScopes.every((s) => s.scopeType === 'BRANCH');
+        if (isBranchOnly && !context.scopes?.includes('*')) {
+          throw new ForbiddenException(
+            'المستخدم المقيد بفرع لا يملك صلاحية إنشاء أو إدارة الخزائن المركزية على مستوى الشركة'
+          );
+        }
+      }
+
+      this.opsFramework.verifyScope(context, context.userScopes, {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+      });
+    }
+
     return await this.dbService.withTenantContext(context, async (tx) => {
       const [existing] = await tx
         .select({ id: cashVaults.id })
@@ -630,9 +1285,20 @@ export class AccountingService {
         .select()
         .from(cashVaults)
         .where(and(eq(cashVaults.tenantId, context.tenantId), eq(cashVaults.id, dto.fromVaultId)))
+        .for('update')
         .limit(1);
 
       if (!fromVault) throw new NotFoundException('خزينة المصدر غير موجودة');
+      if (fromVault.status !== 'ACTIVE') {
+        throw new BadRequestException(`لا يمكن التحويل من الخزينة '${fromVault.nameAr}' لأن حالتها معطلة أو غير نشطة (${fromVault.status})`);
+      }
+
+      if (context.userScopes && fromVault.branchId) {
+        this.opsFramework.verifyScope(context, context.userScopes, {
+          legalEntityId: dto.legalEntityId,
+          branchId: fromVault.branchId,
+        });
+      }
 
       const currentFromBal = parseFloat(fromVault.balance);
       if (currentFromBal < transferAmount) {
@@ -645,9 +1311,13 @@ export class AccountingService {
         .select()
         .from(cashVaults)
         .where(and(eq(cashVaults.tenantId, context.tenantId), eq(cashVaults.id, dto.toVaultId)))
+        .for('update')
         .limit(1);
 
       if (!toVault) throw new NotFoundException('خزينة الوجهة غير موجودة');
+      if (toVault.status !== 'ACTIVE') {
+        throw new BadRequestException(`لا يمكن التحويل إلى الخزينة '${toVault.nameAr}' لأن حالتها معطلة أو غير نشطة (${toVault.status})`);
+      }
 
       const newFromBal = (currentFromBal - transferAmount).toFixed(4);
       const newToBal = (parseFloat(toVault.balance) + transferAmount).toFixed(4);
@@ -738,6 +1408,16 @@ export class AccountingService {
         .limit(1);
 
       if (!vault) throw new NotFoundException('الخزينة غير موجودة');
+      if (vault.status !== 'ACTIVE') {
+        throw new BadRequestException(`لا يمكن جرد الخزينة '${vault.nameAr}' لأن حالتها معطلة أو غير نشطة (${vault.status})`);
+      }
+
+      if (context.userScopes && vault.branchId) {
+        this.opsFramework.verifyScope(context, context.userScopes, {
+          legalEntityId: dto.legalEntityId,
+          branchId: vault.branchId,
+        });
+      }
 
       const bookBalance = parseFloat(vault.balance);
       const actualBalance = parseFloat(dto.actualAmount);
@@ -939,6 +1619,13 @@ export class AccountingService {
   // ==================================================================
 
   async createPaymentVoucher(context: TenantContext, dto: CreatePaymentVoucherRequest) {
+    if (context.userScopes) {
+      this.opsFramework.verifyScope(context, context.userScopes, {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+      });
+    }
+
     return await this.dbService.withTenantContext(context, async (tx) => {
       const amount = parseFloat(dto.amount);
       if (amount <= 0) throw new BadRequestException('مبلغ سند الصرف يجب أن يكون أكبر من صفر');
@@ -970,6 +1657,9 @@ export class AccountingService {
           .limit(1);
 
         if (!vault) throw new NotFoundException('الخزينة المحددة غير موجودة');
+        if (vault.status !== 'ACTIVE') {
+          throw new BadRequestException(`لا يمكن صرف أموال من الخزينة '${vault.nameAr}' لأن حالتها معطلة أو غير نشطة (${vault.status})`);
+        }
 
         const currentBal = parseFloat(vault.balance);
         if (currentBal < amount) {
@@ -1102,6 +1792,13 @@ export class AccountingService {
   // ==================================================================
 
   async createReceiptVoucher(context: TenantContext, dto: CreateReceiptVoucherRequest) {
+    if (context.userScopes) {
+      this.opsFramework.verifyScope(context, context.userScopes, {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+      });
+    }
+
     return await this.dbService.withTenantContext(context, async (tx) => {
       const amount = parseFloat(dto.amount);
       if (amount <= 0) throw new BadRequestException('مبلغ سند القبض يجب أن يكون أكبر من صفر');
@@ -1132,6 +1829,9 @@ export class AccountingService {
           .limit(1);
 
         if (!vault) throw new NotFoundException('الخزينة المحددة غير موجودة');
+        if (vault.status !== 'ACTIVE') {
+          throw new BadRequestException(`لا يمكن صرف أموال من الخزينة '${vault.nameAr}' لأن حالتها معطلة أو غير نشطة (${vault.status})`);
+        }
 
         const currentBal = parseFloat(vault.balance);
         const newBal = (currentBal + amount).toFixed(4);
@@ -1257,6 +1957,13 @@ export class AccountingService {
   // ==================================================================
 
   async createExpense(context: TenantContext, dto: CreateExpenseRequest) {
+    if (context.userScopes) {
+      this.opsFramework.verifyScope(context, context.userScopes, {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+      });
+    }
+
     return await this.dbService.withTenantContext(context, async (tx) => {
       const subtotal = parseFloat(dto.subtotal);
       const taxRate = parseFloat(dto.taxRate || '0.1500');
@@ -1674,6 +2381,13 @@ export class AccountingService {
   // ==================================================================
 
   async postJournalEntry(context: TenantContext, dto: CreateJournalEntry) {
+    if (context.userScopes) {
+      this.opsFramework.verifyScope(context, context.userScopes, {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+      });
+    }
+
     return await this.postingEngine.postEntry(context, {
       legalEntityId: dto.legalEntityId,
       branchId: dto.branchId,
@@ -2164,48 +2878,86 @@ export class AccountingService {
       const amount = parseFloat(dto.amount);
       if (amount <= 0) throw new BadRequestException('مبلغ التحويل يجب أن يكون أكبر من صفر');
 
+      // 1. Direct identifier comparison guard
+      if (dto.sourceType === dto.destinationType && dto.sourceId === dto.destinationId) {
+        throw new BadRequestException('لا يمكن التحويل من الحساب إلى نفسه. اختر حسابًا آخر كوجهة');
+      }
+
+      // 2. Fetch and validate Source record (without modifying balance yet)
       let sourceAccountId: string;
       let sourceName: string;
+      let sourceBalance: number;
 
       if (dto.sourceType === 'VAULT') {
         const [vault] = await tx.select().from(cashVaults).where(eq(cashVaults.id, dto.sourceId)).limit(1);
         if (!vault) throw new NotFoundException('الخزينة المصدر غير موجودة');
-        if (parseFloat(vault.balance) < amount) {
-          throw new BadRequestException(`رصيد الخزينة المصدر غير كافٍ (${vault.balance})`);
+        if (context.userScopes && vault.branchId) {
+          this.opsFramework.verifyScope(context, context.userScopes, {
+            legalEntityId: dto.legalEntityId,
+            branchId: vault.branchId,
+          });
         }
-        const newBal = (parseFloat(vault.balance) - amount).toFixed(4);
-        await tx.update(cashVaults).set({ balance: newBal }).where(eq(cashVaults.id, vault.id));
         sourceAccountId = vault.accountId;
         sourceName = vault.nameAr;
+        sourceBalance = parseFloat(vault.balance);
       } else {
         const [bank] = await tx.select().from(bankAccounts).where(eq(bankAccounts.id, dto.sourceId)).limit(1);
         if (!bank) throw new NotFoundException('الحساب البنكي المصدر غير موجود');
-        if (parseFloat(bank.balance) < amount) {
-          throw new BadRequestException(`رصيد الحساب البنكي المصدر غير كافٍ (${bank.balance})`);
-        }
-        const newBal = (parseFloat(bank.balance) - amount).toFixed(4);
-        await tx.update(bankAccounts).set({ balance: newBal }).where(eq(bankAccounts.id, bank.id));
         sourceAccountId = bank.accountId;
         sourceName = bank.bankName;
+        sourceBalance = parseFloat(bank.balance);
       }
 
+      // 3. Fetch and validate Destination record (without modifying balance yet)
       let destAccountId: string;
       let destName: string;
+      let destBalance: number;
 
       if (dto.destinationType === 'VAULT') {
         const [vault] = await tx.select().from(cashVaults).where(eq(cashVaults.id, dto.destinationId)).limit(1);
         if (!vault) throw new NotFoundException('الخزينة الوجهة غير موجودة');
-        const newBal = (parseFloat(vault.balance) + amount).toFixed(4);
-        await tx.update(cashVaults).set({ balance: newBal }).where(eq(cashVaults.id, vault.id));
+        if (context.userScopes && vault.branchId) {
+          this.opsFramework.verifyScope(context, context.userScopes, {
+            legalEntityId: dto.legalEntityId,
+            branchId: vault.branchId,
+          });
+        }
         destAccountId = vault.accountId;
         destName = vault.nameAr;
+        destBalance = parseFloat(vault.balance);
       } else {
         const [bank] = await tx.select().from(bankAccounts).where(eq(bankAccounts.id, dto.destinationId)).limit(1);
         if (!bank) throw new NotFoundException('الحساب البنكي الوجهة غير موجود');
-        const newBal = (parseFloat(bank.balance) + amount).toFixed(4);
-        await tx.update(bankAccounts).set({ balance: newBal }).where(eq(bankAccounts.id, bank.id));
         destAccountId = bank.accountId;
         destName = bank.bankName;
+        destBalance = parseFloat(bank.balance);
+      }
+
+      // 4. Underlying GL Account ID comparison guard (prevents transferring to same COA account across records)
+      if (sourceAccountId === destAccountId) {
+        throw new BadRequestException('لا يمكن التحويل من الحساب إلى نفسه. اختر حسابًا آخر كوجهة');
+      }
+
+      // 5. Sufficient balance verification
+      if (sourceBalance < amount) {
+        throw new BadRequestException(`رصيد المصدر غير كافٍ (${sourceBalance.toFixed(4)})`);
+      }
+
+      // 6. Only after ALL guards pass: atomically update balances
+      if (dto.sourceType === 'VAULT') {
+        const newBal = (sourceBalance - amount).toFixed(4);
+        await tx.update(cashVaults).set({ balance: newBal }).where(eq(cashVaults.id, dto.sourceId));
+      } else {
+        const newBal = (sourceBalance - amount).toFixed(4);
+        await tx.update(bankAccounts).set({ balance: newBal }).where(eq(bankAccounts.id, dto.sourceId));
+      }
+
+      if (dto.destinationType === 'VAULT') {
+        const newBal = (destBalance + amount).toFixed(4);
+        await tx.update(cashVaults).set({ balance: newBal }).where(eq(cashVaults.id, dto.destinationId));
+      } else {
+        const newBal = (destBalance + amount).toFixed(4);
+        await tx.update(bankAccounts).set({ balance: newBal }).where(eq(bankAccounts.id, dto.destinationId));
       }
 
       const jvNumber = `TRF-${Date.now().toString().slice(-6)}`;
@@ -2372,6 +3124,12 @@ export class AccountingService {
   // ==================================================================
 
   async createFiscalPeriod(context: TenantContext, dto: CreateFiscalPeriodRequest) {
+    const startDt = new Date(dto.startDate);
+    const endDt = new Date(dto.endDate);
+    if (isNaN(startDt.getTime()) || isNaN(endDt.getTime()) || startDt >= endDt) {
+      throw new BadRequestException('تاريخ بداية الفترة المالية يجب أن يكون قبل تاريخ النهاية');
+    }
+
     return await this.dbService.withTenantContext(context, async (tx) => {
       const [existing] = await tx
         .select({ id: fiscalPeriods.id })
@@ -2389,14 +3147,31 @@ export class AccountingService {
         throw new ConflictException(`الفترة المالية '${dto.periodName}' مسجلة مسبقاً`);
       }
 
+      const [overlap] = await tx
+        .select({ id: fiscalPeriods.id, periodName: fiscalPeriods.periodName })
+        .from(fiscalPeriods)
+        .where(
+          and(
+            eq(fiscalPeriods.tenantId, context.tenantId),
+            eq(fiscalPeriods.legalEntityId, dto.legalEntityId),
+            lte(fiscalPeriods.startDate, endDt),
+            gte(fiscalPeriods.endDate, startDt)
+          )
+        )
+        .limit(1);
+
+      if (overlap) {
+        throw new ConflictException(`تتداخل الفترة المالية مع الفترة '${overlap.periodName}'`);
+      }
+
       const [period] = await tx
         .insert(fiscalPeriods)
         .values({
           tenantId: context.tenantId,
           legalEntityId: dto.legalEntityId,
           periodName: dto.periodName,
-          startDate: new Date(dto.startDate),
-          endDate: new Date(dto.endDate),
+          startDate: startDt,
+          endDate: endDt,
           status: FiscalPeriodStatus.OPEN,
         })
         .returning();
@@ -2431,6 +3206,645 @@ export class AccountingService {
         .returning();
 
       return closed;
+    });
+  }
+
+  // ==================================================================
+  // Phase 3.5 — Hierarchical Trial Balance, GL, Statement & Drill-Down
+  // ==================================================================
+
+  private async verifyReportEntityAndBranchScope(
+    tx: any,
+    context: TenantContext,
+    legalEntityId: string,
+    branchId?: string
+  ) {
+    const [le] = await tx
+      .select({ id: legalEntities.id })
+      .from(legalEntities)
+      .where(and(eq(legalEntities.tenantId, context.tenantId), eq(legalEntities.id, legalEntityId)))
+      .limit(1);
+    if (!le) {
+      throw new NotFoundException(`المنشأة القانونية '${legalEntityId}' غير موجودة`);
+    }
+
+    await this.opsFramework.verifyScope(context, context.userScopes || [], {
+      legalEntityId,
+      branchId,
+    });
+
+    if (!branchId && !(context.scopes || []).includes('*')) {
+      const scopes = context.userScopes || [];
+      const hasBroadScope = scopes.some((s) => s.scopeType === 'TENANT' || s.scopeType === 'LEGAL_ENTITY');
+      if (scopes.length > 0 && !hasBroadScope) {
+        throw new ForbiddenException('المستخدم المقيد بفرع لا يمكنه استعراض تقارير المنشأة القانونية بالكامل دون تحديد الفرع المصرح به.');
+      }
+    }
+  }
+
+  async getHierarchicalTrialBalance(
+    context: TenantContext,
+    params: {
+      legalEntityId: string;
+      branchId?: string;
+      fiscalPeriodId?: string;
+      startDate?: string;
+      endDate?: string;
+      accountId?: string;
+      accountType?: string;
+      search?: string;
+      includeZeroBalances?: boolean;
+    }
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      await this.verifyReportEntityAndBranchScope(tx, context, params.legalEntityId, params.branchId);
+
+      let startDt: Date | null = params.startDate ? new Date(params.startDate) : null;
+      let endDt: Date | null = params.endDate ? new Date(params.endDate) : null;
+
+      if (params.fiscalPeriodId) {
+        const [fp] = await tx
+          .select()
+          .from(fiscalPeriods)
+          .where(and(eq(fiscalPeriods.tenantId, context.tenantId), eq(fiscalPeriods.id, params.fiscalPeriodId)))
+          .limit(1);
+        if (!fp) throw new NotFoundException('الفترة المالية غير موجودة');
+        startDt = fp.startDate;
+        endDt = fp.endDate;
+      }
+
+      const coaRows = await tx
+        .select()
+        .from(chartOfAccounts)
+        .where(
+          and(
+            eq(chartOfAccounts.tenantId, context.tenantId),
+            eq(chartOfAccounts.legalEntityId, params.legalEntityId)
+          )
+        )
+        .orderBy(asc(chartOfAccounts.accountCode));
+
+      const lineConds = [
+        eq(journalEntries.tenantId, context.tenantId),
+        eq(journalEntries.legalEntityId, params.legalEntityId),
+        eq(journalEntries.status, JournalStatus.POSTED),
+      ];
+      if (params.branchId) {
+        lineConds.push(eq(journalLines.branchId, params.branchId));
+      }
+      if (endDt) {
+        lineConds.push(lte(journalEntries.entryDate, endDt));
+      }
+
+      const startIso = startDt ? startDt.toISOString() : null;
+      const openingDebitExpr = startIso
+        ? sql<string>`COALESCE(SUM(CASE WHEN ${journalEntries.entryDate} < ${startIso}::timestamptz THEN CAST(${journalLines.debit} AS NUMERIC) ELSE 0 END), 0)::text`
+        : sql<string>`'0'::text`;
+      const openingCreditExpr = startIso
+        ? sql<string>`COALESCE(SUM(CASE WHEN ${journalEntries.entryDate} < ${startIso}::timestamptz THEN CAST(${journalLines.credit} AS NUMERIC) ELSE 0 END), 0)::text`
+        : sql<string>`'0'::text`;
+      const periodDebitExpr = startIso
+        ? sql<string>`COALESCE(SUM(CASE WHEN ${journalEntries.entryDate} >= ${startIso}::timestamptz THEN CAST(${journalLines.debit} AS NUMERIC) ELSE 0 END), 0)::text`
+        : sql<string>`COALESCE(SUM(CAST(${journalLines.debit} AS NUMERIC)), 0)::text`;
+      const periodCreditExpr = startIso
+        ? sql<string>`COALESCE(SUM(CASE WHEN ${journalEntries.entryDate} >= ${startIso}::timestamptz THEN CAST(${journalLines.credit} AS NUMERIC) ELSE 0 END), 0)::text`
+        : sql<string>`COALESCE(SUM(CAST(${journalLines.credit} AS NUMERIC)), 0)::text`;
+
+      const aggRows = await tx
+        .select({
+          accountId: journalLines.accountId,
+          openingDebit: openingDebitExpr,
+          openingCredit: openingCreditExpr,
+          periodDebit: periodDebitExpr,
+          periodCredit: periodCreditExpr,
+        })
+        .from(journalLines)
+        .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+        .where(and(...lineConds))
+        .groupBy(journalLines.accountId);
+
+      const aggMap = new Map<
+        string,
+        { openingDebit: number; openingCredit: number; periodDebit: number; periodCredit: number }
+      >();
+      let grandOpeningDebit = 0;
+      let grandOpeningCredit = 0;
+      let grandPeriodDebit = 0;
+      let grandPeriodCredit = 0;
+
+      for (const r of aggRows) {
+        const od = parseFloat(r.openingDebit || '0');
+        const oc = parseFloat(r.openingCredit || '0');
+        const pd = parseFloat(r.periodDebit || '0');
+        const pc = parseFloat(r.periodCredit || '0');
+        aggMap.set(r.accountId, { openingDebit: od, openingCredit: oc, periodDebit: pd, periodCredit: pc });
+        grandOpeningDebit += od;
+        grandOpeningCredit += oc;
+        grandPeriodDebit += pd;
+        grandPeriodCredit += pc;
+      }
+
+      type TbNode = {
+        accountId: string;
+        accountCode: string;
+        name: string;
+        nameAr: string | null;
+        nameEn: string | null;
+        accountType: string;
+        normalBalance: string;
+        parentId: string | null;
+        level: number;
+        isPostable: boolean;
+        openingDebit: number;
+        openingCredit: number;
+        periodDebit: number;
+        periodCredit: number;
+        closingDebit: number;
+        closingCredit: number;
+        openingNormalBalance: number;
+        closingNormalBalance: number;
+        children: TbNode[];
+      };
+
+      const nodeMap = new Map<string, TbNode>();
+      for (const acc of coaRows) {
+        const direct = aggMap.get(acc.id) ?? {
+          openingDebit: 0,
+          openingCredit: 0,
+          periodDebit: 0,
+          periodCredit: 0,
+        };
+        nodeMap.set(acc.id, {
+          accountId: acc.id,
+          accountCode: acc.accountCode,
+          name: acc.nameAr || acc.name,
+          nameAr: acc.nameAr,
+          nameEn: acc.nameEn,
+          accountType: acc.accountType,
+          normalBalance: acc.normalBalance,
+          parentId: acc.parentId,
+          level: acc.level,
+          isPostable: acc.isPostable,
+          openingDebit: direct.openingDebit,
+          openingCredit: direct.openingCredit,
+          periodDebit: direct.periodDebit,
+          periodCredit: direct.periodCredit,
+          closingDebit: 0,
+          closingCredit: 0,
+          openingNormalBalance: 0,
+          closingNormalBalance: 0,
+          children: [],
+        });
+      }
+
+      // Build hierarchy and propagate bottom-up without double counting
+      const roots: TbNode[] = [];
+      for (const node of nodeMap.values()) {
+        if (node.parentId && nodeMap.has(node.parentId)) {
+          nodeMap.get(node.parentId)!.children.push(node);
+        } else {
+          roots.push(node);
+        }
+      }
+
+      const rollUp = (node: TbNode) => {
+        for (const child of node.children) {
+          rollUp(child);
+          node.openingDebit += child.openingDebit;
+          node.openingCredit += child.openingCredit;
+          node.periodDebit += child.periodDebit;
+          node.periodCredit += child.periodCredit;
+        }
+        const openNet = node.openingDebit - node.openingCredit;
+        const closeNet = openNet + (node.periodDebit - node.periodCredit);
+        node.closingDebit = closeNet > 0 ? closeNet : 0;
+        node.closingCredit = closeNet < 0 ? Math.abs(closeNet) : 0;
+        node.openingNormalBalance = node.normalBalance === NormalBalance.CREDIT ? -openNet : openNet;
+        node.closingNormalBalance = node.normalBalance === NormalBalance.CREDIT ? -closeNet : closeNet;
+      };
+
+      for (const r of roots) {
+        rollUp(r);
+      }
+
+      const includeZero = params.includeZeroBalances ?? true;
+      const searchTerm = params.search?.trim().toLowerCase() ?? '';
+      const formatNode = (node: TbNode): any => {
+        const formattedChildren = node.children.map(formatNode).filter(Boolean);
+        const hasActivity =
+          Math.abs(node.openingDebit) > 0.0001 ||
+          Math.abs(node.openingCredit) > 0.0001 ||
+          Math.abs(node.periodDebit) > 0.0001 ||
+          Math.abs(node.periodCredit) > 0.0001 ||
+          formattedChildren.length > 0;
+        if (!includeZero && !hasActivity) return null;
+        if (params.accountType && node.accountType !== params.accountType && formattedChildren.length === 0) return null;
+        if (params.accountId && node.accountId !== params.accountId && formattedChildren.length === 0) return null;
+        if (
+          searchTerm &&
+          !node.accountCode.toLowerCase().includes(searchTerm) &&
+          !node.name.toLowerCase().includes(searchTerm) &&
+          formattedChildren.length === 0
+        ) {
+          return null;
+        }
+        return {
+          accountId: node.accountId,
+          accountCode: node.accountCode,
+          name: node.name,
+          nameAr: node.nameAr,
+          nameEn: node.nameEn,
+          accountType: node.accountType,
+          normalBalance: node.normalBalance,
+          parentId: node.parentId,
+          level: node.level,
+          isPostable: node.isPostable,
+          openingDebit: node.openingDebit.toFixed(4),
+          openingCredit: node.openingCredit.toFixed(4),
+          openingNormalBalance: node.openingNormalBalance.toFixed(4),
+          periodDebit: node.periodDebit.toFixed(4),
+          periodCredit: node.periodCredit.toFixed(4),
+          closingDebit: node.closingDebit.toFixed(4),
+          closingCredit: node.closingCredit.toFixed(4),
+          closingNormalBalance: node.closingNormalBalance.toFixed(4),
+          children: formattedChildren,
+        };
+      };
+
+      const tree = roots.map(formatNode).filter(Boolean);
+      const flatAccounts = Array.from(nodeMap.values())
+        .map((n) => ({
+          accountId: n.accountId,
+          accountCode: n.accountCode,
+          name: n.name,
+          accountType: n.accountType,
+          normalBalance: n.normalBalance,
+          parentId: n.parentId,
+          level: n.level,
+          isPostable: n.isPostable,
+          openingDebit: n.openingDebit.toFixed(4),
+          openingCredit: n.openingCredit.toFixed(4),
+          openingNormalBalance: n.openingNormalBalance.toFixed(4),
+          periodDebit: n.periodDebit.toFixed(4),
+          periodCredit: n.periodCredit.toFixed(4),
+          closingDebit: n.closingDebit.toFixed(4),
+          closingCredit: n.closingCredit.toFixed(4),
+          closingNormalBalance: n.closingNormalBalance.toFixed(4),
+        }))
+        .filter((a) => (!params.accountType || a.accountType === params.accountType));
+
+      const grandClosingDebit = Array.from(nodeMap.values())
+        .filter((n) => n.children.length === 0)
+        .reduce((s, n) => s + n.closingDebit, 0);
+      const grandClosingCredit = Array.from(nodeMap.values())
+        .filter((n) => n.children.length === 0)
+        .reduce((s, n) => s + n.closingCredit, 0);
+
+      return {
+        legalEntityId: params.legalEntityId,
+        branchId: params.branchId ?? null,
+        startDate: startDt?.toISOString() ?? null,
+        endDate: endDt?.toISOString() ?? null,
+        tree,
+        accounts: flatAccounts,
+        grandTotals: {
+          openingDebit: grandOpeningDebit.toFixed(4),
+          openingCredit: grandOpeningCredit.toFixed(4),
+          periodDebit: grandPeriodDebit.toFixed(4),
+          periodCredit: grandPeriodCredit.toFixed(4),
+          closingDebit: grandClosingDebit.toFixed(4),
+          closingCredit: grandClosingCredit.toFixed(4),
+          isBalanced:
+            Math.abs(grandOpeningDebit - grandOpeningCredit) < 0.01 &&
+            Math.abs(grandPeriodDebit - grandPeriodCredit) < 0.01 &&
+            Math.abs(grandClosingDebit - grandClosingCredit) < 0.01,
+        },
+      };
+    });
+  }
+
+  async getGeneralLedgerReport(
+    context: TenantContext,
+    params: {
+      legalEntityId: string;
+      branchId?: string;
+      accountId?: string;
+      journalType?: string;
+      sourceType?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    }
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      await this.verifyReportEntityAndBranchScope(tx, context, params.legalEntityId, params.branchId);
+
+      const page = Math.max(1, params.page ?? 1);
+      const limit = Math.min(100, Math.max(1, params.limit ?? 50));
+      const offset = (page - 1) * limit;
+
+      const conds = [
+        eq(journalEntries.tenantId, context.tenantId),
+        eq(journalEntries.legalEntityId, params.legalEntityId),
+        eq(journalEntries.status, JournalStatus.POSTED),
+      ];
+      if (params.branchId) conds.push(eq(journalLines.branchId, params.branchId));
+      if (params.accountId) conds.push(eq(journalLines.accountId, params.accountId));
+      if (params.journalType) conds.push(eq(journalEntries.journalType, params.journalType));
+      if (params.sourceType) conds.push(eq(journalEntries.sourceType, params.sourceType));
+      if (params.startDate) conds.push(gte(journalEntries.entryDate, new Date(params.startDate)));
+      if (params.endDate) conds.push(lte(journalEntries.entryDate, new Date(params.endDate)));
+      if (params.search?.trim()) {
+        const term = `%${params.search.trim()}%`;
+        conds.push(
+          sql`(${journalEntries.journalNumber} ILIKE ${term} OR ${chartOfAccounts.accountCode} ILIKE ${term} OR COALESCE(${journalLines.description}, ${journalEntries.description}, '') ILIKE ${term})`
+        );
+      }
+
+      const [countRow] = await tx
+        .select({
+          count: sql<number>`count(*)::int`,
+          totalDebit: sql<string>`COALESCE(SUM(CAST(${journalLines.debit} AS NUMERIC)), 0)::text`,
+          totalCredit: sql<string>`COALESCE(SUM(CAST(${journalLines.credit} AS NUMERIC)), 0)::text`,
+        })
+        .from(journalLines)
+        .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+        .innerJoin(chartOfAccounts, eq(journalLines.accountId, chartOfAccounts.id))
+        .where(and(...conds));
+
+      const data = await tx
+        .select({
+          lineId: journalLines.id,
+          journalEntryId: journalEntries.id,
+          journalNumber: journalEntries.journalNumber,
+          journalType: journalEntries.journalType,
+          sourceType: journalEntries.sourceType,
+          sourceId: journalEntries.sourceId,
+          entryDate: journalEntries.entryDate,
+          postedAt: journalEntries.postedAt,
+          branchId: journalLines.branchId,
+          accountId: journalLines.accountId,
+          accountCode: chartOfAccounts.accountCode,
+          accountName: sql<string>`COALESCE(${chartOfAccounts.nameAr}, ${chartOfAccounts.name})`,
+          normalBalance: chartOfAccounts.normalBalance,
+          debit: journalLines.debit,
+          credit: journalLines.credit,
+          description: sql<string>`COALESCE(${journalLines.description}, ${journalEntries.description})`,
+        })
+        .from(journalLines)
+        .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+        .innerJoin(chartOfAccounts, eq(journalLines.accountId, chartOfAccounts.id))
+        .where(and(...conds))
+        .orderBy(desc(journalEntries.entryDate), desc(journalEntries.postedAt), asc(journalLines.id))
+        .limit(limit)
+        .offset(offset);
+
+      const total = countRow?.count ?? 0;
+      return {
+        data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        totals: {
+          debit: parseFloat(countRow?.totalDebit ?? '0').toFixed(4),
+          credit: parseFloat(countRow?.totalCredit ?? '0').toFixed(4),
+        },
+      };
+    });
+  }
+
+  async getAccountStatement(
+    context: TenantContext,
+    params: {
+      legalEntityId: string;
+      accountId: string;
+      branchId?: string;
+      startDate?: string;
+      endDate?: string;
+      page?: number;
+      limit?: number;
+    }
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      await this.verifyReportEntityAndBranchScope(tx, context, params.legalEntityId, params.branchId);
+
+      const [account] = await tx
+        .select()
+        .from(chartOfAccounts)
+        .where(
+          and(
+            eq(chartOfAccounts.tenantId, context.tenantId),
+            eq(chartOfAccounts.legalEntityId, params.legalEntityId),
+            eq(chartOfAccounts.id, params.accountId)
+          )
+        )
+        .limit(1);
+      if (!account) {
+        throw new NotFoundException('الحساب المحاسبي غير موجود');
+      }
+
+      const startDt = params.startDate ? new Date(params.startDate) : null;
+      const endDt = params.endDate ? new Date(params.endDate) : null;
+      const isCreditNormal = account.normalBalance === NormalBalance.CREDIT;
+
+      let openingNormal = 0;
+      if (startDt) {
+        const openConds = [
+          eq(journalEntries.tenantId, context.tenantId),
+          eq(journalEntries.legalEntityId, params.legalEntityId),
+          eq(journalEntries.status, JournalStatus.POSTED),
+          eq(journalLines.accountId, params.accountId),
+          lt(journalEntries.entryDate, startDt),
+        ];
+        if (params.branchId) openConds.push(eq(journalLines.branchId, params.branchId));
+
+        const [openRow] = await tx
+          .select({
+            debit: sql<string>`COALESCE(SUM(CAST(${journalLines.debit} AS NUMERIC)), 0)::text`,
+            credit: sql<string>`COALESCE(SUM(CAST(${journalLines.credit} AS NUMERIC)), 0)::text`,
+          })
+          .from(journalLines)
+          .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+          .where(and(...openConds));
+
+        const od = parseFloat(openRow?.debit ?? '0');
+        const oc = parseFloat(openRow?.credit ?? '0');
+        openingNormal = isCreditNormal ? oc - od : od - oc;
+      }
+
+      const periodConds = [
+        eq(journalEntries.tenantId, context.tenantId),
+        eq(journalEntries.legalEntityId, params.legalEntityId),
+        eq(journalEntries.status, JournalStatus.POSTED),
+        eq(journalLines.accountId, params.accountId),
+      ];
+      if (params.branchId) periodConds.push(eq(journalLines.branchId, params.branchId));
+      if (startDt) periodConds.push(gte(journalEntries.entryDate, startDt));
+      if (endDt) periodConds.push(lte(journalEntries.entryDate, endDt));
+
+      const page = Math.max(1, params.page ?? 1);
+      const limit = Math.min(200, Math.max(1, params.limit ?? 50));
+      const offset = (page - 1) * limit;
+
+      const [countRow] = await tx
+        .select({
+          count: sql<number>`count(*)::int`,
+          totalDebit: sql<string>`COALESCE(SUM(CAST(${journalLines.debit} AS NUMERIC)), 0)::text`,
+          totalCredit: sql<string>`COALESCE(SUM(CAST(${journalLines.credit} AS NUMERIC)), 0)::text`,
+        })
+        .from(journalLines)
+        .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+        .where(and(...periodConds));
+
+      const rows = await tx
+        .select({
+          lineId: journalLines.id,
+          journalEntryId: journalEntries.id,
+          journalNumber: journalEntries.journalNumber,
+          journalType: journalEntries.journalType,
+          sourceType: journalEntries.sourceType,
+          sourceId: journalEntries.sourceId,
+          entryDate: journalEntries.entryDate,
+          postedAt: journalEntries.postedAt,
+          branchId: journalLines.branchId,
+          debit: journalLines.debit,
+          credit: journalLines.credit,
+          description: sql<string>`COALESCE(${journalLines.description}, ${journalEntries.description})`,
+        })
+        .from(journalLines)
+        .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+        .where(and(...periodConds))
+        .orderBy(asc(journalEntries.entryDate), asc(journalEntries.postedAt), asc(journalLines.id))
+        .limit(limit)
+        .offset(offset);
+
+      let running = openingNormal;
+      const statements = rows.map((r) => {
+        const d = parseFloat(r.debit || '0');
+        const c = parseFloat(r.credit || '0');
+        running += isCreditNormal ? c - d : d - c;
+        return {
+          ...r,
+          runningBalance: running.toFixed(4),
+        };
+      });
+
+      const pd = parseFloat(countRow?.totalDebit ?? '0');
+      const pc = parseFloat(countRow?.totalCredit ?? '0');
+      const closingNormal = openingNormal + (isCreditNormal ? pc - pd : pd - pc);
+      const total = countRow?.count ?? 0;
+
+      return {
+        account: {
+          id: account.id,
+          accountCode: account.accountCode,
+          name: account.nameAr || account.name,
+          accountType: account.accountType,
+          normalBalance: account.normalBalance,
+        },
+        openingBalance: openingNormal.toFixed(4),
+        periodDebit: pd.toFixed(4),
+        periodCredit: pc.toFixed(4),
+        closingBalance: closingNormal.toFixed(4),
+        data: statements,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    });
+  }
+
+  async getJournalSourceDetails(context: TenantContext, journalEntryId: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [entry] = await tx
+        .select()
+        .from(journalEntries)
+        .where(and(eq(journalEntries.tenantId, context.tenantId), eq(journalEntries.id, journalEntryId)))
+        .limit(1);
+
+      if (!entry) {
+        throw new NotFoundException(`القيد المحاسبي '${journalEntryId}' غير موجود`);
+      }
+
+      await this.opsFramework.verifyScope(context, context.userScopes || [], {
+        legalEntityId: entry.legalEntityId,
+        branchId: entry.branchId ?? undefined,
+      });
+
+      const lines = await tx
+        .select({
+          id: journalLines.id,
+          accountId: journalLines.accountId,
+          accountCode: chartOfAccounts.accountCode,
+          accountName: sql<string>`COALESCE(${chartOfAccounts.nameAr}, ${chartOfAccounts.name})`,
+          branchId: journalLines.branchId,
+          partnerId: journalLines.partnerId,
+          debit: journalLines.debit,
+          credit: journalLines.credit,
+          description: journalLines.description,
+        })
+        .from(journalLines)
+        .innerJoin(chartOfAccounts, eq(journalLines.accountId, chartOfAccounts.id))
+        .where(eq(journalLines.journalEntryId, entry.id))
+        .orderBy(asc(journalLines.id));
+
+      let sourceDocument: Record<string, unknown> | null = null;
+      if (entry.sourceId && entry.sourceType) {
+        const st = entry.sourceType.toUpperCase();
+        if (st.includes('SALES') || st.includes('POS_ORDER')) {
+          const [ord] = await tx
+            .select()
+            .from(salesOrders)
+            .where(and(eq(salesOrders.tenantId, context.tenantId), eq(salesOrders.id, entry.sourceId)))
+            .limit(1);
+          if (ord) sourceDocument = { type: 'SALES_ORDER', ...ord };
+        } else if (st.includes('SHIFT')) {
+          const [sh] = await tx
+            .select()
+            .from(posShifts)
+            .where(and(eq(posShifts.tenantId, context.tenantId), eq(posShifts.id, entry.sourceId)))
+            .limit(1);
+          if (sh) sourceDocument = { type: 'POS_SHIFT', ...sh };
+        } else if (st.includes('SETTLEMENT')) {
+          const [sb] = await tx
+            .select()
+            .from(settlementBatches)
+            .where(and(eq(settlementBatches.tenantId, context.tenantId), eq(settlementBatches.id, entry.sourceId)))
+            .limit(1);
+          if (sb) sourceDocument = { type: 'SETTLEMENT_BATCH', ...sb };
+        } else if (st.includes('TRANSFER')) {
+          const [tr] = await tx
+            .select()
+            .from(stockTransfers)
+            .where(and(eq(stockTransfers.tenantId, context.tenantId), eq(stockTransfers.id, entry.sourceId)))
+            .limit(1);
+          if (tr) sourceDocument = { type: 'STOCK_TRANSFER', ...tr };
+        } else if (st.includes('PURCHASE')) {
+          const [po] = await tx
+            .select()
+            .from(purchaseOrders)
+            .where(and(eq(purchaseOrders.tenantId, context.tenantId), eq(purchaseOrders.id, entry.sourceId)))
+            .limit(1);
+          if (po) sourceDocument = { type: 'PURCHASE_ORDER', ...po };
+        } else if (st.includes('VAULT')) {
+          const [vt] = await tx
+            .select()
+            .from(vaultTransactions)
+            .where(and(eq(vaultTransactions.tenantId, context.tenantId), eq(vaultTransactions.id, entry.sourceId)))
+            .limit(1);
+          if (vt) sourceDocument = { type: 'VAULT_TRANSACTION', ...vt };
+        }
+      }
+
+      return {
+        journalEntry: entry,
+        lines,
+        sourceDocument,
+      };
     });
   }
 }

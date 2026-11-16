@@ -2,13 +2,16 @@ import { Module } from '@nestjs/common';
 import { AccountingController } from './accounting.controller';
 import { AccountingService } from './accounting.service';
 import { PostingEngineService } from './posting-engine.service';
+import { FinancialResourcesService } from './financial-resources.service';
+import { ReconciliationService } from './reconciliation.service';
+import { PeriodClosingService } from './period-closing.service';
 import { DatabaseModule } from '../../database/database.module';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [DatabaseModule, AuditModule],
   controllers: [AccountingController],
-  providers: [AccountingService, PostingEngineService],
-  exports: [AccountingService, PostingEngineService],
+  providers: [AccountingService, PostingEngineService, FinancialResourcesService, ReconciliationService, PeriodClosingService],
+  exports: [AccountingService, PostingEngineService, FinancialResourcesService, ReconciliationService, PeriodClosingService],
 })
 export class AccountingModule {}

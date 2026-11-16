@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, numeric, integer, text, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, numeric, integer, text, jsonb, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { tenants, legalEntities, branches } from './tenants.js';
 import { salesOrders, orderLines } from './sales.js';
 import { TableStatus } from '@restaurant-cloud/domain-kernel';
@@ -78,5 +78,35 @@ export const orderVoids = pgTable(
   (table) => [
     index('idx_order_voids_tenant_id').on(table.tenantId),
     index('idx_order_voids_order_id').on(table.orderId),
+  ]
+);
+
+// 5. Kitchen Display Tickets (KDS)
+export const kitchenTickets = pgTable(
+  'kitchen_tickets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    legalEntityId: uuid('legal_entity_id').notNull().references(() => legalEntities.id),
+    branchId: uuid('branch_id').notNull().references(() => branches.id),
+    orderId: uuid('order_id').notNull().references(() => salesOrders.id),
+    tableId: uuid('table_id').references(() => diningTables.id),
+    ticketNumber: varchar('ticket_number', { length: 50 }).notNull(),
+    station: varchar('station', { length: 40 }).notNull().default('MAIN_KITCHEN'),
+    status: varchar('status', { length: 30 }).notNull().default('PENDING'), // PENDING, IN_PREPARATION, READY, SERVED, CANCELLED
+    itemsSnapshot: jsonb('items_snapshot').notNull().default([]),
+    notes: text('notes'),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+    servedAt: timestamp('served_at', { withTimezone: true }),
+    createdBy: uuid('created_by').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_kitchen_tickets_tenant_branch').on(table.tenantId, table.branchId, table.status),
+    index('idx_kitchen_tickets_order_id').on(table.orderId),
+    uniqueIndex('idx_kitchen_tickets_idempotency').on(table.tenantId, table.idempotencyKey),
   ]
 );

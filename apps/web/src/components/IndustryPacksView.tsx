@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   Sparkles,
@@ -10,6 +10,8 @@ import {
   ShoppingBag,
   Zap,
 } from 'lucide-react';
+import { apiClient } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 export interface IndustryPackConfig {
   id: string;
@@ -114,17 +116,45 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
   activeIndustries,
   onToggleIndustry,
 }) => {
+  const { hierarchy } = useAuth();
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [subscription, setSubscription] = useState<{ maxBranches: number; maxDevices: number; planCode: string } | null>(null);
+  const [serverPacks, setServerPacks] = useState<string[] | null>(null);
 
-  const handleToggle = (pack: IndustryPackConfig) => {
-    const isCurrentlyActive = activeIndustries.includes(pack.id);
-    onToggleIndustry(pack.id);
+  useEffect(() => {
+    Promise.all([
+      apiClient.request<{ activeIndustries?: string[] }>('/tenants/industries').catch(() => null),
+      apiClient.request<{ maxBranches: number; maxDevices: number; planCode: string }>('/tenants/subscription').catch(() => null),
+    ]).then(([packsRes, sub]) => {
+      if (packsRes && Array.isArray(packsRes.activeIndustries)) {
+        setServerPacks(packsRes.activeIndustries);
+      }
+      if (sub) setSubscription(sub);
+    });
+  }, []);
 
-    const msg = isCurrentlyActive
-      ? `تم إيقاف تفعيل ${pack.nameAr} مؤقتاً (تم حفظ كافة البيانات السابقة بأمان)`
-      : `تم تفعيل ${pack.nameAr} بنجاح! تم تحديث الصلاحيات والشاشات فورياً`;
-    setSuccessToast(msg);
-    setTimeout(() => setSuccessToast(null), 3500);
+  const effectiveActive = serverPacks ?? activeIndustries;
+
+  const handleToggle = async (pack: IndustryPackConfig) => {
+    const isCurrentlyActive = effectiveActive.includes(pack.id);
+    try {
+      if (isCurrentlyActive) {
+        await apiClient.post('/tenants/industries/deactivate', { industry: pack.id });
+        setServerPacks((prev) => (prev ?? activeIndustries).filter((id) => id !== pack.id));
+      } else {
+        await apiClient.post('/tenants/industries/activate', { industry: pack.id });
+        setServerPacks((prev) => Array.from(new Set([...(prev ?? activeIndustries), pack.id])));
+      }
+      onToggleIndustry(pack.id);
+      const msg = isCurrentlyActive
+        ? `تم إيقاف تفعيل ${pack.nameAr} مؤقتاً (تم حفظ كافة البيانات السابقة بأمان)`
+        : `تم تفعيل ${pack.nameAr} بنجاح! تم تحديث الصلاحيات والشاشات فورياً`;
+      setSuccessToast(msg);
+      setTimeout(() => setSuccessToast(null), 3500);
+    } catch (err: any) {
+      setSuccessToast(err?.message || 'تعذر تحديث حالة القطاع');
+      setTimeout(() => setSuccessToast(null), 3500);
+    }
   };
 
   return (
@@ -156,15 +186,19 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
           <div className="flex gap-4">
             <div className="bg-slate-900/80 border border-slate-700/60 p-4 rounded-2xl text-center min-w-[6.5rem]">
               <span className="text-xs text-slate-400">القطاعات المفعلة</span>
-              <p className="text-2xl font-black text-emerald-400 mt-0.5">{activeIndustries.length}</p>
+              <p className="text-2xl font-black text-emerald-400 mt-0.5">{effectiveActive.length}</p>
             </div>
             <div className="bg-slate-900/80 border border-slate-700/60 p-4 rounded-2xl text-center min-w-[6.5rem]">
               <span className="text-xs text-slate-400">الفروع المتاحة</span>
-              <p className="text-2xl font-black text-indigo-400 mt-0.5">10 / 10</p>
+              <p className="text-2xl font-black text-indigo-400 mt-0.5">
+                {hierarchy?.branches.length ?? 0} / {subscription?.maxBranches ?? '—'}
+              </p>
             </div>
             <div className="bg-slate-900/80 border border-slate-700/60 p-4 rounded-2xl text-center min-w-[6.5rem]">
               <span className="text-xs text-slate-400">أجهزة POS</span>
-              <p className="text-2xl font-black text-white mt-0.5">25 / 25</p>
+              <p className="text-2xl font-black text-white mt-0.5">
+                {hierarchy?.devices.length ?? 0} / {subscription?.maxDevices ?? '—'}
+              </p>
             </div>
           </div>
         </div>
@@ -174,7 +208,7 @@ export const IndustryPacksView: React.FC<IndustryPacksViewProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {AVAILABLE_PACKS.map((pack) => {
           const Icon = pack.icon;
-          const isActive = activeIndustries.includes(pack.id);
+          const isActive = effectiveActive.includes(pack.id);
 
           return (
             <div

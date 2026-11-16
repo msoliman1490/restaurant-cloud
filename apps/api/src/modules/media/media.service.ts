@@ -17,7 +17,6 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/png',
   'image/webp',
   'image/gif',
-  'image/svg+xml',
   'application/pdf',
 ]);
 
@@ -27,7 +26,6 @@ const EXT_TO_MIME: Record<string, string> = {
   '.png': 'image/png',
   '.webp': 'image/webp',
   '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
   '.pdf': 'application/pdf',
 };
 
@@ -56,7 +54,7 @@ export class MediaService {
     }
 
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-      throw new BadRequestException(`Unsupported media type: ${mimeType}. Allowed types: JPEG, PNG, WEBP, GIF, SVG, PDF`);
+      throw new BadRequestException(`Unsupported media type: ${mimeType}. Allowed types: JPEG, PNG, WEBP, GIF, PDF`);
     }
 
     const rawExt = path.extname(originalName).toLowerCase();

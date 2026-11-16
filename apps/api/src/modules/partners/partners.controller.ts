@@ -13,6 +13,7 @@ import { PartnersService } from './partners.service';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { OptionalLegalEntityIdPipe } from '../../common/pipes/legal-entity-id.pipe';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
   CreateBusinessPartnerSchema,
@@ -58,7 +59,7 @@ export class PartnersController {
   async getPartner(
     @CurrentContext() context: TenantContext,
     @Param('id') partnerId: string,
-    @Query('legalEntityId') legalEntityId?: string
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string
   ) {
     const data = await this.partnersService.getPartner(context, partnerId, legalEntityId);
     return { success: true, data };

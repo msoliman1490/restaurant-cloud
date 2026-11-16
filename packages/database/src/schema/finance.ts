@@ -1,4 +1,5 @@
 import { pgTable, uuid, varchar, timestamp, numeric, integer, boolean, text, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { tenants, legalEntities, branches, warehouses, devices } from './tenants.js';
 import {
   AccountType,
@@ -70,16 +71,26 @@ export const fiscalPeriods = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     legalEntityId: uuid('legal_entity_id').notNull().references(() => legalEntities.id),
+    fiscalYearId: uuid('fiscal_year_id'),
+    periodNumber: integer('period_number'),
     periodName: varchar('period_name', { length: 50 }).notNull(),
     startDate: timestamp('start_date', { withTimezone: true }).notNull(),
     endDate: timestamp('end_date', { withTimezone: true }).notNull(),
     status: varchar('status', { length: 20 }).notNull().default(FiscalPeriodStatus.OPEN),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     closedBy: uuid('closed_by'),
+    reopenedAt: timestamp('reopened_at', { withTimezone: true }),
+    reopenedBy: uuid('reopened_by'),
+    reopenReason: text('reopen_reason'),
+    closingNotes: text('closing_notes'),
+    lastPrecheckAt: timestamp('last_precheck_at', { withTimezone: true }),
+    lastPrecheckStatus: varchar('last_precheck_status', { length: 20 }),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_fiscal_periods_tenant_id').on(table.tenantId),
+    index('idx_fiscal_periods_entity_dates').on(table.tenantId, table.legalEntityId, table.startDate, table.endDate),
     uniqueIndex('idx_fiscal_periods_entity_name').on(table.legalEntityId, table.periodName),
   ]
 );
@@ -144,21 +155,30 @@ export const journalLines = pgTable(
   ]
 );
 
-// 6. Configurable Default Account Mappings
+// 6. Configurable Default & Branch-Override Account Mappings
 export const accountMappings = pgTable(
   'account_mappings',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     legalEntityId: uuid('legal_entity_id').notNull().references(() => legalEntities.id),
+    branchId: uuid('branch_id').references(() => branches.id),
     mappingKey: varchar('mapping_key', { length: 50 }).notNull(),
     accountId: uuid('account_id').notNull().references(() => chartOfAccounts.id),
     description: varchar('description', { length: 255 }),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_account_mappings_tenant_id').on(table.tenantId),
-    uniqueIndex('idx_account_mappings_entity_key').on(table.legalEntityId, table.mappingKey),
+    index('idx_account_mappings_branch_id').on(table.branchId),
+    uniqueIndex('idx_account_mappings_company_key')
+      .on(table.legalEntityId, table.mappingKey)
+      .where(sql`${table.branchId} IS NULL`),
+    uniqueIndex('idx_account_mappings_branch_key')
+      .on(table.legalEntityId, table.branchId, table.mappingKey)
+      .where(sql`${table.branchId} IS NOT NULL`),
   ]
 );
 
@@ -475,5 +495,74 @@ export const offlineQuotaLeases = pgTable(
   (table) => [
     index('idx_offline_quota_tenant_id').on(table.tenantId),
     index('idx_offline_quota_device_item_epoch').on(table.deviceId, table.warehouseId, table.itemId, table.deviceEpoch, table.status),
+  ]
+);
+
+// 18. Bank Account Branch Access (Multi-Branch Sharing)
+export const bankAccountBranchAccess = pgTable(
+  'bank_account_branch_access',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    legalEntityId: uuid('legal_entity_id').notNull().references(() => legalEntities.id),
+    bankAccountId: uuid('bank_account_id').notNull().references(() => bankAccounts.id, { onDelete: 'cascade' }),
+    branchId: uuid('branch_id').notNull().references(() => branches.id, { onDelete: 'cascade' }),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_bank_acc_branch_tenant_id').on(table.tenantId),
+    index('idx_bank_acc_branch_branch_id').on(table.branchId),
+    uniqueIndex('idx_bank_acc_branch_unique').on(table.bankAccountId, table.branchId),
+  ]
+);
+
+// 19. Payment Methods
+export const paymentMethods = pgTable(
+  'payment_methods',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    code: varchar('code', { length: 50 }).notNull(),
+    nameAr: varchar('name_ar', { length: 255 }).notNull(),
+    nameEn: varchar('name_en', { length: 255 }),
+    type: varchar('type', { length: 50 }).notNull().default('CARD'),
+    displayOrder: integer('display_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    requiresTerminal: boolean('requires_terminal').notNull().default(false),
+    requiresReference: boolean('requires_reference').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_payment_methods_tenant_id').on(table.tenantId),
+    uniqueIndex('idx_payment_methods_tenant_code').on(table.tenantId, table.code),
+  ]
+);
+
+// 20. Payment Terminals (Electronic Payment Terminals - EDC/POS Payment)
+export const paymentTerminals = pgTable(
+  'payment_terminals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    legalEntityId: uuid('legal_entity_id').notNull().references(() => legalEntities.id),
+    branchId: uuid('branch_id').notNull().references(() => branches.id),
+    terminalCode: varchar('terminal_code', { length: 50 }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    provider: varchar('provider', { length: 100 }).notNull().default('GEIDEA'),
+    model: varchar('model', { length: 100 }),
+    serialNumber: varchar('serial_number', { length: 100 }),
+    ipAddress: varchar('ip_address', { length: 50 }),
+    linkedPosDeviceId: uuid('linked_pos_device_id').references(() => devices.id),
+    clearingAccountId: uuid('clearing_account_id').references(() => chartOfAccounts.id),
+    status: varchar('status', { length: 30 }).notNull().default('ACTIVE'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_payment_terminals_tenant_id').on(table.tenantId),
+    index('idx_payment_terminals_branch_id').on(table.branchId),
+    uniqueIndex('idx_payment_terminals_entity_code').on(table.legalEntityId, table.terminalCode),
   ]
 );

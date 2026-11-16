@@ -141,14 +141,40 @@ export enum TransferStatus {
   PENDING_DISPATCH = 'PENDING_DISPATCH',
   PICKING = 'PICKING',
   SHIPPED = 'SHIPPED',
+  DISPATCHED = 'DISPATCHED',
   IN_TRANSIT = 'IN_TRANSIT',
   PARTIALLY_RECEIVED = 'PARTIALLY_RECEIVED',
   RECEIVED = 'RECEIVED',
+  DISCREPANCY = 'DISCREPANCY',
+  COMPLETED = 'COMPLETED',
   CLOSED = 'CLOSED',
   CANCELLED = 'CANCELLED',
   REJECTED = 'REJECTED',
   RETURNED = 'RETURNED',
   DISPUTED = 'DISPUTED',
+}
+
+export enum TransferType {
+  SAME_BRANCH = 'SAME_BRANCH',
+  SAME_LEGAL_ENTITY = 'SAME_LEGAL_ENTITY',
+  CROSS_LEGAL_ENTITY = 'CROSS_LEGAL_ENTITY',
+}
+
+export enum TransferDiscrepancyType {
+  SHORTAGE = 'SHORTAGE',
+  OVERAGE = 'OVERAGE',
+  DAMAGE = 'DAMAGE',
+  LOSS = 'LOSS',
+  FULL_REJECTION = 'FULL_REJECTION',
+}
+
+export enum TransferDiscrepancyStatus {
+  OPEN = 'OPEN',
+  UNDER_REVIEW = 'UNDER_REVIEW',
+  RESOLVED_LOSS = 'RESOLVED_LOSS',
+  RESOLVED_GAIN = 'RESOLVED_GAIN',
+  RESOLVED_RETURNED = 'RESOLVED_RETURNED',
+  DISMISSED = 'DISMISSED',
 }
 
 export enum WarehouseType {
@@ -360,20 +386,53 @@ export enum ReceiptVoucherType {
 }
 
 export enum DefaultAccountMappingKey {
+  // Sales & Taxes
   SALES = 'SALES',
   SALES_RETURNS = 'SALES_RETURNS',
   SALES_DISCOUNTS = 'SALES_DISCOUNTS',
-  COGS = 'COGS',
-  INVENTORY = 'INVENTORY',
   VAT_OUTPUT = 'VAT_OUTPUT',
   VAT_INPUT = 'VAT_INPUT',
-  ACCOUNTS_RECEIVABLE = 'ACCOUNTS_RECEIVABLE',
-  ACCOUNTS_PAYABLE = 'ACCOUNTS_PAYABLE',
+  ROUNDING_DIFFERENCE = 'ROUNDING_DIFFERENCE',
+
+  // Inventory & Cost
+  INVENTORY = 'INVENTORY',
+  INVENTORY_IN_TRANSIT = 'INVENTORY_IN_TRANSIT',
+  INVENTORY_DAMAGE_LOSS = 'INVENTORY_DAMAGE_LOSS',
+  INVENTORY_GAIN = 'INVENTORY_GAIN',
+  COGS = 'COGS',
+
+  // Cash & Bank
   CASH_VAULT = 'CASH_VAULT',
   BANK = 'BANK',
+
+  // Payment Terminals & Electronic Clearing
+  MADA_CLEARING = 'MADA_CLEARING',
+  VISA_CLEARING = 'VISA_CLEARING',
+  APPLE_PAY_CLEARING = 'APPLE_PAY_CLEARING',
+  STC_PAY_CLEARING = 'STC_PAY_CLEARING',
+  CARD_CLEARING = 'CARD_CLEARING',
+  GATEWAY_FEES = 'GATEWAY_FEES',
+
+  // Delivery Aggregators
+  AGGREGATOR_RECEIVABLE = 'AGGREGATOR_RECEIVABLE',
+  AGGREGATOR_COMMISSION = 'AGGREGATOR_COMMISSION',
+  AGGREGATOR_SUSPENSE = 'AGGREGATOR_SUSPENSE',
+
+  // Shifts & Cash Management
+  CASH_OVER_SHORT = 'CASH_OVER_SHORT',
+  CASH_OVERAGE = 'CASH_OVERAGE',
+  CASH_IN_TRANSIT = 'CASH_IN_TRANSIT',
+
+  // Inter-Branch & Inter-Company Clearing
+  INTER_BRANCH_CLEARING = 'INTER_BRANCH_CLEARING',
+  DUE_FROM_AFFILIATE = 'DUE_FROM_AFFILIATE',
+  DUE_TO_AFFILIATE = 'DUE_TO_AFFILIATE',
+
+  // Legacy & General
+  ACCOUNTS_RECEIVABLE = 'ACCOUNTS_RECEIVABLE',
+  ACCOUNTS_PAYABLE = 'ACCOUNTS_PAYABLE',
   GENERAL_EXPENSE = 'GENERAL_EXPENSE',
   RETAINED_EARNINGS = 'RETAINED_EARNINGS',
-  ROUNDING_DIFFERENCE = 'ROUNDING_DIFFERENCE',
   DISCOUNTS_RECEIVED = 'DISCOUNTS_RECEIVED',
 }
 
@@ -472,6 +531,7 @@ export enum ShiftCashTransactionType {
 
 export enum FiscalPeriodStatus {
   OPEN = 'OPEN',
+  CLOSING = 'CLOSING',
   CLOSED = 'CLOSED',
   LOCKED = 'LOCKED',
 }
@@ -481,5 +541,158 @@ export enum SupplierPaymentMethod {
   CHEQUE = 'CHEQUE',
   CASH = 'CASH',
 }
+
+// 12. Payment Gateway & Delivery Aggregator Settlements (Phase 3.4C)
+export enum SettlementProviderCategory {
+  PAYMENT_GATEWAY = 'PAYMENT_GATEWAY',
+  DELIVERY_AGGREGATOR = 'DELIVERY_AGGREGATOR',
+}
+
+export enum SettlementMatchingStrategy {
+  REFERENCE_AND_AMOUNT = 'REFERENCE_AND_AMOUNT',
+  ORDER_NUMBER_AND_AMOUNT = 'ORDER_NUMBER_AND_AMOUNT',
+  BATCH_SUMMARY = 'BATCH_SUMMARY',
+}
+
+export enum SettlementBatchStatus {
+  DRAFT = 'DRAFT',
+  RECONCILING = 'RECONCILING',
+  DISCREPANCY_PENDING = 'DISCREPANCY_PENDING',
+  APPROVED = 'APPROVED',
+  POSTED = 'POSTED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum SettlementLineMatchStatus {
+  MATCHED = 'MATCHED',
+  PARTIAL = 'PARTIAL',
+  MISSING_IN_SYSTEM = 'MISSING_IN_SYSTEM',
+  MISSING_IN_STATEMENT = 'MISSING_IN_STATEMENT',
+  DUPLICATE = 'DUPLICATE',
+  AMOUNT_MISMATCH = 'AMOUNT_MISMATCH',
+  FEE_MISMATCH = 'FEE_MISMATCH',
+  TAX_MISMATCH = 'TAX_MISMATCH',
+  CANCELLED_OR_REFUNDED = 'CANCELLED_OR_REFUNDED',
+  WITHHELD = 'WITHHELD',
+}
+
+export enum SettlementDiscrepancyType {
+  MISSING_IN_STATEMENT = 'MISSING_IN_STATEMENT',
+  MISSING_IN_SYSTEM = 'MISSING_IN_SYSTEM',
+  AMOUNT_MISMATCH = 'AMOUNT_MISMATCH',
+  FEE_MISMATCH = 'FEE_MISMATCH',
+  TAX_MISMATCH = 'TAX_MISMATCH',
+  BANK_SHORTFALL = 'BANK_SHORTFALL',
+  WITHHELD_AMOUNT = 'WITHHELD_AMOUNT',
+  CANCELLED_OR_REFUNDED = 'CANCELLED_OR_REFUNDED',
+  PARTIAL_UNSETTLED = 'PARTIAL_UNSETTLED',
+  DUPLICATE_ENTRY = 'DUPLICATE_ENTRY',
+}
+
+export enum SettlementDiscrepancyStatus {
+  OPEN = 'OPEN',
+  UNDER_REVIEW = 'UNDER_REVIEW',
+  RESOLVED_APPROVED = 'RESOLVED_APPROVED',
+  RESOLVED_SUSPENSE = 'RESOLVED_SUSPENSE',
+  DISMISSED = 'DISMISSED',
+}
+
+export enum PaymentSettlementStatus {
+  UNSETTLED = 'UNSETTLED',
+  PARTIALLY_SETTLED = 'PARTIALLY_SETTLED',
+  SETTLED = 'SETTLED',
+}
+
+// =============================================================================
+// Phase 3.5 — Financial Reconciliation & Reporting Engine
+// =============================================================================
+
+export enum ReconciliationCategory {
+  INVENTORY = 'INVENTORY',
+  INVENTORY_IN_TRANSIT = 'INVENTORY_IN_TRANSIT',
+  CASH_VAULTS = 'CASH_VAULTS',
+  BANK_ACCOUNTS = 'BANK_ACCOUNTS',
+  AR_CUSTOMERS = 'AR_CUSTOMERS',
+  AP_SUPPLIERS = 'AP_SUPPLIERS',
+  PAYMENT_GATEWAYS = 'PAYMENT_GATEWAYS',
+  DELIVERY_AGGREGATORS = 'DELIVERY_AGGREGATORS',
+  CLEARING_ACCOUNTS = 'CLEARING_ACCOUNTS',
+  INTER_BRANCH_TRANSFERS = 'INTER_BRANCH_TRANSFERS',
+  INTERCOMPANY_AFFILIATES = 'INTERCOMPANY_AFFILIATES',
+}
+
+export enum ReconciliationStatus {
+  MATCHED = 'MATCHED',
+  DISCREPANCY = 'DISCREPANCY',
+  NOT_CONFIGURED = 'NOT_CONFIGURED',
+}
+
+export enum ReconciliationRunStatus {
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
+// =============================================================================
+// Phase 3.6 — Financial Period Closing Engine
+// =============================================================================
+
+export enum FiscalYearStatus {
+  OPEN = 'OPEN',
+  CLOSING = 'CLOSING',
+  CLOSED = 'CLOSED',
+}
+
+export enum PeriodClosingAction {
+  PRE_CHECK = 'PRE_CHECK',
+  CLOSE_STARTED = 'CLOSE_STARTED',
+  CLOSED = 'CLOSED',
+  REOPENED = 'REOPENED',
+  YEAR_END_CLOSE = 'YEAR_END_CLOSE',
+}
+
+export enum ClosingCheckSeverity {
+  BLOCKER = 'BLOCKER',
+  WARNING = 'WARNING',
+  PASS = 'PASS',
+}
+
+// =============================================================================
+// Phase 3.7 — ZATCA V2 Production Readiness
+// =============================================================================
+
+export enum ZatcaEnvironment {
+  SANDBOX = 'SANDBOX',
+  SIMULATION = 'SIMULATION',
+  PRODUCTION = 'PRODUCTION',
+}
+
+export enum ZatcaCertificateType {
+  COMPLIANCE_CSID = 'COMPLIANCE_CSID',
+  PRODUCTION_CSID = 'PRODUCTION_CSID',
+}
+
+export enum ZatcaCertificateStatus {
+  PENDING_OTP = 'PENDING_OTP',
+  CSR_GENERATED = 'CSR_GENERATED',
+  COMPLIANCE_ACTIVE = 'COMPLIANCE_ACTIVE',
+  PRODUCTION_ACTIVE = 'PRODUCTION_ACTIVE',
+  REVOKED = 'REVOKED',
+  EXPIRED = 'EXPIRED',
+}
+
+export enum ZatcaOutboxStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  FAILED_RETRYABLE = 'FAILED_RETRYABLE',
+  DEAD_LETTER = 'DEAD_LETTER',
+}
+
+export enum ZatcaInvoiceSubtype {
+  STANDARD_B2B = '0100000',
+  SIMPLIFIED_B2C = '0200000',
+}
+
+
 
 

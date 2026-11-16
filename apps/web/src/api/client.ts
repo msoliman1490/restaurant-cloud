@@ -50,7 +50,8 @@ class ApiClient {
     options: RequestInit = {},
     timeoutMs = 15000
   ): Promise<T> {
-    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const stripped = endpoint.replace(/^\/api\/v1(?=\/|$)/, '');
+    const cleanEndpoint = stripped.startsWith('/') ? stripped : `/${stripped}`;
     const url = `${this.baseUrl}${cleanEndpoint}`;
 
     const headers = new Headers(options.headers || {});
@@ -124,8 +125,13 @@ class ApiClient {
         json = await response.json();
       } catch {
         let fallbackMessage = 'استجابة غير صالحة من الخادم';
-        if (response.status === 502 || response.status === 504 || response.status === 503) {
-          fallbackMessage = `خادم API غير متاح حالياً (${response.status}). يرجى التحقق من تشغيل خدمة الـ Backend والاتصال بقاعدة البيانات.`;
+        if (
+          response.status === 500 ||
+          response.status === 502 ||
+          response.status === 503 ||
+          response.status === 504
+        ) {
+          fallbackMessage = `خادم API غير متاح أو تعذر الاتصال به (${response.status}). يرجى التحقق من تشغيل خدمة الـ Backend وقاعدة البيانات.`;
         } else if (response.status === 404) {
           fallbackMessage = `نقطة النهاية المطلوبة غير متوفرة على الخادم (${cleanEndpoint}).`;
         }
@@ -133,13 +139,23 @@ class ApiClient {
       }
 
       if (!response.ok || json.success === false) {
-        const errorMsg =
+        let errorMsg =
           json.message ||
           (typeof json.error === 'object' && json.error?.message
             ? (Array.isArray(json.error.message) ? json.error.message.join('، ') : json.error.message)
             : typeof json.error === 'string'
             ? json.error
             : `خطأ من الخادم (${response.status})`);
+
+        if (json.error?.details && Array.isArray(json.error.details) && json.error.details.length > 0) {
+          const detailMsgs = json.error.details
+            .map((d: any) => (d.path ? `${d.path}: ${d.message}` : d.message))
+            .join('، ');
+          if (detailMsgs && !errorMsg.includes(detailMsgs)) {
+            errorMsg = `${errorMsg} (${detailMsgs})`;
+          }
+        }
+
         throw new ApiError(response.status, errorMsg, json);
       }
 
@@ -181,6 +197,14 @@ class ApiClient {
     return this.request<T>(endpoint, {
       ...options,
       method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
+  patch<T>(endpoint: string, body: unknown, options?: RequestInit): Promise<T> {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: 'PATCH',
       body: JSON.stringify(body),
     });
   }

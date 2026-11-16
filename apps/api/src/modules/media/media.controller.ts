@@ -137,8 +137,18 @@ export class MediaController {
     @Res() reply: any
   ) {
     const { record, buffer } = await this.mediaService.getFile(context, id);
+    const safeInlineTypes = new Set([
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+    ]);
+    const disposition = safeInlineTypes.has(record.mimeType) ? 'inline' : 'attachment';
     reply
       .header('Content-Type', record.mimeType)
+      .header('Content-Disposition', disposition)
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Security-Policy', "default-src 'none'")
       .header('Content-Length', record.fileSize)
       .header('Cache-Control', 'private, max-age=86400')
       .send(buffer);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import {
   Building2,
   GitBranch,
@@ -42,6 +43,9 @@ export const CompaniesView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [entityModalError, setEntityModalError] = useState<string | null>(null);
+  const [branchModalError, setBranchModalError] = useState<string | null>(null);
+  const toast = useToast();
 
   // Modals state
   const [isEntityModalOpen, setIsEntityModalOpen] = useState(false);
@@ -92,26 +96,34 @@ export const CompaniesView: React.FC = () => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
+    setEntityModalError(null);
     try {
+      let msg = '';
       if (editingEntity) {
         await apiClient.request(`/legal-entities/${editingEntity.id}`, {
           method: 'PATCH',
           body: JSON.stringify(entityForm),
         });
-        setSuccessMsg('تم تحديث بيانات الشركة بنجاح');
+        msg = 'تم تحديث بيانات الشركة بنجاح';
       } else {
         await apiClient.request('/legal-entities', {
           method: 'POST',
           body: JSON.stringify(entityForm),
         });
-        setSuccessMsg('تم إنشاء الشركة القانونية بنجاح');
+        msg = 'تم إنشاء الشركة القانونية بنجاح';
       }
+      toast.success(msg);
+      setSuccessMsg(msg);
       setIsEntityModalOpen(false);
       setEditingEntity(null);
+      setEntityModalError(null);
       await fetchData();
       await refreshHierarchy();
     } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء حفظ الشركة');
+      const errMsg = err?.message || 'حدث خطأ أثناء حفظ الشركة';
+      setEntityModalError(errMsg);
+      toast.error(errMsg);
+      setError(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -121,7 +133,9 @@ export const CompaniesView: React.FC = () => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
+    setBranchModalError(null);
     try {
+      let msg = '';
       if (editingBranch) {
         await apiClient.request(`/branches/${editingBranch.id}`, {
           method: 'PATCH',
@@ -132,20 +146,26 @@ export const CompaniesView: React.FC = () => {
             timezone: branchForm.timezone,
           }),
         });
-        setSuccessMsg('تم تحديث بيانات الفرع بنجاح');
+        msg = 'تم تحديث بيانات الفرع بنجاح';
       } else {
         await apiClient.request('/branches', {
           method: 'POST',
           body: JSON.stringify(branchForm),
         });
-        setSuccessMsg('تم إضافة الفرع الجديد بنجاح');
+        msg = 'تم إضافة الفرع الجديد بنجاح';
       }
+      toast.success(msg);
+      setSuccessMsg(msg);
       setIsBranchModalOpen(false);
       setEditingBranch(null);
+      setBranchModalError(null);
       await fetchData();
       await refreshHierarchy();
     } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء حفظ الفرع');
+      const errMsg = err?.message || 'حدث خطأ أثناء حفظ الفرع';
+      setBranchModalError(errMsg);
+      toast.error(errMsg);
+      setError(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -406,6 +426,14 @@ export const CompaniesView: React.FC = () => {
               </button>
             </div>
 
+            {/* Inline Error Alert */}
+            {entityModalError && (
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>{entityModalError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleSaveEntity} className="space-y-4 text-sm">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">الاسم القانوني للشركة *</label>
@@ -516,6 +544,14 @@ export const CompaniesView: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Inline Error Alert */}
+            {branchModalError && (
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>{branchModalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveBranch} className="space-y-4 text-sm">
               {!editingBranch && (

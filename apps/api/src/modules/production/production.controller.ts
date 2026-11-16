@@ -12,6 +12,7 @@ import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { IndustryEntitlementGuard } from '../../common/guards/industry-entitlement.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { OptionalLegalEntityIdPipe } from '../../common/pipes/legal-entity-id.pipe';
 import { RequireCapability } from '../../common/decorators/industry-entitlement.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
@@ -40,6 +41,7 @@ export class ProductionController {
   }
 
   @Get('recipes')
+  @RequirePermissions('production.read')
   async getRecipes(
     @CurrentContext() context: TenantContext,
     @Query('outputItemId') outputItemId?: string
@@ -49,6 +51,7 @@ export class ProductionController {
   }
 
   @Get('recipes/:id/cost')
+  @RequirePermissions('production.read')
   async getRecipeCost(
     @CurrentContext() context: TenantContext,
     @Param('id') id: string
@@ -80,6 +83,17 @@ export class ProductionController {
     return { success: true, data };
   }
 
+  @Post('batches/:id/cancel')
+  @RequirePermissions('production.batch.cancel')
+  async cancelBatch(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { reason?: string }
+  ) {
+    const data = await this.productionService.cancelProductionBatch(context, id, body?.reason);
+    return { success: true, data };
+  }
+
   @Post('waste')
   @RequirePermissions('production.waste.create')
   async recordWaste(
@@ -88,6 +102,26 @@ export class ProductionController {
   ) {
     const validatedDto = CreateWasteRecordSchema.parse(body);
     const data = await this.productionService.recordWaste(context, validatedDto);
+    return { success: true, data };
+  }
+
+  @Get('batches')
+  @RequirePermissions('production.read')
+  async getBatches(
+    @CurrentContext() context: TenantContext,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string
+  ) {
+    const data = await this.productionService.getProductionBatches(context, legalEntityId);
+    return { success: true, data };
+  }
+
+  @Get('waste')
+  @RequirePermissions('production.read')
+  async getWaste(
+    @CurrentContext() context: TenantContext,
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string
+  ) {
+    const data = await this.productionService.getWasteRecords(context, legalEntityId);
     return { success: true, data };
   }
 }

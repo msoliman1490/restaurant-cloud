@@ -15,6 +15,10 @@ import {
   ShieldCheck,
   Settings,
   FileText,
+  Lock,
+  QrCode,
+  Truck,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -28,8 +32,13 @@ export type NavTab =
   | 'production'
   | 'dining'
   | 'accounting'
+  | 'reconciliation'
+  | 'period-closing'
+  | 'zatca-v2'
   | 'entities'
   | 'users'
+  | 'hr'
+  | 'delivery'
   | 'roles'
   | 'settings'
   | 'audit'
@@ -39,57 +48,70 @@ interface SidebarProps {
   currentTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   activeIndustries?: string[];
+  isOpen?: boolean;
+  onClose?: () => void;
+  locale?: 'ar' | 'en';
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onSelectTab,
   activeIndustries = ['RESTAURANT'],
+  isOpen = false,
+  onClose,
+  locale = 'ar',
 }) => {
   const { role } = useAuth();
-
   const isCashierOnly = role?.name === 'CASHIER';
+  const isEn = locale === 'en';
 
   const operationsNav = [
     {
       id: 'dashboard' as NavTab,
-      label: 'لوحة التحكم',
+      labelAr: 'لوحة التحكم',
+      labelEn: 'Dashboard',
       icon: LayoutDashboard,
       show: !isCashierOnly,
     },
     {
       id: 'pos' as NavTab,
-      label: 'نقاط البيع والكاشير (POS)',
+      labelAr: 'نقاط البيع والكاشير (POS)',
+      labelEn: 'Point of Sale (POS)',
       icon: Receipt,
       show: true,
     },
     {
       id: 'catalog' as NavTab,
-      label: 'قائمة المنتجات والتسعير',
+      labelAr: 'قائمة المنتجات والتسعير',
+      labelEn: 'Catalog & Pricing',
       icon: UtensilsCrossed,
       show: !isCashierOnly,
     },
     {
       id: 'dining' as NavTab,
-      label: 'إدارة الصالة والطاولات',
+      labelAr: 'إدارة الصالة والطاولات',
+      labelEn: 'Dining & Tables',
       icon: Utensils,
       show: !isCashierOnly && activeIndustries.includes('RESTAURANT'),
     },
     {
       id: 'inventory' as NavTab,
-      label: 'أرصدة المخزون والتكلفة',
+      labelAr: 'أرصدة المخزون والتكلفة',
+      labelEn: 'Inventory & Costing',
       icon: Boxes,
       show: !isCashierOnly,
     },
     {
       id: 'purchasing' as NavTab,
-      label: 'المشتريات وسلاسل الإمداد',
+      labelAr: 'المشتريات وسلاسل الإمداد',
+      labelEn: 'Purchasing & Supply',
       icon: ShoppingCart,
       show: !isCashierOnly,
     },
     {
       id: 'production' as NavTab,
-      label: 'الوصفات والتصنيع (BOM)',
+      labelAr: 'الوصفات والتصنيع (BOM)',
+      labelEn: 'Recipes & Production',
       icon: ChefHat,
       show:
         !isCashierOnly &&
@@ -99,7 +121,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'transfers' as NavTab,
-      label: 'التحويلات والمناقلات',
+      labelAr: 'التحويلات والمناقلات',
+      labelEn: 'Stock Transfers',
       icon: ArrowLeftRight,
       show: !isCashierOnly,
     },
@@ -110,43 +133,85 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const enterpriseNav = [
     {
       id: 'entities' as NavTab,
-      label: 'الشركات والفروع',
+      labelAr: 'الشركات والفروع',
+      labelEn: 'Entities & Branches',
       icon: Building2,
       show: !isCashierOnly,
     },
     {
       id: 'users' as NavTab,
-      label: 'المستخدمون',
+      labelAr: 'المستخدمون',
+      labelEn: 'Users',
       icon: Users,
       show: !isCashierOnly,
     },
     {
       id: 'roles' as NavTab,
-      label: 'الأدوار والصلاحيات',
+      labelAr: 'الأدوار والصلاحيات',
+      labelEn: 'Roles & Permissions',
       icon: ShieldCheck,
       show: !isCashierOnly,
     },
     {
       id: 'settings' as NavTab,
-      label: 'إعدادات المنشأة',
+      labelAr: 'إعدادات المنشأة',
+      labelEn: 'Organization Settings',
       icon: Settings,
       show: !isCashierOnly,
     },
     {
       id: 'audit' as NavTab,
-      label: 'سجل الرقابة (Audit)',
+      labelAr: 'سجل الرقابة (Audit)',
+      labelEn: 'Audit Logs',
       icon: FileText,
       show: !isCashierOnly,
     },
     {
       id: 'accounting' as NavTab,
-      label: 'المحاسبة ودفتر الأستاذ',
+      labelAr: 'المحاسبة ودفتر الأستاذ',
+      labelEn: 'Accounting & Ledger',
       icon: BookOpen,
       show: !isCashierOnly,
     },
     {
+      id: 'reconciliation' as NavTab,
+      labelAr: 'المصالحات والتقارير المالية',
+      labelEn: 'Reconciliation & Reports',
+      icon: ShieldCheck,
+      show: !isCashierOnly,
+    },
+    {
+      id: 'period-closing' as NavTab,
+      labelAr: 'إقفال الفترات المالية',
+      labelEn: 'Period Closing',
+      icon: Lock,
+      show: !isCashierOnly,
+    },
+    {
+      id: 'zatca-v2' as NavTab,
+      labelAr: 'الفوترة الإلكترونية ZATCA V2',
+      labelEn: 'ZATCA V2 E-Invoicing',
+      icon: QrCode,
+      show: !isCashierOnly,
+    },
+    {
+      id: 'hr' as NavTab,
+      labelAr: 'الموظفون والموارد البشرية',
+      labelEn: 'HR & Employees',
+      icon: Users,
+      show: !isCashierOnly,
+    },
+    {
+      id: 'delivery' as NavTab,
+      labelAr: 'التوصيل والسائقون',
+      labelEn: 'Delivery & Drivers',
+      icon: Truck,
+      show: !isCashierOnly,
+    },
+    {
       id: 'industries' as NavTab,
-      label: 'قطاعات المنشأة وباقات SaaS',
+      labelAr: 'قطاعات المنشأة وباقات SaaS',
+      labelEn: 'Industries & SaaS Packs',
       icon: Layers,
       show: !isCashierOnly,
     },
@@ -154,71 +219,118 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const filteredEnterpriseNav = enterpriseNav.filter((item) => item.show);
 
+  const handleSelect = (tab: NavTab) => {
+    onSelectTab(tab);
+    onClose?.();
+  };
+
+  const drawerSideClass = isEn ? 'left-0 border-r' : 'right-0 border-l';
+  const drawerTranslateClass = isOpen
+    ? 'translate-x-0'
+    : isEn
+    ? '-translate-x-full lg:translate-x-0'
+    : 'translate-x-full lg:translate-x-0';
+
   return (
-    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col border-l border-slate-800 select-none">
-      <div className="h-16 flex items-center px-6 border-b border-slate-800 gap-3">
-        <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-sm">
-          RC
-        </div>
-        <div>
-          <h1 className="font-bold text-sm text-white leading-tight">Restaurant Cloud</h1>
-          <span className="text-[11px] text-slate-400">نظام إدارة المطاعم المركزي</span>
-        </div>
-      </div>
+    <>
+      {/* Mobile/Tablet Backdrop */}
+      {isOpen && (
+        <div
+          className="no-print fixed inset-0 z-30 bg-slate-950/50 backdrop-blur-[1px] lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
 
-      <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
-        <div className="text-[11px] font-semibold text-slate-400 px-3 py-1">العمليات والتشغيل</div>
-        {filteredOperationsNav.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                isActive
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'hover:bg-slate-800 hover:text-white text-slate-400'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-
-        {!isCashierOnly && filteredEnterpriseNav.length > 0 && (
-          <>
-            <div className="text-[11px] font-semibold text-slate-400 px-3 pt-5 pb-1">
-              إدارة المنشأة والمالية
+      <aside
+        className={`no-print fixed inset-y-0 ${drawerSideClass} z-40 w-64 bg-slate-900 text-slate-300 flex flex-col border-slate-800 transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 shrink-0 ${drawerTranslateClass}`}
+        aria-label={isEn ? 'Main navigation' : 'القائمة الرئيسية'}
+      >
+        <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-white shadow-sm shrink-0">
+              RC
             </div>
-            {filteredEnterpriseNav.map((item) => {
-              const Icon = item.icon;
-              const isActive = currentTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => onSelectTab(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    isActive
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                      : 'hover:bg-slate-800 hover:text-white text-slate-400'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </>
-        )}
-      </nav>
+            <div className="min-w-0">
+              <h1 className="font-bold text-sm text-white leading-tight truncate">
+                Restaurant Cloud
+              </h1>
+              <span className="text-[11px] text-slate-400 block truncate">
+                {isEn ? 'Enterprise Backoffice' : 'نظام إدارة المطاعم المركزي'}
+              </span>
+            </div>
+          </div>
 
-      {/* Footer System Info */}
-      <div className="p-4 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-        <span>الإصدار 1.0 (Live Context)</span>
-        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-      </div>
-    </aside>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={isEn ? 'Close navigation menu' : 'إغلاق القائمة الجانبية'}
+              className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        <nav className="flex-1 p-3.5 space-y-1 overflow-y-auto">
+          <div className="text-[11px] font-semibold text-slate-400 px-3 py-1.5 uppercase tracking-wider">
+            {isEn ? 'Operations' : 'العمليات والتشغيل'}
+          </div>
+          {filteredOperationsNav.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleSelect(item.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                  isActive
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'hover:bg-slate-800/80 hover:text-white text-slate-300'
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="truncate">{isEn ? item.labelEn : item.labelAr}</span>
+              </button>
+            );
+          })}
+
+          {!isCashierOnly && filteredEnterpriseNav.length > 0 && (
+            <>
+              <div className="text-[11px] font-semibold text-slate-400 px-3 pt-5 pb-1.5 uppercase tracking-wider">
+                {isEn ? 'Enterprise & Finance' : 'إدارة المنشأة والمالية'}
+              </div>
+              {filteredEnterpriseNav.map((item) => {
+                const Icon = item.icon;
+                const isActive = currentTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSelect(item.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'hover:bg-slate-800/80 hover:text-white text-slate-300'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{isEn ? item.labelEn : item.labelAr}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </nav>
+
+        {/* Footer System Info */}
+        <div className="p-4 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+          <span>{isEn ? 'v1.0 (Live Context)' : 'الإصدار 1.0 (Live Context)'}</span>
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+        </div>
+      </aside>
+    </>
   );
 };

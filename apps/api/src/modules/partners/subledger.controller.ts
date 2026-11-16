@@ -13,6 +13,7 @@ import { SubledgerReconciliationService } from './subledger-reconciliation.servi
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { RequiredLegalEntityIdPipe } from '../../common/pipes/legal-entity-id.pipe';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
   CreateArInvoiceSchema,
@@ -107,7 +108,7 @@ export class SubledgerController {
   @RequirePermissions('reconciliation.ar_ap.view')
   async reconcileAr(
     @CurrentContext() context: TenantContext,
-    @Query('legalEntityId') legalEntityId: string
+    @Query('legalEntityId', RequiredLegalEntityIdPipe) legalEntityId: string
   ) {
     const data = await this.reconciliationService.reconcileAr(context, legalEntityId);
     return { success: true, data };
@@ -117,7 +118,7 @@ export class SubledgerController {
   @RequirePermissions('reconciliation.ar_ap.view')
   async reconcileAp(
     @CurrentContext() context: TenantContext,
-    @Query('legalEntityId') legalEntityId: string
+    @Query('legalEntityId', RequiredLegalEntityIdPipe) legalEntityId: string
   ) {
     const data = await this.reconciliationService.reconcileAp(context, legalEntityId);
     return { success: true, data };

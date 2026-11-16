@@ -68,7 +68,8 @@ export class PostingEngineService {
     tx: any,
     context: TenantContext,
     legalEntityId: string,
-    line: PostingLineInput
+    line: PostingLineInput,
+    fallbackBranchId?: string
   ): Promise<string> {
     if (line.accountId) {
       // Validate that the account exists, belongs to tenant & legal entity, and is postable
@@ -128,40 +129,157 @@ export class PostingEngineService {
     }
 
     if (line.mappingKey) {
-      const [mapping] = await tx
-        .select({ accountId: accountMappings.accountId })
+      const effectiveBranchId = line.branchId || fallbackBranchId || null;
+
+      // 1. Branch Override
+      if (effectiveBranchId) {
+        const [branchOverride] = await tx
+          .select({
+            accountId: accountMappings.accountId,
+            accountCode: chartOfAccounts.accountCode,
+            status: chartOfAccounts.status,
+            isPostable: chartOfAccounts.isPostable,
+          })
+          .from(accountMappings)
+          .innerJoin(chartOfAccounts, eq(accountMappings.accountId, chartOfAccounts.id))
+          .where(
+            and(
+              eq(accountMappings.tenantId, context.tenantId),
+              eq(accountMappings.legalEntityId, legalEntityId),
+              eq(accountMappings.branchId, effectiveBranchId),
+              eq(accountMappings.mappingKey, line.mappingKey),
+              eq(accountMappings.isActive, true)
+            )
+          )
+          .limit(1);
+
+        if (branchOverride) {
+          if (branchOverride.status !== 'ACTIVE' || !branchOverride.isPostable) {
+            throw new BadRequestException(
+              `الحساب المخصص للفرع للمفتاح '${line.mappingKey}' (${branchOverride.accountCode}) غير نشط أو غير قابل للترحيل`
+            );
+          }
+          return branchOverride.accountId;
+        }
+      }
+
+      // 2. Company Default Mapping (branch_id IS NULL)
+      const [companyMapping] = await tx
+        .select({
+          accountId: accountMappings.accountId,
+          accountCode: chartOfAccounts.accountCode,
+          status: chartOfAccounts.status,
+          isPostable: chartOfAccounts.isPostable,
+        })
         .from(accountMappings)
+        .innerJoin(chartOfAccounts, eq(accountMappings.accountId, chartOfAccounts.id))
         .where(
           and(
             eq(accountMappings.tenantId, context.tenantId),
             eq(accountMappings.legalEntityId, legalEntityId),
-            eq(accountMappings.mappingKey, line.mappingKey)
+            sql`${accountMappings.branchId} IS NULL`,
+            eq(accountMappings.mappingKey, line.mappingKey),
+            eq(accountMappings.isActive, true)
           )
         )
         .limit(1);
 
-      if (!mapping) {
-        if (line.mappingKey === DefaultAccountMappingKey.ROUNDING_DIFFERENCE) {
-          const [fallback] = await tx
-            .select({ accountId: accountMappings.accountId })
-            .from(accountMappings)
-            .where(
-              and(
-                eq(accountMappings.tenantId, context.tenantId),
-                eq(accountMappings.legalEntityId, legalEntityId),
-                eq(accountMappings.mappingKey, DefaultAccountMappingKey.GENERAL_EXPENSE)
-              )
-            )
-            .limit(1);
-          if (fallback) return fallback.accountId;
+      if (companyMapping) {
+        if (companyMapping.status !== 'ACTIVE' || !companyMapping.isPostable) {
+          throw new BadRequestException(
+            `الحساب الافتراضي للمنشأة للمفتاح '${line.mappingKey}' (${companyMapping.accountCode}) غير نشط أو غير قابل للترحيل`
+          );
         }
-
-        throw new BadRequestException(
-          `لم يتم تحديد حساب مرتبط للمفتاح '${line.mappingKey}' في إعدادات ربط الحسابات (Account Mappings)`
-        );
+        return companyMapping.accountId;
       }
 
-      return mapping.accountId;
+      // 3. System Default (Well-known standard chart codes)
+      const standardDefaultCodes: Record<string, string> = {
+        [DefaultAccountMappingKey.SALES]: '411000',
+        [DefaultAccountMappingKey.VAT_OUTPUT]: '211200',
+        [DefaultAccountMappingKey.VAT_INPUT]: '114200',
+        [DefaultAccountMappingKey.COGS]: '511000',
+        [DefaultAccountMappingKey.INVENTORY]: '112000',
+        [DefaultAccountMappingKey.CASH_VAULT]: '111100',
+        [DefaultAccountMappingKey.BANK]: '111200',
+        [DefaultAccountMappingKey.MADA_CLEARING]: '111300',
+        [DefaultAccountMappingKey.CARD_CLEARING]: '111350',
+        [DefaultAccountMappingKey.VISA_CLEARING]: '111400',
+        [DefaultAccountMappingKey.APPLE_PAY_CLEARING]: '111500',
+        [DefaultAccountMappingKey.STC_PAY_CLEARING]: '111600',
+        [DefaultAccountMappingKey.ACCOUNTS_RECEIVABLE]: '113100',
+        [DefaultAccountMappingKey.AGGREGATOR_RECEIVABLE]: '113200',
+        [DefaultAccountMappingKey.AGGREGATOR_COMMISSION]: '512000',
+        [DefaultAccountMappingKey.GATEWAY_FEES]: '512100',
+        [DefaultAccountMappingKey.AGGREGATOR_SUSPENSE]: '211900',
+        [DefaultAccountMappingKey.SALES_DISCOUNTS]: '412000',
+        [DefaultAccountMappingKey.INTER_BRANCH_CLEARING]: '119100',
+        [DefaultAccountMappingKey.INVENTORY_IN_TRANSIT]: '112900',
+        [DefaultAccountMappingKey.INVENTORY_DAMAGE_LOSS]: '519200',
+        [DefaultAccountMappingKey.INVENTORY_GAIN]: '419300',
+        [DefaultAccountMappingKey.DUE_FROM_AFFILIATE]: '119200',
+        [DefaultAccountMappingKey.DUE_TO_AFFILIATE]: '219200',
+        [DefaultAccountMappingKey.CASH_IN_TRANSIT]: '111900',
+        [DefaultAccountMappingKey.CASH_OVER_SHORT]: '519100',
+        [DefaultAccountMappingKey.CASH_OVERAGE]: '419200',
+        [DefaultAccountMappingKey.ROUNDING_DIFFERENCE]: '419100',
+        [DefaultAccountMappingKey.GENERAL_EXPENSE]: '519000',
+      };
+
+      const defaultCode = standardDefaultCodes[line.mappingKey];
+      if (defaultCode) {
+        const [sysDefault] = await tx
+          .select({
+            id: chartOfAccounts.id,
+            accountCode: chartOfAccounts.accountCode,
+            accountType: chartOfAccounts.accountType,
+            status: chartOfAccounts.status,
+            isPostable: chartOfAccounts.isPostable,
+          })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.tenantId, context.tenantId),
+              eq(chartOfAccounts.legalEntityId, legalEntityId),
+              eq(chartOfAccounts.accountCode, defaultCode)
+            )
+          )
+          .limit(1);
+
+        if (sysDefault) {
+          if (sysDefault.status !== 'ACTIVE' || !sysDefault.isPostable) {
+            throw new BadRequestException(
+              `الحساب الافتراضي للنظام للمفتاح '${line.mappingKey}' (${sysDefault.accountCode}) غير نشط أو غير قابل للترحيل`
+            );
+          }
+          if (
+            (line.mappingKey === DefaultAccountMappingKey.CASH_OVER_SHORT ||
+              line.mappingKey === DefaultAccountMappingKey.INVENTORY_DAMAGE_LOSS) &&
+            sysDefault.accountType !== 'EXPENSE' &&
+            sysDefault.accountType !== 'OTHER_EXPENSE'
+          ) {
+            throw new BadRequestException(
+              `الحساب الافتراضي للمفتاح '${line.mappingKey}' (${sysDefault.accountCode}) غير متوافق نوعياً؛ يجب أن يكون مصروفات`
+            );
+          }
+          if (
+            (line.mappingKey === DefaultAccountMappingKey.CASH_OVERAGE ||
+              line.mappingKey === DefaultAccountMappingKey.INVENTORY_GAIN) &&
+            sysDefault.accountType !== 'REVENUE' &&
+            sysDefault.accountType !== 'OTHER_INCOME'
+          ) {
+            throw new BadRequestException(
+              `الحساب الافتراضي للمفتاح '${line.mappingKey}' (${sysDefault.accountCode}) غير متوافق نوعياً؛ يجب أن يكون إيرادات`
+            );
+          }
+          return sysDefault.id;
+        }
+      }
+
+      // 4. Strict Failure Guard
+      throw new BadRequestException(
+        `لم يتم العثور على ربط محاسبي صالح للمفتاح '${line.mappingKey}' في المنشأة القانونية أو الفرع المحدد`
+      );
     }
 
     throw new BadRequestException('يجب تحديد accountId أو mappingKey لكل بند في القيد');
@@ -201,9 +319,13 @@ export class PostingEngineService {
     );
 
     if (matchedPeriod) {
-      if (matchedPeriod.status === FiscalPeriodStatus.CLOSED) {
+      if (
+        matchedPeriod.status === FiscalPeriodStatus.CLOSED ||
+        matchedPeriod.status === FiscalPeriodStatus.CLOSING ||
+        matchedPeriod.status === FiscalPeriodStatus.LOCKED
+      ) {
         throw new BadRequestException(
-          `لا يمكن إنشاء أو ترحيل قيود في فترة مالية مقفلة (${matchedPeriod.periodName})`
+          `لا يمكن إنشاء أو ترحيل قيود في فترة مالية مغلقة أو قيد الإقفال (${matchedPeriod.periodName} - ${matchedPeriod.status})`
         );
       }
       return matchedPeriod.id;
@@ -265,7 +387,8 @@ export class PostingEngineService {
           tx,
           context,
           params.legalEntityId,
-          line
+          line,
+          params.branchId || undefined
         );
 
         resolvedLines.push({

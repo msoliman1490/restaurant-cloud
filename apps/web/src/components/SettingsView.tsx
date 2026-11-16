@@ -10,6 +10,9 @@ import {
   CreditCard,
   Layers,
   X,
+  MessageSquare,
+  Webhook,
+  Send,
 } from 'lucide-react';
 
 interface TenantSettingsData {
@@ -51,6 +54,41 @@ export const SettingsView: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'general' | 'integrations'>('general');
+  const [waEnabled, setWaEnabled] = useState(false);
+  const [waPhoneId, setWaPhoneId] = useState('');
+  const [webhookEnabled, setWebhookEnabled] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [testRecipient, setTestRecipient] = useState('+966500000000');
+  const [notifLogs, setNotifLogs] = useState<
+    Array<{ id: string; channel: string; recipient: string; eventType: string; status: string; createdAt: string }>
+  >([]);
+
+  const fetchIntegrations = async () => {
+    try {
+      const [intRes, logRes] = await Promise.all([
+        apiClient.request<Array<{ channel: string; isEnabled: boolean; configJson: Record<string, any> }>>('/tenants/integrations'),
+        apiClient.request<Array<{ id: string; channel: string; recipient: string; eventType: string; status: string; createdAt: string }>>('/tenants/notifications?limit=15'),
+      ]);
+      if (Array.isArray(intRes)) {
+        const wa = intRes.find((i) => i.channel === 'WHATSAPP');
+        if (wa) {
+          setWaEnabled(wa.isEnabled);
+          setWaPhoneId(wa.configJson?.phoneNumberId || '');
+        }
+        const wh = intRes.find((i) => i.channel === 'WEBHOOK');
+        if (wh) {
+          setWebhookEnabled(wh.isEnabled);
+          setWebhookUrl(wh.configJson?.webhookUrl || '');
+        }
+      }
+      if (Array.isArray(logRes)) {
+        setNotifLogs(logRes);
+      }
+    } catch {
+      // Keep UI functional even if integrations table is empty
+    }
+  };
 
   const fetchSettings = async () => {
     setIsLoading(true);
@@ -65,10 +103,52 @@ export const SettingsView: React.FC = () => {
           timezone: res.tenant.timezone,
         });
       }
+      await fetchIntegrations();
     } catch (err: any) {
       setError(err?.message || 'فشل في تحميل إعدادات المنشأة');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveIntegration = async (channel: 'WHATSAPP' | 'WEBHOOK') => {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      await apiClient.request(`/tenants/integrations/${channel}`, {
+        method: 'PATCH',
+        body: JSON.stringify(
+          channel === 'WHATSAPP'
+            ? { provider: 'META_CLOUD_API', isEnabled: waEnabled, configJson: { phoneNumberId: waPhoneId } }
+            : { provider: 'CUSTOM_WEBHOOK', isEnabled: webhookEnabled, configJson: { webhookUrl } }
+        ),
+      });
+      setSuccessMsg(`تم حفظ إعدادات قناة ${channel} بنجاح`);
+      await fetchIntegrations();
+    } catch (err: any) {
+      setError(err?.message || 'فشل حفظ إعدادات التكامل');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSendTestNotification = async (channel: 'WHATSAPP' | 'WEBHOOK') => {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      await apiClient.post('/tenants/notifications/dispatch', {
+        channel,
+        recipient: channel === 'WHATSAPP' ? testRecipient : webhookUrl || 'https://webhook.local/test',
+        eventType: 'TEST_MESSAGE',
+        payload: { message: 'رسالة اختبار من Restaurant Cloud Staging' },
+        idempotencyKey: `TEST-${channel}-${Date.now()}`,
+      });
+      setSuccessMsg(`تم إرسال إشعار اختبار عبر ${channel}`);
+      await fetchIntegrations();
+    } catch (err: any) {
+      setError(err?.message || 'فشل إرسال الإشعار');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -115,6 +195,27 @@ export const SettingsView: React.FC = () => {
             تكوين البيانات العامة، الباقة التشغيلية، ومحددات النظام لـ ({data?.tenant.displayName || activeTenant?.name}).
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('general')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+              activeTab === 'general' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            الإعدادات العامة
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('integrations')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 ${
+              activeTab === 'integrations' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>التكاملات والإشعارات (WhatsApp)</span>
+          </button>
+        </div>
       </div>
 
       {/* Notifications */}
@@ -138,6 +239,163 @@ export const SettingsView: React.FC = () => {
         </div>
       )}
 
+      {activeTab === 'integrations' ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* WhatsApp Business Integration */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-emerald-600" />
+                  تكامل WhatsApp Business API
+                </h2>
+                <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={waEnabled}
+                    onChange={(e) => setWaEnabled(e.target.checked)}
+                    className="rounded border-slate-300 text-emerald-600"
+                  />
+                  <span>تفعيل القناة</span>
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Phone Number ID</label>
+                <input
+                  type="text"
+                  value={waPhoneId}
+                  onChange={(e) => setWaPhoneId(e.target.value)}
+                  placeholder="مثال: 1092837465001"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">رقم مستلم للاختبار</label>
+                <input
+                  type="text"
+                  value={testRecipient}
+                  onChange={(e) => setTestRecipient(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+                />
+              </div>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => handleSaveIntegration('WHATSAPP')}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+                >
+                  حفظ إعدادات WhatsApp
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => handleSendTestNotification('WHATSAPP')}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 flex items-center gap-1"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  إرسال رسالة اختبار
+                </button>
+              </div>
+            </div>
+
+            {/* Webhook Integration */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Webhook className="w-5 h-5 text-indigo-600" />
+                  تكامل Webhooks الأحداث
+                </h2>
+                <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={webhookEnabled}
+                    onChange={(e) => setWebhookEnabled(e.target.checked)}
+                    className="rounded border-slate-300 text-indigo-600"
+                  />
+                  <span>تفعيل القناة</span>
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Webhook Endpoint URL</label>
+                <input
+                  type="url"
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  placeholder="https://example.com/webhooks/restaurant-cloud"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+                />
+              </div>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => handleSaveIntegration('WEBHOOK')}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+                >
+                  حفظ إعدادات Webhook
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => handleSendTestNotification('WEBHOOK')}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 flex items-center gap-1"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  اختبار الإرسال
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Notification Dispatch Logs */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-900 text-sm">سجل الإشعارات والتكاملات (Notification Dispatch Log)</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
+                    <th className="py-2.5 px-3">القناة</th>
+                    <th className="py-2.5 px-3">المستلم</th>
+                    <th className="py-2.5 px-3">الحدث</th>
+                    <th className="py-2.5 px-3">الحالة</th>
+                    <th className="py-2.5 px-3">التاريخ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {notifLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-400">
+                        لا توجد إشعارات مرسلة بعد
+                      </td>
+                    </tr>
+                  ) : (
+                    notifLogs.map((log) => (
+                      <tr key={log.id}>
+                        <td className="py-2.5 px-3 font-mono font-bold">{log.channel}</td>
+                        <td className="py-2.5 px-3 font-mono">{log.recipient}</td>
+                        <td className="py-2.5 px-3">{log.eventType}</td>
+                        <td className="py-2.5 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                              log.status === 'SENT'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {log.status}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-slate-500">{log.createdAt?.slice(0, 19).replace('T', ' ')}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* General Settings Form */}
         <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
@@ -279,6 +537,7 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

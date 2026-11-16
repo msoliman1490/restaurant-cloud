@@ -1,4 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { apiClient } from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import {
   Plus,
   Search,
@@ -19,17 +22,19 @@ import {
   List,
   Upload,
   Info,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { ProductItem, Category } from '../types';
 
-const INITIAL_CATEGORIES: Category[] = [
-  { id: 'cat-all', code: 'ALL', nameAr: 'جميع الأصناف', nameEn: 'All Categories', displayOrder: 0, isActive: true },
-  { id: 'cat-1', code: 'BURGERS', nameAr: 'برجر وساندوتشات', nameEn: 'Burgers & Sandwiches', displayOrder: 1, isActive: true },
-  { id: 'cat-2', code: 'PIZZA', nameAr: 'بيتزا ومعجنات', nameEn: 'Pizza & Bakery', displayOrder: 2, isActive: true },
-  { id: 'cat-3', code: 'DRINKS', nameAr: 'مشروبات وعصائر', nameEn: 'Beverages & Juices', displayOrder: 3, isActive: true },
-  { id: 'cat-4', code: 'DESSERTS', nameAr: 'حلويات وآيس كريم', nameEn: 'Desserts', displayOrder: 4, isActive: true },
-  { id: 'cat-5', code: 'RAW_ING', nameAr: 'مواد أولية ومكونات', nameEn: 'Raw Ingredients', displayOrder: 5, isActive: true },
-];
+const ALL_CATEGORIES_OPTION: Category = {
+  id: 'cat-all',
+  code: 'ALL',
+  nameAr: 'جميع الأصناف',
+  nameEn: 'All Categories',
+  displayOrder: 0,
+  isActive: true,
+};
 
 const PRODUCT_TYPES = [
   { value: 'SALEABLE', labelAr: 'منتج جاهز للبيع (Saleable)', desc: 'وجبات وأصناف مباشرة للعملاء' },
@@ -41,89 +46,87 @@ const PRODUCT_TYPES = [
   { value: 'NON_INVENTORY', labelAr: 'غير مخزني (Non-Inventory)', desc: 'أدوات استهلاكية ومطبوعات' },
 ];
 
-const INITIAL_PRODUCTS: ProductItem[] = [
-  {
-    id: 'prod-1',
-    sku: 'BRG-001',
-    barcode: '62810001001',
-    barcodes: [
-      { barcode: '62810001001', barcodeType: 'EAN13', isPrimary: true },
-      { barcode: 'BRG-001-ALT', barcodeType: 'CODE128', isPrimary: false },
-    ],
-    nameAr: 'برجر أنجوس كلاسيك',
-    nameEn: 'Angus Classic Burger',
-    description: 'شريحة لحم أنجوس فاخر مع جبن شيدر ذائب وصوص أنجوس السري بخبز البريوش الطازج',
-    categoryId: 'cat-1',
-    categoryName: 'برجر وساندوتشات',
-    productType: 'SALEABLE',
-    baseUom: 'PCS (حبة)',
-    defaultCost: 14.5,
-    defaultPrice: 35.0,
-    taxRate: 0.15,
-    minStockLevel: 20,
-    maxStockLevel: 200,
-    isSold: true,
-    isPurchased: false,
-    isRecipeIngredient: false,
-    isActive: true,
-    isArchived: false,
-    primaryImageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&auto=format&fit=crop&q=60',
-    onHandQty: 145,
-  },
-  {
-    id: 'prod-2',
-    sku: 'BRG-002',
-    barcode: '62810001002',
-    barcodes: [{ barcode: '62810001002', barcodeType: 'EAN13', isPrimary: true }],
-    nameAr: 'برجر دجاج كرسبي مقرمش',
-    nameEn: 'Crispy Chicken Burger',
-    description: 'صدر دجاج مقرمش متبل بخلطة الأعشاب مع سلطة كول سلو وصلصة المايونيز الحار',
-    categoryId: 'cat-1',
-    categoryName: 'برجر وساندوتشات',
-    productType: 'SALEABLE',
-    baseUom: 'PCS (حبة)',
-    defaultCost: 11.0,
-    defaultPrice: 28.0,
-    taxRate: 0.15,
-    minStockLevel: 15,
-    maxStockLevel: 150,
-    isSold: true,
-    isPurchased: false,
-    isRecipeIngredient: false,
-    isActive: true,
-    isArchived: false,
-    primaryImageUrl: 'https://images.unsplash.com/photo-1625813506062-0aeb1d7a094b?w=400&auto=format&fit=crop&q=60',
-    onHandQty: 82,
-  },
-  {
-    id: 'prod-3',
-    sku: 'RAW-BEEF',
-    barcode: '62810009001',
-    barcodes: [{ barcode: '62810009001', barcodeType: 'CODE128', isPrimary: true }],
-    nameAr: 'لحم بقري أنجوس مفروم (خام)',
-    nameEn: 'Minced Angus Beef Raw',
-    description: 'مادة خام مستوردة تستخدم في تشكيل أقراص البرجر بالمطبخ المركزي',
-    categoryId: 'cat-5',
-    categoryName: 'مواد أولية ومكونات',
-    productType: 'RAW_MATERIAL',
-    baseUom: 'KG (كيلوجرام)',
-    defaultCost: 38.0,
-    defaultPrice: 0.0,
-    taxRate: 0.15,
-    minStockLevel: 50,
-    maxStockLevel: 500,
-    isSold: false,
-    isPurchased: true,
-    isRecipeIngredient: true,
-    isActive: true,
-    isArchived: false,
-    onHandQty: 320,
-  },
-];
-
 export const CatalogView: React.FC = () => {
-  const [products, setProducts] = useState<ProductItem[]>(INITIAL_PRODUCTS);
+  const { activeLegalEntity } = useAuth();
+  const { showToast } = useToast();
+  const [products, setProducts] = useState<ProductItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>([ALL_CATEGORIES_OPTION]);
+  const [uoms, setUoms] = useState<Array<{ id: string; code: string; nameAr: string; nameEn: string }>>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('cat-all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  const loadCatalog = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [itemsRes, catsRes, uomsRes] = await Promise.allSettled([
+        apiClient.get<any>('/api/v1/catalog/items?limit=100'),
+        apiClient.get<any>('/api/v1/catalog/categories?limit=100'),
+        apiClient.get<any>('/api/v1/catalog/uom'),
+      ]);
+
+      let loadedCats: Category[] = [ALL_CATEGORIES_OPTION];
+      if (catsRes.status === 'fulfilled') {
+        const catRows = Array.isArray(catsRes.value)
+          ? catsRes.value
+          : catsRes.value?.items || catsRes.value?.categories || [];
+        loadedCats = [ALL_CATEGORIES_OPTION, ...catRows];
+        setCategories(loadedCats);
+      }
+
+      if (uomsRes.status === 'fulfilled') {
+        const uomRows = Array.isArray(uomsRes.value) ? uomsRes.value : uomsRes.value?.items || [];
+        setUoms(uomRows);
+      }
+
+      if (itemsRes.status === 'fulfilled') {
+        const rows = Array.isArray(itemsRes.value)
+          ? itemsRes.value
+          : itemsRes.value?.items || [];
+        const catMap = new Map(loadedCats.map((c) => [c.id, c.nameAr]));
+        setProducts(
+          rows.map((item: any) => ({
+            id: item.id,
+            sku: item.sku || '',
+            barcode: item.barcode || '',
+            nameAr: item.nameAr || item.nameEn || '',
+            nameEn: item.nameEn || '',
+            description: item.description || '',
+            categoryId: item.categoryId || 'cat-all',
+            categoryName: item.categoryName || catMap.get(item.categoryId) || 'عام',
+            productType: item.productType || 'SALEABLE',
+            baseUom: item.baseUom || item.uomCode || 'PCS',
+            defaultCost: Number(item.defaultCost ?? 0),
+            defaultPrice: Number(item.defaultPrice ?? item.sellingPrice ?? 0),
+            taxRate: Number(item.taxRate ?? 0.15),
+            minStockLevel: item.minStockLevel !== null && item.minStockLevel !== undefined ? Number(item.minStockLevel) : undefined,
+            maxStockLevel: item.maxStockLevel !== null && item.maxStockLevel !== undefined ? Number(item.maxStockLevel) : undefined,
+            isSold: item.isSold ?? true,
+            isPurchased: item.isPurchased ?? false,
+            isRecipeIngredient: item.isRecipeIngredient ?? false,
+            isActive: item.isActive ?? (item.status ? item.status === 'ACTIVE' : true),
+            isArchived: item.isArchived ?? (item.status === 'ARCHIVED'),
+            primaryImageUrl: item.primaryImageUrl || '',
+            onHandQty: Number(item.onHandQty ?? 0),
+          })),
+        );
+      } else {
+        setProducts([]);
+        setError(itemsRes.reason?.message || 'تعذر تحميل قائمة الأصناف من الخادم');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'تعذر تحميل بيانات الكتالوج');
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCatalog();
+  }, [loadCatalog]);
   const [selectedProductType, setSelectedProductType] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -269,75 +272,72 @@ export const CatalogView: React.FC = () => {
     setIsProductModalOpen(true);
   };
 
-  const handleSaveProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.sku || !formData.nameAr || !formData.nameEn) {
-      alert('يرجى ملء الحقول الإلزامية: رمز SKU واسم الصنف بالعربية والإنجليزية');
+      showToast('يرجى ملء الحقول الإلزامية: رمز SKU واسم الصنف بالعربية والإنجليزية', 'warning');
       return;
     }
 
-    const cat = INITIAL_CATEGORIES.find((c) => c.id === formData.categoryId);
+    const isUuid = (val?: string | null) =>
+      !!val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
-    if (modalMode === 'create') {
-      const newProd: ProductItem = {
-        id: `prod-${Date.now()}`,
-        sku: formData.sku.toUpperCase(),
-        barcode: formData.barcode || formData.barcodesList[0]?.barcode,
-        barcodes: formData.barcodesList,
-        nameAr: formData.nameAr,
-        nameEn: formData.nameEn,
-        description: formData.description,
-        categoryId: formData.categoryId,
-        categoryName: cat?.nameAr ?? 'عام',
-        productType: formData.productType,
-        baseUom: formData.baseUom,
-        defaultCost: parseFloat(formData.defaultCost) || 0,
-        defaultPrice: parseFloat(formData.defaultPrice) || 0,
-        taxRate: parseFloat(formData.taxRate) || 0.15,
-        minStockLevel: parseFloat(formData.minStockLevel) || 0,
-        maxStockLevel: parseFloat(formData.maxStockLevel) || undefined,
-        isSold: formData.isSold,
-        isPurchased: formData.isPurchased,
-        isRecipeIngredient: formData.isRecipeIngredient,
-        isActive: formData.isActive,
-        isArchived: false,
-        primaryImageUrl: formData.primaryImageUrl || formData.galleryImages[0],
-        onHandQty: 0,
-      };
+    const matchedUom =
+      uoms.find((u) => formData.baseUom.toUpperCase().includes(u.code.toUpperCase())) || uoms[0];
 
-      setProducts([newProd, ...products]);
-    } else if (modalMode === 'edit' && editingProductId) {
-      setProducts(
-        products.map((p) => {
-          if (p.id !== editingProductId) return p;
-          return {
-            ...p,
-            sku: formData.sku.toUpperCase(),
-            barcode: formData.barcode || formData.barcodesList[0]?.barcode,
-            barcodes: formData.barcodesList,
-            nameAr: formData.nameAr,
-            nameEn: formData.nameEn,
-            description: formData.description,
-            categoryId: formData.categoryId,
-            categoryName: cat?.nameAr ?? p.categoryName,
-            productType: formData.productType,
-            baseUom: formData.baseUom,
-            // Notice: defaultPrice and defaultCost are managed via dedicated permission modals
-            taxRate: parseFloat(formData.taxRate) || 0.15,
-            minStockLevel: parseFloat(formData.minStockLevel) || 0,
-            maxStockLevel: parseFloat(formData.maxStockLevel) || undefined,
-            isSold: formData.isSold,
-            isPurchased: formData.isPurchased,
-            isRecipeIngredient: formData.isRecipeIngredient,
-            isActive: formData.isActive,
-            primaryImageUrl: formData.primaryImageUrl || formData.galleryImages[0],
-          };
-        })
-      );
+    try {
+      if (modalMode === 'create') {
+        if (!activeLegalEntity?.id || !matchedUom?.id) {
+          throw new Error('لا يمكن إنشاء صنف بدون تحديد الشركة القانونية ووحدة القياس من قاعدة البيانات');
+        }
+        await apiClient.post('/api/v1/catalog/items', {
+          legalEntityOwnerId: activeLegalEntity.id,
+          categoryId: isUuid(formData.categoryId) ? formData.categoryId : null,
+          baseUomId: matchedUom.id,
+          sku: formData.sku.toUpperCase(),
+          barcode: formData.barcode || formData.barcodesList[0]?.barcode || null,
+          barcodes: formData.barcodesList.length > 0 ? formData.barcodesList : undefined,
+          nameAr: formData.nameAr,
+          nameEn: formData.nameEn,
+          description: formData.description || null,
+          productType: formData.productType,
+          defaultCost: (parseFloat(formData.defaultCost) || 0).toFixed(4),
+          defaultPrice: (parseFloat(formData.defaultPrice) || 0).toFixed(4),
+          taxRate: (parseFloat(formData.taxRate) || 0.15).toFixed(4),
+          minStockLevel: formData.minStockLevel ? (parseFloat(formData.minStockLevel) || 0).toFixed(4) : null,
+          maxStockLevel: formData.maxStockLevel ? (parseFloat(formData.maxStockLevel) || 0).toFixed(4) : null,
+          isSold: formData.isSold,
+          isPurchased: formData.isPurchased,
+          isRecipeIngredient: formData.isRecipeIngredient,
+          isActive: formData.isActive,
+        });
+      } else if (modalMode === 'edit' && editingProductId) {
+        await apiClient.put(`/api/v1/catalog/items/${editingProductId}`, {
+          categoryId: isUuid(formData.categoryId) ? formData.categoryId : null,
+          ...(matchedUom?.id ? { baseUomId: matchedUom.id } : {}),
+          sku: formData.sku.toUpperCase(),
+          barcode: formData.barcode || formData.barcodesList[0]?.barcode || null,
+          nameAr: formData.nameAr,
+          nameEn: formData.nameEn,
+          description: formData.description || null,
+          productType: formData.productType,
+          taxRate: (parseFloat(formData.taxRate) || 0.15).toFixed(4),
+          minStockLevel: formData.minStockLevel ? (parseFloat(formData.minStockLevel) || 0).toFixed(4) : null,
+          maxStockLevel: formData.maxStockLevel ? (parseFloat(formData.maxStockLevel) || 0).toFixed(4) : null,
+          isSold: formData.isSold,
+          isPurchased: formData.isPurchased,
+          isRecipeIngredient: formData.isRecipeIngredient,
+          isActive: formData.isActive,
+        });
+      }
+      await loadCatalog();
+      setIsProductModalOpen(false);
+      resetForm();
+      showToast(modalMode === 'create' ? 'تم إنشاء الصنف بنجاح' : 'تم تحديث بيانات الصنف بنجاح', 'success');
+    } catch (err: any) {
+      const msg = err?.message || 'فشل حفظ بيانات الصنف في الخادم';
+      showToast(msg, 'error');
     }
-
-    setIsProductModalOpen(false);
-    resetForm();
   };
 
   // Add barcode to list
@@ -345,7 +345,7 @@ export const CatalogView: React.FC = () => {
     if (!tempBarcode.trim()) return;
     const exists = formData.barcodesList.some((b) => b.barcode === tempBarcode.trim());
     if (exists) {
-      alert('الباركود مضاف مسبقاً');
+      showToast('الباركود مضاف مسبقاً', 'warning');
       return;
     }
     const isFirst = formData.barcodesList.length === 0;
@@ -369,28 +369,52 @@ export const CatalogView: React.FC = () => {
     });
   };
 
-  // Image Upload handler simulation
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image Upload handler via /api/v1/media/upload
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const file = files[0];
     if (file.size > 5 * 1024 * 1024) {
-      alert('حجم الصورة يتجاوز الحد الأقصى المسموح (5 ميجابايت)');
+      showToast('حجم الصورة يتجاوز الحد الأقصى المسموح (5 ميجابايت)', 'warning');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const resultUrl = event.target?.result as string;
-      const updatedGallery = [...formData.galleryImages, resultUrl];
-      setFormData({
-        ...formData,
-        galleryImages: updatedGallery,
-        primaryImageUrl: formData.primaryImageUrl || resultUrl,
+    setIsUploadingImage(true);
+    try {
+      const uploadBody = new FormData();
+      uploadBody.append('file', file);
+      uploadBody.append('entityType', 'PRODUCT');
+      if (editingProductId) {
+        uploadBody.append('entityId', editingProductId);
+      }
+      if (!formData.primaryImageUrl) {
+        uploadBody.append('isPrimary', 'true');
+      }
+
+      const uploaded = await apiClient.request<any>('/api/v1/media/upload', {
+        method: 'POST',
+        body: uploadBody,
       });
-    };
-    reader.readAsDataURL(file);
+
+      const uploadedUrl = uploaded?.url || uploaded?.publicUrl || uploaded?.fileUrl || '';
+      if (!uploadedUrl) {
+        showToast('تم رفع الملف ولكن لم يرجع الخادم رابط الصورة', 'warning');
+        return;
+      }
+
+      setFormData((prev) => ({
+        ...prev,
+        galleryImages: [...prev.galleryImages, uploadedUrl],
+        primaryImageUrl: prev.primaryImageUrl || uploadedUrl,
+      }));
+      showToast('تم رفع الصورة بنجاح', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'فشل رفع الصورة إلى الخادم', 'error');
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = '';
+    }
   };
 
   // Dedicated Price Change
@@ -401,23 +425,26 @@ export const CatalogView: React.FC = () => {
     setIsPriceModalOpen(true);
   };
 
-  const handleApplyPriceChange = () => {
+  const handleApplyPriceChange = async () => {
     if (!targetProductForPrice) return;
     const priceNum = parseFloat(newPriceValue);
     if (isNaN(priceNum) || priceNum < 0) {
-      alert('يرجى إدخال سعر بيع صحيح');
+      showToast('يرجى إدخال سعر بيع صحيح', 'warning');
       return;
     }
 
-    setProducts(
-      products.map((p) => {
-        if (p.id !== targetProductForPrice.id) return p;
-        return { ...p, defaultPrice: priceNum };
-      })
-    );
-
-    setIsPriceModalOpen(false);
-    setTargetProductForPrice(null);
+    try {
+      await apiClient.patch(`/api/v1/catalog/items/${targetProductForPrice.id}/price`, {
+        defaultPrice: priceNum.toFixed(4),
+        reason: priceChangeReason || undefined,
+      });
+      await loadCatalog();
+      setIsPriceModalOpen(false);
+      setTargetProductForPrice(null);
+      showToast('تم تحديث سعر البيع بنجاح', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'فشل تحديث سعر البيع', 'error');
+    }
   };
 
   // Dedicated Cost Change
@@ -428,38 +455,42 @@ export const CatalogView: React.FC = () => {
     setIsCostModalOpen(true);
   };
 
-  const handleApplyCostChange = () => {
+  const handleApplyCostChange = async () => {
     if (!targetProductForCost) return;
     const costNum = parseFloat(newCostValue);
     if (isNaN(costNum) || costNum < 0) {
-      alert('يرجى إدخال تكلفة مرجعية صحيحة');
+      showToast('يرجى إدخال تكلفة مرجعية صحيحة', 'warning');
       return;
     }
 
-    setProducts(
-      products.map((p) => {
-        if (p.id !== targetProductForCost.id) return p;
-        return { ...p, defaultCost: costNum };
-      })
-    );
-
-    setIsCostModalOpen(false);
-    setTargetProductForCost(null);
+    try {
+      await apiClient.patch(`/api/v1/catalog/items/${targetProductForCost.id}/cost`, {
+        defaultCost: costNum.toFixed(4),
+        reason: costChangeReason || undefined,
+      });
+      await loadCatalog();
+      setIsCostModalOpen(false);
+      setTargetProductForCost(null);
+      showToast('تم تحديث التكلفة المرجعية بنجاح', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'فشل تحديث التكلفة المرجعية', 'error');
+    }
   };
 
   // Archive / Restore
-  const handleToggleArchive = (product: ProductItem) => {
+  const handleToggleArchive = async (product: ProductItem) => {
     const isArchiving = !product.isArchived;
-    setProducts(
-      products.map((p) => {
-        if (p.id !== product.id) return p;
-        return {
-          ...p,
-          isArchived: isArchiving,
-          isActive: isArchiving ? false : true,
-        };
-      })
-    );
+    try {
+      if (isArchiving) {
+        await apiClient.post(`/api/v1/catalog/items/${product.id}/archive`, { reason: 'أرشفة من واجهة الكتالوج' });
+      } else {
+        await apiClient.post(`/api/v1/catalog/items/${product.id}/restore`, {});
+      }
+      await loadCatalog();
+      showToast(isArchiving ? 'تمت أرشفة الصنف بنجاح' : 'تمت استعادة الصنف بنجاح', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'فشل تغيير حالة الأرشفة', 'error');
+    }
   };
 
   // Conditional Delete
@@ -484,10 +515,16 @@ export const CatalogView: React.FC = () => {
     }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deleteAlertModal.product || deleteAlertModal.isBlocked) return;
-    setProducts(products.filter((p) => p.id !== deleteAlertModal.product!.id));
-    setDeleteAlertModal({ isOpen: false, product: null, isBlocked: false, message: '' });
+    try {
+      await apiClient.delete(`/api/v1/catalog/items/${deleteAlertModal.product.id}`);
+      await loadCatalog();
+      setDeleteAlertModal({ isOpen: false, product: null, isBlocked: false, message: '' });
+      showToast('تم حذف الصنف نهائياً', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'تعذر حذف الصنف', 'error');
+    }
   };
 
   return (
@@ -599,7 +636,7 @@ export const CatalogView: React.FC = () => {
 
         {/* Category Filter Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 border-t border-slate-100 pt-3">
-          {INITIAL_CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <button
               key={c.id}
               onClick={() => setSelectedCategory(c.id)}
@@ -615,8 +652,33 @@ export const CatalogView: React.FC = () => {
         </div>
       </div>
 
-      {/* Products Display (Table or Grid) */}
-      {viewMode === 'table' ? (
+      {/* Products Display (Loading / Error / Empty / Table or Grid) */}
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 flex flex-col items-center justify-center text-slate-500 gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <p className="text-sm font-medium">جاري تحميل بيانات الكتالوج والأصناف...</p>
+        </div>
+      ) : error ? (
+        <div className="bg-white rounded-2xl border border-rose-200 p-10 flex flex-col items-center justify-center text-center gap-3">
+          <AlertTriangle className="w-9 h-9 text-rose-500" />
+          <p className="text-sm font-bold text-rose-700">{error}</p>
+          <button
+            onClick={() => void loadCatalog()}
+            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-2 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>إعادة المحاولة</span>
+          </button>
+        </div>
+      ) : filteredProducts.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 flex flex-col items-center justify-center text-center gap-2 text-slate-500">
+          <Layers className="w-10 h-10 text-slate-300" />
+          <p className="text-sm font-bold text-slate-700">لا توجد أصناف مطابقة للعرض</p>
+          <p className="text-xs text-slate-400">
+            {products.length === 0 ? 'ابدأ بإضافة أول صنف إلى الكتالوج' : 'جرّب تعديل خيارات البحث أو التصفية'}
+          </p>
+        </div>
+      ) : viewMode === 'table' ? (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-right border-collapse">
@@ -1025,7 +1087,7 @@ export const CatalogView: React.FC = () => {
                         onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
                         className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                       >
-                        {INITIAL_CATEGORIES.filter((c) => c.id !== 'cat-all').map((c) => (
+                        {categories.filter((c) => c.id !== 'cat-all').map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.nameAr} ({c.nameEn})
                           </option>
@@ -1310,15 +1372,18 @@ export const CatalogView: React.FC = () => {
                       <div className="flex items-center gap-3 mt-2">
                         <button
                           type="button"
+                          disabled={isUploadingImage}
                           onClick={() => fileInputRef.current?.click()}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-xs"
+                          className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5"
                         >
-                          اختيار ملف من الجهاز
+                          {isUploadingImage && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                          <span>{isUploadingImage ? 'جاري الرفع...' : 'اختيار ملف من الجهاز'}</span>
                         </button>
                         <button
                           type="button"
+                          disabled={isUploadingImage}
                           onClick={() => fileInputRef.current?.click()}
-                          className="bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs"
+                          className="bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 text-slate-700 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs"
                         >
                           <Camera className="w-3.5 h-3.5" />
                           <span>التقاط بالكاميرا</span>

@@ -36,6 +36,7 @@ export const purchaseRequestLines = pgTable(
   'purchase_request_lines',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
     requestId: uuid('request_id').notNull().references(() => purchaseRequests.id),
     itemId: uuid('item_id').notNull().references(() => items.id),
     uomId: uuid('uom_id').notNull().references(() => unitsOfMeasure.id),
@@ -80,6 +81,7 @@ export const purchaseOrderLines = pgTable(
   'purchase_order_lines',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
     orderId: uuid('order_id').notNull().references(() => purchaseOrders.id),
     itemId: uuid('item_id').notNull().references(() => items.id),
     uomId: uuid('uom_id').notNull().references(() => unitsOfMeasure.id),
@@ -124,6 +126,7 @@ export const goodsReceiptLines = pgTable(
   'goods_receipt_lines',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
     receiptId: uuid('receipt_id').notNull().references(() => goodsReceipts.id),
     purchaseOrderLineId: uuid('purchase_order_line_id').references(() => purchaseOrderLines.id),
     itemId: uuid('item_id').notNull().references(() => items.id),
@@ -171,6 +174,7 @@ export const supplierInvoiceLines = pgTable(
   'supplier_invoice_lines',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
     invoiceId: uuid('invoice_id').notNull().references(() => supplierInvoices.id),
     itemId: uuid('item_id').notNull().references(() => items.id),
     quantity: numeric('quantity', { precision: 14, scale: 4 }).notNull(),
@@ -209,6 +213,7 @@ export const purchaseReturnLines = pgTable(
   'purchase_return_lines',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
     returnId: uuid('return_id').notNull().references(() => purchaseReturns.id),
     itemId: uuid('item_id').notNull().references(() => items.id),
     quantity: numeric('quantity', { precision: 14, scale: 4 }).notNull(),

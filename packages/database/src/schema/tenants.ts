@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, text, boolean, integer, uniqueIndex, index, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, text, boolean, integer, jsonb, uniqueIndex, index, primaryKey } from 'drizzle-orm/pg-core';
 import {
   TenantStatus,
   DeploymentMode,
@@ -108,17 +108,22 @@ export const devices = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    legalEntityId: uuid('legal_entity_id').references(() => legalEntities.id),
     branchId: uuid('branch_id').notNull().references(() => branches.id),
     deviceCode: varchar('device_code', { length: 50 }).notNull(),
+    name: varchar('name', { length: 255 }),
     deviceType: varchar('device_type', { length: 30 }).notNull().default('POS'),
+    cashVaultId: uuid('cash_vault_id'),
     deviceEpoch: uuid('device_epoch').defaultRandom().notNull(),
     publicKeyFingerprint: text('public_key_fingerprint'),
+    ipAddress: varchar('ip_address', { length: 50 }),
     status: varchar('status', { length: 30 }).notNull().default('ACTIVE'),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_devices_tenant_id').on(table.tenantId),
+    index('idx_devices_legal_entity_id').on(table.legalEntityId),
     index('idx_devices_branch_id').on(table.branchId),
     uniqueIndex('idx_devices_branch_code').on(table.tenantId, table.branchId, table.deviceCode),
   ]
@@ -242,5 +247,67 @@ export const tenantIndustryPacks = pgTable(
   (table) => [
     uniqueIndex('idx_tenant_industry_packs_tenant_ind').on(table.tenantId, table.industry),
     index('idx_tenant_industry_packs_tenant_status').on(table.tenantId, table.status),
+  ]
+);
+
+// Integrations & Notifications (WhatsApp, Webhooks, SMS, Email)
+export const tenantIntegrations = pgTable(
+  'tenant_integrations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    channel: varchar('channel', { length: 40 }).notNull(), // WHATSAPP | WEBHOOK | SMS | EMAIL
+    provider: varchar('provider', { length: 60 }).notNull().default('CUSTOM'),
+    isEnabled: boolean('is_enabled').notNull().default(false),
+    configJson: jsonb('config_json').$type<Record<string, any>>().notNull().default({}),
+    updatedBy: uuid('updated_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_tenant_integrations_tenant_channel').on(table.tenantId, table.channel),
+  ]
+);
+
+export const notificationLogs = pgTable(
+  'notification_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    branchId: uuid('branch_id').references(() => branches.id),
+    channel: varchar('channel', { length: 40 }).notNull(),
+    recipient: varchar('recipient', { length: 150 }).notNull(),
+    eventType: varchar('event_type', { length: 80 }).notNull(),
+    payload: jsonb('payload').$type<Record<string, any>>().notNull().default({}),
+    status: varchar('status', { length: 30 }).notNull().default('SENT'), // SENT | QUEUED | RETRY_PENDING | FAILED | SKIPPED_DISABLED
+    attemptCount: integer('attempt_count').notNull().default(1),
+    maxAttempts: integer('max_attempts').notNull().default(3),
+    nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
+    signatureHeader: text('signature_header'),
+    idempotencyKey: varchar('idempotency_key', { length: 150 }),
+    errorMessage: text('error_message'),
+    sentBy: uuid('sent_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_notification_logs_tenant_created').on(table.tenantId, table.createdAt),
+    uniqueIndex('idx_notification_logs_idempotency').on(table.tenantId, table.idempotencyKey),
+  ]
+);
+
+export const webhookReplayNonces = pgTable(
+  'webhook_replay_nonces',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    channel: varchar('channel', { length: 40 }).notNull().default('WEBHOOK'),
+    nonce: varchar('nonce', { length: 180 }).notNull(),
+    timestampSec: integer('timestamp_sec').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_webhook_replay_nonces_tenant_nonce').on(table.tenantId, table.nonce),
+    index('idx_webhook_replay_nonces_expires').on(table.expiresAt),
   ]
 );

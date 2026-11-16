@@ -43,6 +43,11 @@ import {
   StocktakeType,
   StocktakeFrequency,
   StocktakeStatus,
+  SettlementProviderCategory,
+  SettlementMatchingStrategy,
+  SettlementBatchStatus,
+  SettlementDiscrepancyType,
+  SettlementDiscrepancyStatus,
 } from '@restaurant-cloud/domain-kernel';
 
 // ====================================================================
@@ -540,6 +545,7 @@ export const StockTransferLineSchema = z.object({
   uomId: z.string().uuid(),
   quantity: z.string().regex(/^\d+(\.\d{1,4})?$/, 'Must be a valid positive quantity'),
   unitCost: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
+  transferPrice: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
 });
 export type StockTransferLine = z.infer<typeof StockTransferLineSchema>;
 
@@ -550,8 +556,14 @@ export const CreateStockTransferRequestSchema = z.object({
   destinationWarehouseId: z.string().uuid(),
   lines: z.array(StockTransferLineSchema).min(1),
   notes: z.string().max(500).optional(),
+  idempotencyKey: z.string().min(4).max(128).optional(),
 });
 export type CreateStockTransferRequest = z.infer<typeof CreateStockTransferRequestSchema>;
+
+export const SubmitStockTransferRequestSchema = z.object({
+  submissionNotes: z.string().max(500).optional(),
+});
+export type SubmitStockTransferRequest = z.infer<typeof SubmitStockTransferRequestSchema>;
 
 export const ApproveStockTransferRequestSchema = z.object({
   approvalNotes: z.string().max(500).optional(),
@@ -562,6 +574,11 @@ export const RejectStockTransferRequestSchema = z.object({
   rejectionReason: z.string().min(3).max(500),
 });
 export type RejectStockTransferRequest = z.infer<typeof RejectStockTransferRequestSchema>;
+
+export const CancelStockTransferRequestSchema = z.object({
+  cancellationReason: z.string().min(3).max(500),
+});
+export type CancelStockTransferRequest = z.infer<typeof CancelStockTransferRequestSchema>;
 
 export const CloseStockTransferRequestSchema = z.object({
   closingNotes: z.string().max(500).optional(),
@@ -576,6 +593,7 @@ export const DispatchTransferLineSchema = z.object({
 export const DispatchTransferRequestSchema = z.object({
   dispatchedLines: z.array(DispatchTransferLineSchema).optional(),
   dispatchedNotes: z.string().max(500).optional(),
+  idempotencyKey: z.string().min(4).max(128).optional(),
 });
 export type DispatchTransferRequest = z.infer<typeof DispatchTransferRequestSchema>;
 
@@ -584,14 +602,30 @@ export const ReceiveTransferLineSchema = z.object({
   receivedQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
   damagedQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
   lostQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
+  overageQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
   varianceNotes: z.string().max(255).optional(),
 });
 
 export const ReceiveTransferRequestSchema = z.object({
   receivedLines: z.array(ReceiveTransferLineSchema).min(1),
   receivedNotes: z.string().max(500).optional(),
+  rejectAll: z.boolean().optional(),
+  idempotencyKey: z.string().min(4).max(128).optional(),
 });
 export type ReceiveTransferRequest = z.infer<typeof ReceiveTransferRequestSchema>;
+
+export const ResolveTransferDiscrepancyRequestSchema = z.object({
+  resolution: z.enum(['RESOLVED_LOSS', 'RESOLVED_GAIN', 'RESOLVED_RETURNED', 'DISMISSED']),
+  resolutionNotes: z.string().min(3).max(500),
+  idempotencyKey: z.string().min(4).max(128).optional(),
+});
+export type ResolveTransferDiscrepancyRequest = z.infer<typeof ResolveTransferDiscrepancyRequestSchema>;
+
+export const ReverseTransferAfterDispatchSchema = z.object({
+  reversalReason: z.string().min(3).max(500),
+  idempotencyKey: z.string().min(4).max(128).optional(),
+});
+export type ReverseTransferAfterDispatchRequest = z.infer<typeof ReverseTransferAfterDispatchSchema>;
 
 // Stocktake Engine Contracts (Phase B)
 export const CreateStocktakeOrderRequestSchema = z.object({
@@ -755,6 +789,7 @@ export const CreatePurchaseOrderSchema = z.object({
   expectedDeliveryDate: z.string().datetime().optional(),
   currency: z.string().length(3).default('SAR'),
   notes: z.string().max(500).optional(),
+  submitAsDraft: z.boolean().optional(),
   lines: z.array(PurchaseOrderLineSchema).min(1),
 });
 export type CreatePurchaseOrder = z.infer<typeof CreatePurchaseOrderSchema>;
@@ -800,6 +835,7 @@ export const CreateSupplierInvoiceSchema = z.object({
   dueDate: z.string().datetime(),
   currency: z.string().length(3).default('SAR'),
   notes: z.string().max(500).optional(),
+  allowVarianceOverride: z.boolean().optional(),
   lines: z.array(SupplierInvoiceLineSchema).min(1),
 });
 export type CreateSupplierInvoice = z.infer<typeof CreateSupplierInvoiceSchema>;
@@ -807,6 +843,7 @@ export type CreateSupplierInvoice = z.infer<typeof CreateSupplierInvoiceSchema>;
 // Purchase Returns
 export const PurchaseReturnLineSchema = z.object({
   itemId: z.string().uuid(),
+  uomId: z.string().uuid().optional(),
   quantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
   unitCost: z.string().regex(/^\d+(\.\d{1,4})?$/),
 });
@@ -814,6 +851,7 @@ export const PurchaseReturnLineSchema = z.object({
 export const CreatePurchaseReturnSchema = z.object({
   legalEntityId: z.string().uuid(),
   supplierId: z.string().uuid(),
+  warehouseId: z.string().uuid().optional(),
   goodsReceiptId: z.string().uuid().optional(),
   returnNumber: z.string().min(2).max(50),
   reason: z.string().min(2).max(255),
@@ -928,14 +966,14 @@ export type VoidOrderLine = z.infer<typeof VoidOrderLineSchema>;
 
 export const CreateChartOfAccountSchema = z.object({
   legalEntityId: z.string().uuid(),
-  accountCode: z.string().min(1).max(50),
+  accountCode: z.string().min(1).max(50).optional(),
   name: z.string().min(2).max(255),
-  nameAr: z.string().min(2).max(255).optional(),
-  nameEn: z.string().max(255).optional(),
-  description: z.string().optional(),
+  nameAr: z.string().min(2).max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  nameEn: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  description: z.string().optional().nullable().transform((v) => (v === '' ? null : v)),
   accountType: z.nativeEnum(AccountType).default(AccountType.ASSET),
   normalBalance: z.nativeEnum(NormalBalance).default(NormalBalance.DEBIT),
-  parentId: z.string().uuid().optional().nullable(),
+  parentId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
   level: z.number().int().min(1).default(1),
   isPostable: z.boolean().default(true),
   currency: z.string().length(3).default('SAR'),
@@ -944,10 +982,10 @@ export type CreateChartOfAccount = z.infer<typeof CreateChartOfAccountSchema>;
 
 export const UpdateChartOfAccountSchema = z.object({
   name: z.string().min(2).max(255).optional(),
-  nameAr: z.string().min(2).max(255).optional(),
-  nameEn: z.string().max(255).optional(),
-  description: z.string().optional(),
-  parentId: z.string().uuid().optional().nullable(),
+  nameAr: z.string().min(2).max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  nameEn: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  description: z.string().optional().nullable().transform((v) => (v === '' ? null : v)),
+  parentId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
   isPostable: z.boolean().optional(),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
 });
@@ -1055,6 +1093,7 @@ export const ClosePosShiftSchema = z.object({
   shiftId: z.string().uuid(),
   countedCash: z.string().regex(/^\d+(\.\d{1,4})?$/),
   notes: z.string().max(500).optional(),
+  idempotencyKey: z.string().max(255).optional(),
 });
 export type ClosePosShiftRequest = z.infer<typeof ClosePosShiftSchema>;
 
@@ -1063,6 +1102,8 @@ export const ShiftCashTransactionSchema = z.object({
   transactionType: z.nativeEnum(ShiftCashTransactionType),
   amount: z.string().regex(/^\d+(\.\d{1,4})?$/),
   reason: z.string().min(2).max(255),
+  contraAccountId: z.string().uuid().optional(),
+  mappingKey: z.string().max(50).optional(),
 });
 export type ShiftCashTransactionRequest = z.infer<typeof ShiftCashTransactionSchema>;
 
@@ -1103,6 +1144,7 @@ export const CreateSalesOrderSchema = z.object({
   branchId: z.string().uuid(),
   deviceId: z.string().uuid(),
   warehouseId: z.string().uuid(),
+  customerId: z.string().uuid().optional(),
   shiftId: z.string().uuid().optional(),
   tableId: z.string().uuid().optional(),
   orderNumber: z.string().min(2).max(50),
@@ -1190,11 +1232,20 @@ export type UpdateCostCenterRequest = z.infer<typeof UpdateCostCenterSchema>;
 
 export const SetAccountMappingSchema = z.object({
   legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
   mappingKey: z.string().min(1).max(50),
   accountId: z.string().uuid(),
-  description: z.string().max(255).optional(),
+  description: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  isActive: z.boolean().optional().default(true),
 });
 export type SetAccountMappingRequest = z.infer<typeof SetAccountMappingSchema>;
+
+export const QueryAccountMappingsSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
+  includeEffective: z.boolean().or(z.string().transform((v) => v === 'true')).optional().default(false),
+});
+export type QueryAccountMappingsRequest = z.infer<typeof QueryAccountMappingsSchema>;
 
 // ====================================================================
 // 19. Cash Vaults & Safes
@@ -1202,20 +1253,20 @@ export type SetAccountMappingRequest = z.infer<typeof SetAccountMappingSchema>;
 
 export const CreateCashVaultSchema = z.object({
   legalEntityId: z.string().uuid(),
-  branchId: z.string().uuid().optional().nullable(),
+  branchId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
   code: z.string().min(1).max(50),
   nameAr: z.string().min(2).max(255),
-  nameEn: z.string().max(255).optional(),
+  nameEn: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
   accountId: z.string().uuid(),
-  custodianId: z.string().uuid().optional().nullable(),
+  custodianId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
 });
 export type CreateCashVaultRequest = z.infer<typeof CreateCashVaultSchema>;
 
 export const UpdateCashVaultSchema = z.object({
   nameAr: z.string().min(2).max(255).optional(),
-  nameEn: z.string().max(255).optional(),
-  custodianId: z.string().uuid().optional().nullable(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  nameEn: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  custodianId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'FROZEN']).optional(),
 });
 export type UpdateCashVaultRequest = z.infer<typeof UpdateCashVaultSchema>;
 
@@ -1232,6 +1283,7 @@ export const VaultPhysicalCountSchema = z.object({
   legalEntityId: z.string().uuid(),
   vaultId: z.string().uuid(),
   actualAmount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  varianceAction: z.enum(['POST_VARIANCE', 'RECORD_ONLY']).default('RECORD_ONLY').optional(),
   notes: z.string().max(500).optional(),
 });
 export type VaultPhysicalCountRequest = z.infer<typeof VaultPhysicalCountSchema>;
@@ -1244,21 +1296,101 @@ export const CreateBankAccountSchema = z.object({
   legalEntityId: z.string().uuid(),
   bankName: z.string().min(2).max(255),
   accountNumber: z.string().min(2).max(100),
-  iban: z.string().max(50).optional(),
-  swiftCode: z.string().max(50).optional(),
+  iban: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
+  swiftCode: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
   currency: z.string().length(3).default('SAR'),
   accountId: z.string().uuid(),
   openingBalance: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000').optional(),
+  authorizedBranchIds: z.array(z.string().uuid()).optional(),
 });
 export type CreateBankAccountRequest = z.infer<typeof CreateBankAccountSchema>;
 
 export const UpdateBankAccountSchema = z.object({
   bankName: z.string().min(2).max(255).optional(),
-  iban: z.string().max(50).optional(),
-  swiftCode: z.string().max(50).optional(),
+  iban: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
+  swiftCode: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
 });
 export type UpdateBankAccountRequest = z.infer<typeof UpdateBankAccountSchema>;
+
+export const SetBankAccountBranchAccessSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  bankAccountId: z.string().uuid(),
+  branchIds: z.array(z.string().uuid()),
+});
+export type SetBankAccountBranchAccessRequest = z.infer<typeof SetBankAccountBranchAccessSchema>;
+
+// ====================================================================
+// 21. Payment Methods & POS / Terminals Management
+// ====================================================================
+
+export const CreatePaymentMethodSchema = z.object({
+  code: z.string().min(2).max(50),
+  nameAr: z.string().min(2).max(255),
+  nameEn: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  type: z.enum(['CASH', 'CARD', 'WALLET', 'BANK_TRANSFER', 'AGGREGATOR']).default('CARD'),
+  displayOrder: z.number().int().min(0).default(0),
+  isActive: z.boolean().default(true),
+  requiresTerminal: z.boolean().default(false),
+  requiresReference: z.boolean().default(false),
+});
+export type CreatePaymentMethodRequest = z.infer<typeof CreatePaymentMethodSchema>;
+
+export const UpdatePaymentMethodSchema = z.object({
+  nameAr: z.string().min(2).max(255).optional(),
+  nameEn: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  type: z.enum(['CASH', 'CARD', 'WALLET', 'BANK_TRANSFER', 'AGGREGATOR']).optional(),
+  displayOrder: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+  requiresTerminal: z.boolean().optional(),
+  requiresReference: z.boolean().optional(),
+});
+export type UpdatePaymentMethodRequest = z.infer<typeof UpdatePaymentMethodSchema>;
+
+export const CreatePosDeviceSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid(),
+  deviceCode: z.string().min(1).max(50),
+  name: z.string().min(1).max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  cashVaultId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
+  ipAddress: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
+  deviceType: z.enum(['POS', 'KDS', 'WAITER_PAD', 'KIOSK']).default('POS'),
+});
+export type CreatePosDeviceRequest = z.infer<typeof CreatePosDeviceSchema>;
+
+export const UpdatePosDeviceSchema = z.object({
+  name: z.string().min(1).max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  cashVaultId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
+  ipAddress: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']).optional(),
+});
+export type UpdatePosDeviceRequest = z.infer<typeof UpdatePosDeviceSchema>;
+
+export const CreatePaymentTerminalSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid(),
+  terminalCode: z.string().min(1).max(50),
+  name: z.string().min(2).max(255),
+  provider: z.enum(['GEIDEA', 'NEARPAY', 'HYPERPAY', 'ALRAJHI', 'SNB', 'MANUAL']).default('GEIDEA'),
+  model: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  serialNumber: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  ipAddress: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
+  linkedPosDeviceId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
+  clearingAccountId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
+});
+export type CreatePaymentTerminalRequest = z.infer<typeof CreatePaymentTerminalSchema>;
+
+export const UpdatePaymentTerminalSchema = z.object({
+  name: z.string().min(2).max(255).optional(),
+  provider: z.enum(['GEIDEA', 'NEARPAY', 'HYPERPAY', 'ALRAJHI', 'SNB', 'MANUAL']).optional(),
+  model: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  serialNumber: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  ipAddress: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
+  linkedPosDeviceId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
+  clearingAccountId: z.string().uuid().optional().nullable().or(z.literal('')).transform((v) => (v === '' ? null : v)),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'MAINTENANCE']).optional(),
+});
+export type UpdatePaymentTerminalRequest = z.infer<typeof UpdatePaymentTerminalSchema>;
 
 export const BankReconciliationSchema = z.object({
   legalEntityId: z.string().uuid(),
@@ -1547,6 +1679,95 @@ export const SubledgerReconciliationQuerySchema = z.object({
   subledgerType: z.enum(['AR', 'AP']).default('AR'),
 });
 export type SubledgerReconciliationQuery = z.infer<typeof SubledgerReconciliationQuerySchema>;
+
+// ====================================================================
+// 30. Payment Gateway & Delivery Aggregator Settlements (Phase 3.4C)
+// ====================================================================
+
+export const CreateSettlementProviderSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  code: z.string().min(2).max(50),
+  nameAr: z.string().min(2).max(150),
+  nameEn: z.string().min(2).max(150),
+  category: z.nativeEnum(SettlementProviderCategory),
+  matchingStrategy: z.nativeEnum(SettlementMatchingStrategy).default(SettlementMatchingStrategy.REFERENCE_AND_AMOUNT),
+  clearingMappingKey: z.string().min(2).max(60),
+  feeMappingKey: z.string().min(2).max(60),
+  defaultFeeRate: z.string().regex(/^\d+(\.\d{1,4})?$/).default('0.0000'),
+  vatOnFeeApplicable: z.boolean().default(true),
+  defaultBankAccountId: z.string().uuid().optional().nullable(),
+  configJson: z.record(z.unknown()).optional(),
+});
+export type CreateSettlementProviderRequest = z.infer<typeof CreateSettlementProviderSchema>;
+
+export const UpdateSettlementProviderSchema = CreateSettlementProviderSchema.partial().omit({
+  legalEntityId: true,
+  code: true,
+}).extend({
+  isActive: z.boolean().optional(),
+});
+export type UpdateSettlementProviderRequest = z.infer<typeof UpdateSettlementProviderSchema>;
+
+export const ImportSettlementRowSchema = z.object({
+  externalRef: z.string().max(150).optional(),
+  orderNumber: z.string().max(100).optional(),
+  paymentMethod: z.string().max(50).optional(),
+  transactionDate: z.string().optional(),
+  grossAmount: z.string().regex(/^-?\d+(\.\d{1,4})?$/),
+  discountRestaurant: z.string().regex(/^-?\d+(\.\d{1,4})?$/).default('0.0000'),
+  discountPlatform: z.string().regex(/^-?\d+(\.\d{1,4})?$/).default('0.0000'),
+  deliveryFee: z.string().regex(/^-?\d+(\.\d{1,4})?$/).default('0.0000'),
+  feeAmount: z.string().regex(/^-?\d+(\.\d{1,4})?$/).default('0.0000'),
+  feeTaxAmount: z.string().regex(/^-?\d+(\.\d{1,4})?$/).default('0.0000'),
+  withheldAmount: z.string().regex(/^-?\d+(\.\d{1,4})?$/).default('0.0000'),
+  netAmount: z.string().regex(/^-?\d+(\.\d{1,4})?$/).optional(),
+  status: z.string().max(50).optional(),
+});
+export type ImportSettlementRow = z.infer<typeof ImportSettlementRowSchema>;
+
+export const ImportSettlementStatementSchema = z.object({
+  legalEntityId: z.string().uuid(),
+  branchId: z.string().uuid().optional().nullable(),
+  providerId: z.string().uuid(),
+  batchNumber: z.string().min(2).max(80).optional(),
+  settlementDate: z.string(),
+  periodStart: z.string().optional(),
+  periodEnd: z.string().optional(),
+  bankAccountId: z.string().uuid().optional().nullable(),
+  bankReceivedAmount: z.string().regex(/^-?\d+(\.\d{1,4})?$/).optional(),
+  bankReference: z.string().max(120).optional().nullable(),
+  hasValidTaxInvoice: z.boolean().default(false),
+  taxInvoiceNumber: z.string().max(100).optional().nullable(),
+  isVatRecoverable: z.boolean().default(false),
+  format: z.enum(['CSV', 'EXCEL', 'JSON_API']).default('JSON_API'),
+  fileName: z.string().max(255).default('api-import.json'),
+  fileContentBase64: z.string().optional(),
+  csvContent: z.string().optional(),
+  rows: z.array(ImportSettlementRowSchema).optional(),
+  idempotencyKey: z.string().max(255).optional(),
+  notes: z.string().max(500).optional(),
+});
+export type ImportSettlementStatementRequest = z.infer<typeof ImportSettlementStatementSchema>;
+
+export const ResolveSettlementDiscrepancySchema = z.object({
+  status: z.nativeEnum(SettlementDiscrepancyStatus),
+  resolutionNotes: z.string().min(2).max(500),
+});
+export type ResolveSettlementDiscrepancyRequest = z.infer<typeof ResolveSettlementDiscrepancySchema>;
+
+export const PostSettlementBatchSchema = z.object({
+  bankAccountId: z.string().uuid(),
+  bankReceivedAmount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  bankReference: z.string().min(1).max(120),
+  hasValidTaxInvoice: z.boolean().default(false),
+  taxInvoiceNumber: z.string().max(100).optional().nullable(),
+  isVatRecoverable: z.boolean().default(false),
+  allowSuspensePosting: z.boolean().default(false),
+  idempotencyKey: z.string().max(255).optional(),
+  notes: z.string().max(500).optional(),
+});
+export type PostSettlementBatchRequest = z.infer<typeof PostSettlementBatchSchema>;
+
 
 
 

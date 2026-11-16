@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import {
   Users,
   UserPlus,
@@ -49,6 +50,8 @@ export const UsersView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const toast = useToast();
 
   // Invite Modal
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -94,10 +97,14 @@ export const UsersView: React.FC = () => {
         method: 'PATCH',
         body: JSON.stringify({ status: nextStatus }),
       });
-      setSuccessMsg(`تم تغيير حالة المستخدم '${member.displayName}' إلى ${nextStatus === 'ACTIVE' ? 'نشط' : 'معلق'}`);
+      const msg = `تم تغيير حالة المستخدم '${member.displayName}' إلى ${nextStatus === 'ACTIVE' ? 'نشط' : 'معلق'}`;
+      toast.success(msg);
+      setSuccessMsg(msg);
       await fetchData();
     } catch (err: any) {
-      setError(err?.message || 'فشل في تحديث حالة المستخدم');
+      const errMsg = err?.message || 'فشل في تحديث حالة المستخدم';
+      toast.error(errMsg);
+      setError(errMsg);
     }
   };
 
@@ -105,6 +112,7 @@ export const UsersView: React.FC = () => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
+    setModalError(null);
     try {
       const scopes = inviteForm.selectedBranchIds.map((branchId) => ({
         scopeType: 'BRANCH',
@@ -123,8 +131,10 @@ export const UsersView: React.FC = () => {
         }),
       });
 
+      toast.success('تمت إضافة المستخدم بنجاح');
       setSuccessMsg('تمت إضافة المستخدم بنجاح');
       setIsInviteModalOpen(false);
+      setModalError(null);
       setInviteForm({
         displayName: '',
         email: '',
@@ -135,7 +145,10 @@ export const UsersView: React.FC = () => {
       });
       await fetchData();
     } catch (err: any) {
-      setError(err?.message || 'فشل في إنشاء المستخدم');
+      const errMsg = err?.message || 'فشل في إنشاء المستخدم';
+      setModalError(errMsg);
+      toast.error(errMsg);
+      setError(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -155,7 +168,11 @@ export const UsersView: React.FC = () => {
           </p>
         </div>
         <button
-          onClick={() => setIsInviteModalOpen(true)}
+          onClick={() => {
+            setModalError(null);
+            setError(null);
+            setIsInviteModalOpen(true);
+          }}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-sm transition-all"
         >
           <UserPlus className="w-4 h-4" />
@@ -313,6 +330,14 @@ export const UsersView: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Inline Error Alert */}
+            {modalError && (
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>{modalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateUser} className="space-y-4 text-sm">
               <div>

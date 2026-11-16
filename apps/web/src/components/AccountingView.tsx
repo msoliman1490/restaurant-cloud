@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   Wallet,
-  Landmark,
   Receipt,
   RefreshCw,
   FolderTree,
@@ -24,9 +23,19 @@ import {
   Layers,
   ArrowRightLeft,
   Pencil,
+  GitFork,
+  Calculator,
+  CreditCard,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { apiClient } from '../api/client';
+import { exportToCsv } from '../utils/export';
+import { FinancialResourcesView } from './FinancialResourcesView';
+import { AccountMappingView } from './AccountMappingView';
+import { PosShiftClosingView } from './PosShiftClosingView';
+import { SettlementsView } from './SettlementsView';
 
 // ====================================================================
 // Type Definitions
@@ -140,8 +149,9 @@ export const AccountingView: React.FC = () => {
   const legalEntityId = activeLegalEntity?.id || '00000000-0000-0000-0000-000000000001';
 
   // Navigation & Theme
-  const [activeTab, setActiveTab] = useState<'coa' | 'journals' | 'vouchers' | 'vaults_banks' | 'reports'>('journals');
+  const [activeTab, setActiveTab] = useState<'coa' | 'journals' | 'vouchers' | 'vaults_banks' | 'shifts' | 'settlements' | 'mappings' | 'reports'>('journals');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const toast = useToast();
 
   // Core Data States
   const [coaTree, setCoaTree] = useState<AccountNode[]>([]);
@@ -154,6 +164,12 @@ export const AccountingView: React.FC = () => {
   const [partners, setPartners] = useState<BusinessPartnerItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Modal In-Place Error States
+  const [accountModalError, setAccountModalError] = useState<string | null>(null);
+  const [journalModalError, setJournalModalError] = useState<string | null>(null);
+  const [transferModalError, setTransferModalError] = useState<string | null>(null);
+  const [reversalModalError, setReversalModalError] = useState<string | null>(null);
 
   // Search & Filters
   const [coaSearch, setCoaSearch] = useState('');
@@ -172,6 +188,7 @@ export const AccountingView: React.FC = () => {
 
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<AccountNode | null>(null);
+  const [isContra, setIsContra] = useState(false);
 
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isReversalModalOpen, setIsReversalModalOpen] = useState(false);
@@ -338,11 +355,17 @@ export const AccountingView: React.FC = () => {
 
   const loadReports = useCallback(async () => {
     try {
+      const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
+      const nowIso = new Date().toISOString();
       const [tb, inc, bs, vat] = await Promise.all([
         apiClient.get<any>(`/accounting/trial-balance?legalEntityId=${legalEntityId}`).catch(() => null),
         apiClient.get<any>(`/accounting/reports/income-statement?legalEntityId=${legalEntityId}`).catch(() => null),
         apiClient.get<any>(`/accounting/reports/balance-sheet?legalEntityId=${legalEntityId}`).catch(() => null),
-        apiClient.get<any>(`/accounting/reports/vat-return?legalEntityId=${legalEntityId}`).catch(() => null),
+        apiClient
+          .get<any>(
+            `/accounting/reports/vat-return?legalEntityId=${legalEntityId}&startDate=${encodeURIComponent(yearStart)}&endDate=${encodeURIComponent(nowIso)}`
+          )
+          .catch(() => null),
       ]);
       setTrialBalanceData(tb);
       setIncomeStatementData(inc);
@@ -420,6 +443,7 @@ export const AccountingView: React.FC = () => {
         { id: '2', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '', credit: '' },
       ],
     });
+    setJournalModalError(null);
     setIsJournalDrawerOpen(true);
     setTimeout(() => {
       const el = document.getElementById('line-account-0');
@@ -466,6 +490,7 @@ export const AccountingView: React.FC = () => {
             { id: '2', accountId: '', accountCode: '', accountName: '', isPostable: true, description: '', partnerId: '', partnerRole: '', costCenterId: '', debit: '', credit: '' },
           ],
     });
+    setJournalModalError(null);
     setIsJournalDrawerOpen(true);
     setTimeout(() => {
       const el = document.getElementById('line-account-0');
@@ -611,8 +636,12 @@ export const AccountingView: React.FC = () => {
 
   const handleSaveJournal = async (targetStatus: 'DRAFT' | 'POSTED') => {
     try {
+      setJournalModalError(null);
       if (targetStatus === 'POSTED' && !isPostingEligible) {
-        setFeedbackMessage({ type: 'error', text: 'لا يمكن ترحيل القيد: تأكد من توازن المدين والدائن واستيفاء أطراف حسابات المراقبة' });
+        const msg = 'لا يمكن ترحيل القيد: تأكد من توازن المدين والدائن واستيفاء أطراف حسابات المراقبة';
+        setJournalModalError(msg);
+        toast.error(msg);
+        setFeedbackMessage({ type: 'error', text: msg });
         return;
       }
 
@@ -632,10 +661,14 @@ export const AccountingView: React.FC = () => {
         }));
 
       if (targetStatus === 'POSTED' && formattedLines.length < 2) {
-        setFeedbackMessage({ type: 'error', text: 'يجب أن يحتوي القيد على بندين على الأقل' });
+        const msg = 'يجب أن يحتوي القيد على بندين على الأقل';
+        setJournalModalError(msg);
+        toast.error(msg);
+        setFeedbackMessage({ type: 'error', text: msg });
         return;
       }
 
+      let successText = '';
       if (editingJournalId) {
         // Updating existing draft
         await apiClient.put(`/accounting/journal-entries/${editingJournalId}`, {
@@ -649,9 +682,9 @@ export const AccountingView: React.FC = () => {
 
         if (targetStatus === 'POSTED') {
           await apiClient.post(`/accounting/journal-entries/${editingJournalId}/post`, {});
-          setFeedbackMessage({ type: 'success', text: `تم تحديث وترحيل القيد #${journalForm.journalNumber} بنجاح` });
+          successText = `تم تحديث وترحيل القيد #${journalForm.journalNumber} بنجاح`;
         } else {
-          setFeedbackMessage({ type: 'success', text: `تم حفظ تعديلات مسودة القيد #${journalForm.journalNumber} بنجاح` });
+          successText = `تم حفظ تعديلات مسودة القيد #${journalForm.journalNumber} بنجاح`;
         }
       } else {
         // Creating new entry
@@ -671,36 +704,48 @@ export const AccountingView: React.FC = () => {
         };
 
         const res = await apiClient.post<any>('/accounting/journal-entries', payload);
-        setFeedbackMessage({
-          type: 'success',
-          text: targetStatus === 'POSTED' ? `تم ترحيل القيد #${res.journalNumber || journalForm.journalNumber} بنجاح` : `تم حفظ مسودة القيد #${res.journalNumber || journalForm.journalNumber} بنجاح`,
-        });
+        successText = targetStatus === 'POSTED'
+          ? `تم ترحيل القيد #${res.journalNumber || journalForm.journalNumber} بنجاح`
+          : `تم حفظ مسودة القيد #${res.journalNumber || journalForm.journalNumber} بنجاح`;
       }
 
+      toast.success(successText);
+      setFeedbackMessage({ type: 'success', text: successText });
       setIsJournalDrawerOpen(false);
       setEditingJournalId(null);
+      setJournalModalError(null);
       await loadJournalEntries();
       await loadChartOfAccounts();
     } catch (err: any) {
-      setFeedbackMessage({ type: 'error', text: err.message || 'فشل حفظ القيد' });
+      const errMsg = err.message || 'فشل حفظ القيد';
+      setJournalModalError(errMsg);
+      toast.error(errMsg);
+      setFeedbackMessage({ type: 'error', text: errMsg });
     }
   };
 
   const handleReverseJournal = async () => {
     if (!reversalTargetEntry) return;
     try {
+      setReversalModalError(null);
       await apiClient.post('/accounting/journal-entries/reverse', {
         journalEntryId: reversalTargetEntry.id,
         reversalReason: reversalReason || 'إلغاء وعكس تصحيحي للقيد',
       });
-      setFeedbackMessage({ type: 'success', text: `تم عكس القيد #${reversalTargetEntry.journalNumber} بنجاح وإنشاء قيد عكسي` });
+      const msg = `تم عكس القيد #${reversalTargetEntry.journalNumber} بنجاح وإنشاء قيد عكسي`;
+      toast.success(msg);
+      setFeedbackMessage({ type: 'success', text: msg });
       setIsReversalModalOpen(false);
       setReversalTargetEntry(null);
       setReversalReason('');
+      setReversalModalError(null);
       await loadJournalEntries();
       await loadChartOfAccounts();
     } catch (err: any) {
-      setFeedbackMessage({ type: 'error', text: err.message || 'فشل عكس القيد' });
+      const errMsg = err.message || 'فشل عكس القيد';
+      setReversalModalError(errMsg);
+      toast.error(errMsg);
+      setFeedbackMessage({ type: 'error', text: errMsg });
     }
   };
 
@@ -727,9 +772,57 @@ export const AccountingView: React.FC = () => {
     setCoaExpandedNodes(new Set());
   };
 
-  const handleOpenAccountModal = (acc?: AccountNode, parentId?: string) => {
+  const handleParentChange = async (parentId: string | null) => {
+    try {
+      const endpoint = parentId
+        ? `/accounting/accounts/next-code?legalEntityId=${legalEntityId}&parentId=${parentId}`
+        : `/accounting/accounts/next-code?legalEntityId=${legalEntityId}&accountType=${accountForm.accountType || 'ASSET'}`;
+      const res = await apiClient.get<{
+        nextCode: string;
+        level: number;
+        accountType: string;
+        normalBalance: string;
+      }>(endpoint);
+
+      setIsContra(false);
+      setAccountForm((prev) => ({
+        ...prev,
+        parentId,
+        accountCode: res.nextCode,
+        accountType: res.accountType as any,
+        normalBalance: res.normalBalance as any,
+      }));
+    } catch (err: any) {
+      console.warn('Failed to fetch next account code:', err);
+      setAccountForm((prev) => ({ ...prev, parentId }));
+    }
+  };
+
+  const handleToggleContra = (checked: boolean) => {
+    setIsContra(checked);
+    setAccountForm((prev) => {
+      const parent = flatAccounts.find((a) => a.id === prev.parentId);
+      const baseNormal = parent
+        ? parent.normalBalance
+        : prev.accountType === 'ASSET' || prev.accountType === 'EXPENSE'
+        ? 'DEBIT'
+        : 'CREDIT';
+      const inverted = baseNormal === 'DEBIT' ? 'CREDIT' : 'DEBIT';
+      return {
+        ...prev,
+        normalBalance: checked ? inverted : baseNormal,
+      };
+    });
+  };
+
+  const handleOpenAccountModal = async (acc?: AccountNode, parentId?: string) => {
+    setAccountModalError(null);
+    setIsContra(false);
     if (acc) {
       setEditingAccount(acc);
+      const parentAcc = flatAccounts.find((a) => a.id === acc.parentId);
+      const isContraDetected = parentAcc ? acc.normalBalance !== parentAcc.normalBalance : false;
+      setIsContra(isContraDetected);
       setAccountForm({
         accountCode: acc.accountCode,
         nameAr: acc.nameAr || acc.name,
@@ -741,6 +834,7 @@ export const AccountingView: React.FC = () => {
         status: acc.status || 'ACTIVE',
         description: '',
       });
+      setIsAccountModalOpen(true);
     } else {
       setEditingAccount(null);
       const parentAcc = flatAccounts.find((a) => a.id === parentId);
@@ -755,48 +849,65 @@ export const AccountingView: React.FC = () => {
         status: 'ACTIVE',
         description: '',
       });
+      setIsAccountModalOpen(true);
+      await handleParentChange(parentId || null);
     }
-    setIsAccountModalOpen(true);
   };
 
   const handleSaveAccount = async () => {
     try {
+      setAccountModalError(null);
       if (!accountForm.accountCode || !accountForm.nameAr) {
-        setFeedbackMessage({ type: 'error', text: 'يرجى إدخال رمز الحساب والاسم بالعربية' });
+        const msg = 'يرجى إدخال رمز الحساب والاسم بالعربية';
+        setAccountModalError(msg);
+        toast.error(msg);
+        setFeedbackMessage({ type: 'error', text: msg });
         return;
       }
 
+      const cleanNameAr = accountForm.nameAr.trim();
+      const cleanNameEn = accountForm.nameEn ? accountForm.nameEn.trim() : null;
+      const cleanDesc = accountForm.description ? accountForm.description.trim() : null;
+      const cleanParentId = accountForm.parentId ? accountForm.parentId : null;
+
+      let successText = '';
       if (editingAccount) {
         await apiClient.put(`/accounting/accounts/${editingAccount.id}`, {
-          name: accountForm.nameAr,
-          nameAr: accountForm.nameAr,
-          nameEn: accountForm.nameEn || null,
-          parentId: accountForm.parentId || null,
+          name: cleanNameAr,
+          nameAr: cleanNameAr,
+          nameEn: cleanNameEn,
+          parentId: cleanParentId,
           isPostable: accountForm.isPostable,
           status: accountForm.status,
-          description: accountForm.description,
+          description: cleanDesc,
         });
-        setFeedbackMessage({ type: 'success', text: `تم تحديث الحساب ${accountForm.accountCode} بنجاح` });
+        successText = `تم تحديث الحساب ${accountForm.accountCode} بنجاح`;
       } else {
         await apiClient.post('/accounting/accounts', {
           legalEntityId,
-          accountCode: accountForm.accountCode,
-          name: accountForm.nameAr,
-          nameAr: accountForm.nameAr,
-          nameEn: accountForm.nameEn || null,
+          accountCode: accountForm.accountCode.trim(),
+          name: cleanNameAr,
+          nameAr: cleanNameAr,
+          nameEn: cleanNameEn,
           accountType: accountForm.accountType,
           normalBalance: accountForm.normalBalance,
-          parentId: accountForm.parentId || null,
+          parentId: cleanParentId,
           isPostable: accountForm.isPostable,
-          description: accountForm.description,
+          description: cleanDesc,
         });
-        setFeedbackMessage({ type: 'success', text: `تم إنشاء الحساب ${accountForm.accountCode} بنجاح` });
+        successText = `تم إنشاء الحساب ${accountForm.accountCode} بنجاح`;
       }
 
+      toast.success(successText);
+      setFeedbackMessage({ type: 'success', text: successText });
       setIsAccountModalOpen(false);
+      setAccountModalError(null);
       await loadChartOfAccounts();
     } catch (err: any) {
-      setFeedbackMessage({ type: 'error', text: err.message || 'فشل حفظ بيانات الحساب' });
+      const errMsg = err.message || 'فشل حفظ بيانات الحساب';
+      setAccountModalError(errMsg);
+      toast.error(errMsg);
+      setFeedbackMessage({ type: 'error', text: errMsg });
     }
   };
 
@@ -804,10 +915,13 @@ export const AccountingView: React.FC = () => {
     if (!window.confirm(`هل أنت متأكد من حذف الحساب "${account.accountCode} - ${account.nameAr}"؟`)) return;
     try {
       await apiClient.delete(`/accounting/accounts/${account.id}`);
+      toast.success('تم حذف الحساب بنجاح');
       setFeedbackMessage({ type: 'success', text: 'تم حذف الحساب بنجاح' });
       await loadChartOfAccounts();
     } catch (err: any) {
-      setFeedbackMessage({ type: 'error', text: err.message || 'لا يمكن حذف الحساب' });
+      const errMsg = err.message || 'لا يمكن حذف الحساب';
+      toast.error(errMsg);
+      setFeedbackMessage({ type: 'error', text: errMsg });
     }
   };
 
@@ -821,8 +935,27 @@ export const AccountingView: React.FC = () => {
         setFeedbackMessage({ type: 'error', text: 'يرجى تعبئة جميع حقول التحويل والمبلغ' });
         return;
       }
-      if (transferForm.sourceType === transferForm.destinationType && transferForm.sourceId === transferForm.destinationId) {
-        setFeedbackMessage({ type: 'error', text: 'لا يمكن التحويل لنفس الحساب أو الصندوق' });
+
+      const sourceAccId =
+        transferForm.sourceType === 'BANK'
+          ? banks.find((b) => b.id === transferForm.sourceId)?.accountId
+          : vaults.find((v) => v.id === transferForm.sourceId)?.accountId;
+
+      const destAccId =
+        transferForm.destinationType === 'BANK'
+          ? banks.find((b) => b.id === transferForm.destinationId)?.accountId
+          : vaults.find((v) => v.id === transferForm.destinationId)?.accountId;
+
+      const isSameAccount =
+        (transferForm.sourceType === transferForm.destinationType &&
+          transferForm.sourceId === transferForm.destinationId) ||
+        Boolean(sourceAccId && destAccId && sourceAccId === destAccId);
+
+      if (isSameAccount) {
+        const msg = 'لا يمكن التحويل من الحساب إلى نفسه. اختر حسابًا آخر كوجهة';
+        setTransferModalError(msg);
+        toast.error(msg);
+        setFeedbackMessage({ type: 'error', text: msg });
         return;
       }
 
@@ -837,8 +970,11 @@ export const AccountingView: React.FC = () => {
         notes: transferForm.notes || 'تحويل نقدي بين الحسابات',
       });
 
-      setFeedbackMessage({ type: 'success', text: 'تم تنفيذ التحويل وتحديث الأرصدة وترحيل القيد بنجاح' });
+      const successMsg = 'تم تنفيذ التحويل وتحديث الأرصدة وترحيل القيد بنجاح';
+      toast.success(successMsg);
+      setFeedbackMessage({ type: 'success', text: successMsg });
       setIsTransferModalOpen(false);
+      setTransferModalError(null);
       setTransferForm({
         sourceType: 'BANK',
         sourceId: '',
@@ -850,7 +986,10 @@ export const AccountingView: React.FC = () => {
       await loadVaultsAndBanks();
       await loadJournalEntries();
     } catch (err: any) {
-      setFeedbackMessage({ type: 'error', text: err.message || 'فشل تنفيذ عملية التحويل' });
+      const errMsg = err.message || 'فشل تنفيذ عملية التحويل';
+      setTransferModalError(errMsg);
+      toast.error(errMsg);
+      setFeedbackMessage({ type: 'error', text: errMsg });
     }
   };
 
@@ -1096,7 +1235,10 @@ export const AccountingView: React.FC = () => {
             { id: 'journals', label: 'قيود اليومية ومحرر القيود', icon: BookOpen },
             { id: 'coa', label: 'دليل الحسابات الشجري (COA)', icon: FolderTree },
             { id: 'vouchers', label: 'سندات القبض والصرف', icon: Receipt },
-            { id: 'vaults_banks', label: 'الخزائن والبنوك', icon: Wallet },
+            { id: 'vaults_banks', label: 'الخزائن والبنوك والموارد', icon: Wallet },
+            { id: 'shifts', label: 'إقفال الورديات (POS)', icon: Calculator },
+            { id: 'settlements', label: 'تسويات الدفع والتوصيل', icon: CreditCard },
+            { id: 'mappings', label: 'الربط المحاسبي واستثناءات الفروع', icon: GitFork },
             { id: 'reports', label: 'التقارير المالية والضريبية', icon: FileSpreadsheet },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1179,6 +1321,38 @@ export const AccountingView: React.FC = () => {
                   <option value="DRAFT">مسودة (DRAFT)</option>
                   <option value="REVERSED">معكوس (REVERSED)</option>
                 </select>
+
+                <button
+                  type="button"
+                  disabled={filteredJournals.length === 0}
+                  onClick={() =>
+                    exportToCsv(
+                      `journal-entries-${new Date().toISOString().slice(0, 10)}.csv`,
+                      filteredJournals.map((j) => ({
+                        journalNumber: j.journalNumber,
+                        entryDate: j.entryDate,
+                        journalType: j.journalType || '',
+                        status: j.status,
+                        description: j.description,
+                        totalDebit: (j.lines || []).reduce((s, l) => s + Number(l.debit ?? 0), 0).toFixed(2),
+                        totalCredit: (j.lines || []).reduce((s, l) => s + Number(l.credit ?? 0), 0).toFixed(2),
+                      })),
+                      [
+                        { key: 'journalNumber', header: 'رقم القيد' },
+                        { key: 'entryDate', header: 'تاريخ القيد' },
+                        { key: 'journalType', header: 'النوع' },
+                        { key: 'status', header: 'الحالة' },
+                        { key: 'description', header: 'البيان' },
+                        { key: 'totalDebit', header: 'إجمالي المدين' },
+                        { key: 'totalCredit', header: 'إجمالي الدائن' },
+                      ]
+                    )
+                  }
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>تصدير CSV</span>
+                </button>
               </div>
             </div>
 
@@ -1301,6 +1475,7 @@ export const AccountingView: React.FC = () => {
                                     onClick={() => {
                                       setReversalTargetEntry(j);
                                       setReversalReason('');
+                                      setReversalModalError(null);
                                       setIsReversalModalOpen(true);
                                     }}
                                     className="p-1.5 hover:bg-amber-50 dark:hover:bg-amber-950 text-amber-600 rounded transition flex items-center gap-1 text-xs"
@@ -1541,108 +1716,44 @@ export const AccountingView: React.FC = () => {
         )}
 
         {/* ================================================================== */}
-        {/* TAB 4: VAULTS & BANKS */}
+        {/* TAB 4: VAULTS & BANKS (FINANCIAL RESOURCES) */}
         {/* ================================================================== */}
         {activeTab === 'vaults_banks' && (
-          <div className="flex flex-col gap-6">
-            {/* Top Action */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-base">إدارة الخزائن والصناديق النقدية والحسابات البنكية</h3>
-                <p className="text-xs text-slate-500 mt-0.5">تحويلات الأرصدة النقدية والمطابقة البنكية الدورية</p>
-              </div>
+          <FinancialResourcesView
+            legalEntityId={legalEntityId}
+            theme={theme}
+            flatAccounts={flatAccounts}
+          />
+        )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  setTransferForm({
-                    sourceType: 'BANK',
-                    sourceId: banks[0]?.id || '',
-                    destinationType: 'VAULT',
-                    destinationId: vaults[0]?.id || '',
-                    amount: '',
-                    notes: '',
-                  });
-                  setIsTransferModalOpen(true);
-                }}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-medium transition shadow-md shadow-blue-600/20"
-              >
-                <ArrowRightLeft className="w-4 h-4" />
-                <span>تحويل نقدي بين الحسابات والخزائن</span>
-              </button>
-            </div>
+        {/* ================================================================== */}
+        {/* TAB 4B: POS SHIFT CLOSING & CASH RECONCILIATION */}
+        {/* ================================================================== */}
+        {activeTab === 'shifts' && (
+          <PosShiftClosingView
+            legalEntityId={legalEntityId}
+            theme={theme}
+            defaultBranchId={activeBranch?.id || ''}
+          />
+        )}
 
-            {/* Cash Vaults Section */}
-            <div>
-              <h4 className="text-xs uppercase font-bold text-slate-400 mb-3 flex items-center gap-2">
-                <Wallet className="w-4 h-4 text-emerald-500" />
-                <span>الخزائن والصناديق النقدية بالفرع</span>
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {vaults.map((vault) => (
-                  <div
-                    key={vault.id}
-                    className={`p-4 rounded-xl border flex flex-col justify-between ${
-                      theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-500/10 text-slate-400 font-semibold">
-                          {vault.code}
-                        </span>
-                        <span className="text-xs text-emerald-500 font-medium">نشط</span>
-                      </div>
-                      <h5 className="font-bold text-base mt-2">{vault.nameAr}</h5>
-                      <p className="text-xs text-slate-500 mt-0.5">{vault.branchName || 'الإدارة المركزية'}</p>
-                    </div>
+        {activeTab === 'settlements' && (
+          <SettlementsView
+            legalEntityId={legalEntityId}
+            theme={theme}
+            defaultBranchId={activeBranch?.id || ''}
+          />
+        )}
 
-                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                      <span className="text-xs text-slate-400">الرصيد الدفتري:</span>
-                      <span className="font-mono font-bold text-lg text-emerald-600 dark:text-emerald-400">
-                        {parseFloat(vault.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })} SAR
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Bank Accounts Section */}
-            <div>
-              <h4 className="text-xs uppercase font-bold text-slate-400 mb-3 flex items-center gap-2">
-                <Landmark className="w-4 h-4 text-blue-500" />
-                <span>الحسابات البنكية المعتمدة</span>
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {banks.map((bank) => (
-                  <div
-                    key={bank.id}
-                    className={`p-4 rounded-xl border flex flex-col justify-between ${
-                      theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-blue-500">{bank.currency}</span>
-                        <span className="text-xs text-emerald-500 font-medium">نشط</span>
-                      </div>
-                      <h5 className="font-bold text-base mt-2">{bank.bankName}</h5>
-                      <p className="text-xs text-slate-500 font-mono mt-0.5">{bank.accountNumber}</p>
-                      {bank.iban && <p className="text-[11px] text-slate-400 font-mono mt-0.5">{bank.iban}</p>}
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                      <span className="text-xs text-slate-400">الرصيد المتاح:</span>
-                      <span className="font-mono font-bold text-lg text-blue-600 dark:text-blue-400">
-                        {parseFloat(bank.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })} {bank.currency}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+        {/* ================================================================== */}
+        {/* TAB 5: CENTRAL ACCOUNT MAPPINGS & BRANCH OVERRIDES */}
+        {/* ================================================================== */}
+        {activeTab === 'mappings' && (
+          <AccountMappingView
+            legalEntityId={legalEntityId}
+            theme={theme}
+            flatAccounts={flatAccounts}
+          />
         )}
 
         {/* ================================================================== */}
@@ -1681,15 +1792,42 @@ export const AccountingView: React.FC = () => {
                     <h4 className="font-bold text-base">ميزان المراجعة بالأرصدة والمجاميع</h4>
                     <p className="text-xs text-slate-400 mt-0.5">مطابقة تامة لإجمالي المدين مع إجمالي الدائن</p>
                   </div>
-                  {trialBalanceData && (
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    {trialBalanceData && (
                       <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
                         trialBalanceData.isBalanced ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'
                       }`}>
                         {trialBalanceData.isBalanced ? 'الميزان متوازن 100%' : 'يوجد فرق في الميزان'}
                       </span>
-                    </div>
-                  )}
+                    )}
+                    <button
+                      type="button"
+                      disabled={!trialBalanceData?.accounts?.length}
+                      onClick={() =>
+                        exportToCsv(
+                          `trial-balance-${new Date().toISOString().slice(0, 10)}.csv`,
+                          (trialBalanceData?.accounts || []).map((acc: any) => ({
+                            accountCode: acc.accountCode,
+                            accountName: acc.accountName || acc.nameAr || acc.name || acc.nameEn || '-',
+                            totalDebit: parseFloat(acc.totalDebit || '0').toFixed(2),
+                            totalCredit: parseFloat(acc.totalCredit || '0').toFixed(2),
+                            netBalance: parseFloat(acc.netBalance || '0').toFixed(2),
+                          })),
+                          [
+                            { key: 'accountCode', header: 'رمز الحساب' },
+                            { key: 'accountName', header: 'اسم الحساب' },
+                            { key: 'totalDebit', header: 'مجموع المدين' },
+                            { key: 'totalCredit', header: 'مجموع الدائن' },
+                            { key: 'netBalance', header: 'صافي الرصيد' },
+                          ]
+                        )
+                      }
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>تصدير CSV</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -1738,9 +1876,34 @@ export const AccountingView: React.FC = () => {
             {/* Income Statement Report */}
             {reportSubTab === 'income_statement' && (
               <div className={`p-5 rounded-xl border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <h4 className="font-bold text-base mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-                  قائمة الأرباح والخسائر (Income Statement)
-                </h4>
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <h4 className="font-bold text-base">
+                    قائمة الأرباح والخسائر (Income Statement)
+                  </h4>
+                  <button
+                    type="button"
+                    disabled={!incomeStatementData}
+                    onClick={() =>
+                      exportToCsv(
+                        `income-statement-${new Date().toISOString().slice(0, 10)}.csv`,
+                        [
+                          { item: 'إجمالي الإيرادات (Revenues)', amount: parseFloat(incomeStatementData?.revenues?.total || '0').toFixed(2) },
+                          { item: 'تكلفة البضاعة المباعة (COGS)', amount: parseFloat(incomeStatementData?.cogs?.total || '0').toFixed(2) },
+                          { item: 'المصروفات التشغيلية (Expenses)', amount: parseFloat(incomeStatementData?.expenses?.total || '0').toFixed(2) },
+                          { item: 'صافي الدخل التشغيلي (Net Profit)', amount: parseFloat(incomeStatementData?.netIncome || '0').toFixed(2) },
+                        ],
+                        [
+                          { key: 'item', header: 'البند' },
+                          { key: 'amount', header: 'المبلغ (SAR)' },
+                        ]
+                      )
+                    }
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>تصدير CSV</span>
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                   <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                     <p className="text-xs text-slate-500">إجمالي الإيرادات</p>
@@ -1767,9 +1930,33 @@ export const AccountingView: React.FC = () => {
             {/* Balance Sheet */}
             {reportSubTab === 'balance_sheet' && (
               <div className={`p-5 rounded-xl border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <h4 className="font-bold text-base mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-                  الميزانية العمومية والمركز المالي (Balance Sheet)
-                </h4>
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <h4 className="font-bold text-base">
+                    الميزانية العمومية والمركز المالي (Balance Sheet)
+                  </h4>
+                  <button
+                    type="button"
+                    disabled={!balanceSheetData}
+                    onClick={() =>
+                      exportToCsv(
+                        `balance-sheet-${new Date().toISOString().slice(0, 10)}.csv`,
+                        [
+                          { item: 'إجمالي الأصول (Assets)', amount: parseFloat(balanceSheetData?.assets?.total || '0').toFixed(2) },
+                          { item: 'إجمالي الالتزامات (Liabilities)', amount: parseFloat(balanceSheetData?.liabilities?.total || '0').toFixed(2) },
+                          { item: 'حقوق الملكية (Equity)', amount: parseFloat(balanceSheetData?.equity?.total || '0').toFixed(2) },
+                        ],
+                        [
+                          { key: 'item', header: 'البند' },
+                          { key: 'amount', header: 'المبلغ (SAR)' },
+                        ]
+                      )
+                    }
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>تصدير CSV</span>
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                   <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
                     <p className="text-xs text-slate-500">إجمالي الأصول (Assets)</p>
@@ -1796,9 +1983,33 @@ export const AccountingView: React.FC = () => {
             {/* VAT Return */}
             {reportSubTab === 'vat_return' && (
               <div className={`p-5 rounded-xl border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <h4 className="font-bold text-base mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-                  إقرار ضريبة القيمة المضافة لهيئة الزكاة والضريبة والجمارك (ZATCA VAT Return 15%)
-                </h4>
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <h4 className="font-bold text-base">
+                    إقرار ضريبة القيمة المضافة لهيئة الزكاة والضريبة والجمارك (ZATCA VAT Return 15%)
+                  </h4>
+                  <button
+                    type="button"
+                    disabled={!vatReturnData}
+                    onClick={() =>
+                      exportToCsv(
+                        `vat-return-${new Date().toISOString().slice(0, 10)}.csv`,
+                        [
+                          { item: 'ضريبة المخرجات للمبيعات (Output VAT 15%)', amount: parseFloat(vatReturnData?.totalOutputVat || '0').toFixed(2) },
+                          { item: 'ضريبة المدخلات للمشتريات (Input VAT 15%)', amount: parseFloat(vatReturnData?.totalInputVat || '0').toFixed(2) },
+                          { item: 'صافي الضريبة المستحقة للسداد (Net VAT Payable/Refund)', amount: parseFloat(vatReturnData?.netVatPayableOrRefund || '0').toFixed(2) },
+                        ],
+                        [
+                          { key: 'item', header: 'البند' },
+                          { key: 'amount', header: 'المبلغ (SAR)' },
+                        ]
+                      )
+                    }
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>تصدير CSV</span>
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800">
                     <p className="text-xs text-slate-500">ضريبة المخرجات للمبيعات (15%)</p>
@@ -1856,6 +2067,13 @@ export const AccountingView: React.FC = () => {
 
             {/* Drawer Body */}
             <div className="p-6 overflow-y-auto flex flex-col gap-6">
+              {/* Inline Error Banner */}
+              {journalModalError && (
+                <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{journalModalError}</span>
+                </div>
+              )}
               {/* Header Fields Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div>
@@ -2205,6 +2423,14 @@ export const AccountingView: React.FC = () => {
               </button>
             </div>
 
+            {/* Inline Error Alert Banner */}
+            {accountModalError && (
+              <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                <span>{accountModalError}</span>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div>
                 <label className="block font-semibold mb-1 text-slate-500">رمز الحساب (Code):</label>
@@ -2224,7 +2450,7 @@ export const AccountingView: React.FC = () => {
                 <label className="block font-semibold mb-1 text-slate-500">الحساب الأب (Parent):</label>
                 <select
                   value={accountForm.parentId || ''}
-                  onChange={(e) => setAccountForm({ ...accountForm, parentId: e.target.value || null })}
+                  onChange={(e) => handleParentChange(e.target.value || null)}
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
                     theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
                   }`}
@@ -2240,13 +2466,13 @@ export const AccountingView: React.FC = () => {
                 </select>
               </div>
 
-              <div className="col-span-2">
-                <label className="block font-semibold mb-1 text-slate-500">اسم الحساب بالعربية:</label>
+              <div>
+                <label className="block font-semibold mb-1 text-slate-500">اسم الحساب بالعربية (إلزامي):</label>
                 <input
                   type="text"
                   value={accountForm.nameAr}
                   onChange={(e) => setAccountForm({ ...accountForm, nameAr: e.target.value })}
-                  placeholder="اسم الحساب الرسمي..."
+                  placeholder="اسم الحساب الرسمي بالعربية..."
                   className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
                     theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
                   }`}
@@ -2254,11 +2480,33 @@ export const AccountingView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold mb-1 text-slate-500">نوع الحساب:</label>
+                <label className="block font-semibold mb-1 text-slate-500">اسم الحساب بالإنجليزية (اختياري):</label>
+                <input
+                  type="text"
+                  value={accountForm.nameEn}
+                  onChange={(e) => setAccountForm({ ...accountForm, nameEn: e.target.value })}
+                  placeholder="Official Account Name (EN)..."
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1 text-slate-500">
+                  نوع الحساب {accountForm.parentId ? '(موروث من الأب)' : ''}:
+                </label>
                 <select
                   value={accountForm.accountType}
-                  onChange={(e) => setAccountForm({ ...accountForm, accountType: e.target.value as any })}
-                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
+                  disabled={Boolean(accountForm.parentId)}
+                  onChange={(e) => {
+                    const newType = e.target.value as any;
+                    setAccountForm({ ...accountForm, accountType: newType });
+                    if (!accountForm.parentId) {
+                      handleParentChange(null);
+                    }
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed ${
                     theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
                   }`}
                 >
@@ -2269,20 +2517,42 @@ export const AccountingView: React.FC = () => {
                   <option value="COGS">تكلفة مبيعات (COGS)</option>
                   <option value="EXPENSE">مصروفات (EXPENSE)</option>
                 </select>
+                {accountForm.parentId && (
+                  <p className="text-[10px] text-indigo-400 mt-1">موروث إجبارياً من الحساب الأب لضمان تماسك الدليل</p>
+                )}
               </div>
 
               <div>
                 <label className="block font-semibold mb-1 text-slate-500">الطبيعة المحاسبية:</label>
                 <select
                   value={accountForm.normalBalance}
-                  onChange={(e) => setAccountForm({ ...accountForm, normalBalance: e.target.value as any })}
-                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none ${
+                  disabled={true}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none opacity-80 cursor-not-allowed ${
                     theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
                   }`}
                 >
                   <option value="DEBIT">مدين (DEBIT)</option>
                   <option value="CREDIT">دائن (CREDIT)</option>
                 </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  {isContra ? 'طبيعة معاكسة (حساب مقابل)' : 'طبيعة قياسية موروثة'}
+                </p>
+              </div>
+
+              {/* Contra Account Toggle */}
+              <div className="col-span-2 flex items-center justify-between p-3 rounded-xl border border-slate-700/50 bg-slate-800/10">
+                <div>
+                  <span className="block font-bold">حساب مقابل (Contra Account)</span>
+                  <span className="text-slate-400 text-[11px]">
+                    يعكس الطبيعة المحاسبية (مثل: مجمع الإهلاك تحت الأصول، أو مردودات المبيعات تحت الإيرادات)
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isContra}
+                  onChange={(e) => handleToggleContra(e.target.checked)}
+                  className="w-4 h-4 accent-amber-500"
+                />
               </div>
 
               <div className="col-span-2 flex items-center justify-between p-3 rounded-xl border border-slate-700/50">
@@ -2338,6 +2608,14 @@ export const AccountingView: React.FC = () => {
                 <X className="w-5 h-5 text-slate-400" />
               </button>
             </div>
+
+            {/* Inline Error Alert Banner */}
+            {reversalModalError && (
+              <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                <span>{reversalModalError}</span>
+              </div>
+            )}
 
             <p className="text-xs text-slate-400">
               سيقوم النظام بإنشاء قيد عكسي تلقائي معكوس الأطراف (المدين دائناً والدائن مديناً) وتغيير حالة القيد الأصلي إلى معكوس (REVERSED) لمنع التعديل أو التكرار.
@@ -2396,6 +2674,14 @@ export const AccountingView: React.FC = () => {
               </button>
             </div>
 
+            {/* Inline Error Alert Banner */}
+            {transferModalError && (
+              <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                <span>{transferModalError}</span>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4 text-xs">
               {/* Source */}
               <div>
@@ -2419,16 +2705,36 @@ export const AccountingView: React.FC = () => {
                 >
                   <option value="">-- اختر المصدر --</option>
                   {transferForm.sourceType === 'BANK'
-                    ? banks.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.bankName} ({parseFloat(b.balance).toFixed(2)} SAR)
-                        </option>
-                      ))
-                    : vaults.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.nameAr} ({parseFloat(v.balance).toFixed(2)} SAR)
-                        </option>
-                      ))}
+                    ? banks
+                        .filter((b) => {
+                          if (!transferForm.destinationId) return true;
+                          if (transferForm.destinationType === 'BANK' && b.id === transferForm.destinationId) return false;
+                          const destAccId = transferForm.destinationType === 'BANK'
+                            ? banks.find((item) => item.id === transferForm.destinationId)?.accountId
+                            : vaults.find((item) => item.id === transferForm.destinationId)?.accountId;
+                          if (destAccId && b.accountId === destAccId) return false;
+                          return true;
+                        })
+                        .map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.bankName} ({parseFloat(b.balance).toFixed(2)} SAR)
+                          </option>
+                        ))
+                    : vaults
+                        .filter((v) => {
+                          if (!transferForm.destinationId) return true;
+                          if (transferForm.destinationType === 'VAULT' && v.id === transferForm.destinationId) return false;
+                          const destAccId = transferForm.destinationType === 'BANK'
+                            ? banks.find((item) => item.id === transferForm.destinationId)?.accountId
+                            : vaults.find((item) => item.id === transferForm.destinationId)?.accountId;
+                          if (destAccId && v.accountId === destAccId) return false;
+                          return true;
+                        })
+                        .map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.nameAr} ({parseFloat(v.balance).toFixed(2)} SAR)
+                          </option>
+                        ))}
                 </select>
               </div>
 
@@ -2454,18 +2760,65 @@ export const AccountingView: React.FC = () => {
                 >
                   <option value="">-- اختر الوجهة --</option>
                   {transferForm.destinationType === 'BANK'
-                    ? banks.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.bankName} ({parseFloat(b.balance).toFixed(2)} SAR)
-                        </option>
-                      ))
-                    : vaults.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.nameAr} ({parseFloat(v.balance).toFixed(2)} SAR)
-                        </option>
-                      ))}
+                    ? banks
+                        .filter((b) => {
+                          if (!transferForm.sourceId) return true;
+                          if (transferForm.sourceType === 'BANK' && b.id === transferForm.sourceId) return false;
+                          const srcAccId = transferForm.sourceType === 'BANK'
+                            ? banks.find((item) => item.id === transferForm.sourceId)?.accountId
+                            : vaults.find((item) => item.id === transferForm.sourceId)?.accountId;
+                          if (srcAccId && b.accountId === srcAccId) return false;
+                          return true;
+                        })
+                        .map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.bankName} ({parseFloat(b.balance).toFixed(2)} SAR)
+                          </option>
+                        ))
+                    : vaults
+                        .filter((v) => {
+                          if (!transferForm.sourceId) return true;
+                          if (transferForm.sourceType === 'VAULT' && v.id === transferForm.sourceId) return false;
+                          const srcAccId = transferForm.sourceType === 'BANK'
+                            ? banks.find((item) => item.id === transferForm.sourceId)?.accountId
+                            : vaults.find((item) => item.id === transferForm.sourceId)?.accountId;
+                          if (srcAccId && v.accountId === srcAccId) return false;
+                          return true;
+                        })
+                        .map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.nameAr} ({parseFloat(v.balance).toFixed(2)} SAR)
+                          </option>
+                        ))}
                 </select>
               </div>
+
+              {/* Same Account Warning Banner */}
+              {(() => {
+                const srcAccId =
+                  transferForm.sourceType === 'BANK'
+                    ? banks.find((b) => b.id === transferForm.sourceId)?.accountId
+                    : vaults.find((v) => v.id === transferForm.sourceId)?.accountId;
+                const destAccId =
+                  transferForm.destinationType === 'BANK'
+                    ? banks.find((b) => b.id === transferForm.destinationId)?.accountId
+                    : vaults.find((v) => v.id === transferForm.destinationId)?.accountId;
+                const isSame =
+                  (Boolean(transferForm.sourceId) &&
+                    Boolean(transferForm.destinationId) &&
+                    transferForm.sourceType === transferForm.destinationType &&
+                    transferForm.sourceId === transferForm.destinationId) ||
+                  Boolean(srcAccId && destAccId && srcAccId === destAccId);
+
+                if (!isSame) return null;
+
+                return (
+                  <div className="col-span-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs flex items-center gap-2 font-medium">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>لا يمكن التحويل من الحساب إلى نفسه. اختر حسابًا آخر كوجهة</span>
+                  </div>
+                );
+              })()}
 
               {/* Amount & Notes */}
               <div className="col-span-2">
@@ -2505,13 +2858,38 @@ export const AccountingView: React.FC = () => {
               >
                 إلغاء
               </button>
-              <button
-                type="button"
-                onClick={handleExecuteTransfer}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30"
-              >
-                تأكيد التحويل وترحيل القيد
-              </button>
+              {(() => {
+                const srcAccId =
+                  transferForm.sourceType === 'BANK'
+                    ? banks.find((b) => b.id === transferForm.sourceId)?.accountId
+                    : vaults.find((v) => v.id === transferForm.sourceId)?.accountId;
+                const destAccId =
+                  transferForm.destinationType === 'BANK'
+                    ? banks.find((b) => b.id === transferForm.destinationId)?.accountId
+                    : vaults.find((v) => v.id === transferForm.destinationId)?.accountId;
+                const isSame =
+                  (Boolean(transferForm.sourceId) &&
+                    Boolean(transferForm.destinationId) &&
+                    transferForm.sourceType === transferForm.destinationType &&
+                    transferForm.sourceId === transferForm.destinationId) ||
+                  Boolean(srcAccId && destAccId && srcAccId === destAccId);
+                const isInvalid = isSame || !transferForm.sourceId || !transferForm.destinationId || !transferForm.amount || parseFloat(transferForm.amount) <= 0;
+
+                return (
+                  <button
+                    type="button"
+                    disabled={isInvalid}
+                    onClick={handleExecuteTransfer}
+                    className={`px-5 py-2 rounded-xl text-xs font-bold transition-all ${
+                      isInvalid
+                        ? 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
+                        : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30'
+                    }`}
+                  >
+                    تأكيد التحويل وترحيل القيد
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>

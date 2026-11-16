@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { RateLimitGuard } from './common/guards/rate-limit.guard';
 import { DatabaseModule } from './database/database.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { IamModule } from './modules/iam/iam.module';
@@ -15,6 +17,10 @@ import { SalesModule } from './modules/sales/sales.module';
 import { MediaModule } from './modules/media/media.module';
 import { PartnersModule } from './modules/partners/partners.module';
 import { OperationsFrameworkModule } from './common/operations/operations-framework.module';
+import { SettlementsModule } from './modules/settlements/settlements.module';
+import { ZatcaModule } from './modules/zatca/zatca.module';
+import { HrModule } from './modules/hr/hr.module';
+import { DeliveryModule } from './modules/delivery/delivery.module';
 
 @Module({
   imports: [
@@ -32,8 +38,18 @@ import { OperationsFrameworkModule } from './common/operations/operations-framew
     AccountingModule,
     SalesModule,
     PartnersModule,
+    SettlementsModule,
+    ZatcaModule,
+    HrModule,
+    DeliveryModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
+    },
+  ],
 })
 export class AppModule {}

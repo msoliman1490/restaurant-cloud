@@ -10,8 +10,10 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { TenantService } from './tenant.service';
+import { z } from 'zod';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { OptionalLegalEntityIdPipe } from '../../common/pipes/legal-entity-id.pipe';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
@@ -50,6 +52,7 @@ export class TenantController {
 
   @Get('tenants/hierarchy')
   @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
   async getHierarchy(@CurrentContext() context: TenantContext) {
     const data = await this.tenantService.getHierarchy(context);
     return {
@@ -145,7 +148,7 @@ export class TenantController {
   @RequirePermissions('branch.read')
   async listBranches(
     @CurrentContext() context: TenantContext,
-    @Query('legalEntityId') legalEntityId?: string
+    @Query('legalEntityId', OptionalLegalEntityIdPipe) legalEntityId?: string
   ) {
     const data = await this.tenantService.listBranches(context, legalEntityId);
     return {
@@ -217,6 +220,7 @@ export class TenantController {
   // Multi-Industry SaaS Endpoints
   @Get('tenants/industries')
   @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
   async getIndustryPacks(@CurrentContext() context: TenantContext) {
     const data = await this.tenantService.getTenantIndustryPacks(context);
     return {
@@ -257,11 +261,121 @@ export class TenantController {
 
   @Get('tenants/subscription')
   @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
   async getSubscription(@CurrentContext() context: TenantContext) {
     const data = await this.tenantService.getTenantSubscription(context);
     return {
       success: true,
       data,
     };
+  }
+
+  @Get('tenants/integrations')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
+  async getIntegrations(@CurrentContext() context: TenantContext) {
+    const data = await this.tenantService.getTenantIntegrations(context);
+    return { success: true, data };
+  }
+
+  @Patch('tenants/integrations/:channel')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.update')
+  async upsertIntegration(
+    @CurrentContext() context: TenantContext,
+    @Param('channel') channel: string,
+    @Body() body: unknown
+  ) {
+    const validated = z
+      .object({
+        provider: z.string().min(1).max(100).optional(),
+        isEnabled: z.boolean(),
+        configJson: z.record(z.any()).optional(),
+      })
+      .parse(body);
+    const data = await this.tenantService.upsertTenantIntegration(context, channel, validated);
+    return { success: true, data };
+  }
+
+  @Post('tenants/notifications/dispatch')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.update')
+  async dispatchNotification(
+    @CurrentContext() context: TenantContext,
+    @Body() body: unknown
+  ) {
+    const validated = z
+      .object({
+        channel: z.string().min(1).max(64),
+        recipient: z.string().min(1).max(255),
+        eventType: z.string().min(1).max(120),
+        payload: z.record(z.any()).optional(),
+        branchId: z.string().uuid().optional(),
+        idempotencyKey: z.string().max(128).optional(),
+      })
+      .parse(body);
+    const data = await this.tenantService.dispatchNotification(context, validated);
+    return { success: true, data };
+  }
+
+  @Get('tenants/notifications')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
+  async getNotifications(
+    @CurrentContext() context: TenantContext,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string
+  ) {
+    const data = await this.tenantService.getNotificationLogs(
+      context,
+      limit ? parseInt(limit, 10) : 25,
+      offset ? parseInt(offset, 10) : 0
+    );
+    return { success: true, data };
+  }
+
+  @Post('tenants/notifications/retry')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.update')
+  async retryNotifications(@CurrentContext() context: TenantContext) {
+    const data = await this.tenantService.retryPendingNotifications(context);
+    return { success: true, data };
+  }
+
+  @Post('tenants/integrations/webhook/verify')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
+  async verifyWebhook(
+    @CurrentContext() context: TenantContext,
+    @Body() body: unknown
+  ) {
+    const validated = z
+      .object({
+        channel: z.string().min(1).max(64).optional(),
+        timestamp: z.number(),
+        rawBody: z.string(),
+        signatureHeader: z.string().min(1),
+        nonce: z.string().max(128).optional(),
+        messageId: z.string().max(128).optional(),
+      })
+      .parse(body);
+    const data = await this.tenantService.verifyWebhookSignature(context, validated);
+    return { success: true, data };
+  }
+
+  @Post('tenants/integrations/rotate-keys')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.update')
+  async rotateIntegrationKeys(@CurrentContext() context: TenantContext) {
+    const data = await this.tenantService.rotateIntegrationSecrets(context);
+    return { success: true, data };
+  }
+
+  @Get('tenants/dashboard-summary')
+  @UseGuards(TenantContextGuard, PermissionsGuard)
+  @RequirePermissions('tenant.read')
+  async getDashboardSummary(@CurrentContext() context: TenantContext) {
+    const data = await this.tenantService.getDashboardSummary(context);
+    return { success: true, data };
   }
 }

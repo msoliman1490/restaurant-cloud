@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { apiClient } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import {
   Boxes,
   ArrowLeftRight,
@@ -13,217 +15,23 @@ import {
   PackageCheck,
   ClipboardCheck,
   CheckCircle2,
-  Truck,
   Lock,
+  Loader2,
+  RefreshCw,
+  Download,
 } from 'lucide-react';
 import { StockBalance, Warehouse, StockTransfer, InventoryMovementRow, StocktakeOrder } from '../types';
+import { TransfersView } from './TransfersView';
+import { exportToCsv } from '../utils/export';
 
-const INITIAL_WAREHOUSES: Warehouse[] = [
-  {
-    id: 'wh-all',
-    code: 'ALL',
-    name: 'جميع المستودعات',
-    branchName: 'الكل',
-    warehouseType: 'ALL',
-    status: 'ACTIVE',
-  },
-  {
-    id: 'wh-1',
-    code: 'WH-CENTRAL',
-    name: 'المستودع المركزي (الملز)',
-    branchName: 'المركز الرئيسي',
-    warehouseType: 'MAIN',
-    status: 'ACTIVE',
-    allowReceiving: true,
-    allowIssuing: true,
-    allowTransfer: true,
-  },
-  {
-    id: 'wh-2',
-    code: 'WH-OLAYA',
-    name: 'مستودع فرع العليا',
-    branchName: 'فرع الرياض العليا',
-    warehouseType: 'BRANCH',
-    status: 'ACTIVE',
-    allowReceiving: true,
-    allowIssuing: true,
-    allowTransfer: true,
-  },
-  {
-    id: 'wh-3',
-    code: 'WH-MALQA',
-    name: 'مستودع فرع الملقا',
-    branchName: 'فرع الرياض الملقا',
-    warehouseType: 'BRANCH',
-    status: 'ACTIVE',
-    allowReceiving: true,
-    allowIssuing: true,
-    allowTransfer: true,
-  },
-  {
-    id: 'wh-4',
-    code: 'WH-RAW-01',
-    name: 'مستودع المواد الخام والتجهيز',
-    branchName: 'المطبخ المركزي',
-    warehouseType: 'RAW_MATERIALS',
-    status: 'ACTIVE',
-    allowReceiving: true,
-    allowIssuing: true,
-    allowTransfer: true,
-  },
-  {
-    id: 'wh-5',
-    code: 'WH-QUARANTINE',
-    name: 'مستودع التوالف والحجر الصحي',
-    branchName: 'المركز الرئيسي',
-    warehouseType: 'DAMAGED_RETURNS',
-    status: 'ACTIVE',
-    allowReceiving: false,
-    allowIssuing: false,
-    allowTransfer: true,
-  },
-];
-
-const INITIAL_BALANCES: StockBalance[] = [
-  {
-    id: 'bal-1',
-    warehouseId: 'wh-1',
-    warehouseName: 'المستودع المركزي (الملز)',
-    warehouseCode: 'WH-CENTRAL',
-    warehouseType: 'MAIN',
-    itemId: 'prod-1',
-    itemSku: 'BRG-001',
-    itemName: 'برجر أنجوس كلاسيك (شريحة خام)',
-    onHandQty: 450,
-    reservedQty: 30,
-    inTransitQty: 0,
-    damagedQty: 5,
-    underInspectionQty: 0,
-    availableQty: 415,
-    unitCost: 14.5,
-    wacCost: 14.5,
-    totalValue: 6452.5,
-    minStock: 50,
-    maxStock: 800,
-    reorderPoint: 100,
-    availabilityStatus: 'IN_STOCK',
-  },
-  {
-    id: 'bal-2',
-    warehouseId: 'wh-2',
-    warehouseName: 'مستودع فرع العليا',
-    warehouseCode: 'WH-OLAYA',
-    warehouseType: 'BRANCH',
-    itemId: 'prod-1',
-    itemSku: 'BRG-001',
-    itemName: 'برجر أنجوس كلاسيك (شريحة خام)',
-    onHandQty: 85,
-    reservedQty: 5,
-    inTransitQty: 20,
-    damagedQty: 0,
-    underInspectionQty: 0,
-    availableQty: 80,
-    unitCost: 14.5,
-    wacCost: 14.5,
-    totalValue: 1232.5,
-    minStock: 20,
-    maxStock: 150,
-    reorderPoint: 35,
-    availabilityStatus: 'IN_STOCK',
-  },
-  {
-    id: 'bal-3',
-    warehouseId: 'wh-2',
-    warehouseName: 'مستودع فرع العليا',
-    warehouseCode: 'WH-OLAYA',
-    warehouseType: 'BRANCH',
-    itemId: 'prod-2',
-    itemSku: 'BRG-002',
-    itemName: 'برجر دجاج كرسبي مقرمش',
-    onHandQty: 18,
-    reservedQty: 2,
-    inTransitQty: 0,
-    damagedQty: 1,
-    underInspectionQty: 0,
-    availableQty: 15,
-    unitCost: 11.0,
-    wacCost: 11.0,
-    totalValue: 187.0,
-    minStock: 25,
-    maxStock: 200,
-    reorderPoint: 40,
-    availabilityStatus: 'LOW_STOCK',
-  },
-  {
-    id: 'bal-4',
-    warehouseId: 'wh-1',
-    warehouseName: 'المستودع المركزي (الملز)',
-    warehouseCode: 'WH-CENTRAL',
-    warehouseType: 'MAIN',
-    itemId: 'prod-5',
-    itemSku: 'BEV-001',
-    itemName: 'كوكاكولا عبوة معدنية 330 مل',
-    onHandQty: 1200,
-    reservedQty: 100,
-    inTransitQty: 0,
-    damagedQty: 12,
-    underInspectionQty: 0,
-    availableQty: 1088,
-    unitCost: 2.2,
-    wacCost: 2.2,
-    totalValue: 2613.6,
-    minStock: 200,
-    maxStock: 2500,
-    reorderPoint: 400,
-    availabilityStatus: 'IN_STOCK',
-  },
-  {
-    id: 'bal-5',
-    warehouseId: 'wh-3',
-    warehouseName: 'مستودع فرع الملقا',
-    warehouseCode: 'WH-MALQA',
-    warehouseType: 'BRANCH',
-    itemId: 'prod-5',
-    itemSku: 'BEV-001',
-    itemName: 'كوكاكولا عبوة معدنية 330 مل',
-    onHandQty: 350,
-    reservedQty: 15,
-    inTransitQty: 50,
-    damagedQty: 0,
-    underInspectionQty: 0,
-    availableQty: 335,
-    unitCost: 2.2,
-    wacCost: 2.2,
-    totalValue: 770.0,
-    minStock: 50,
-    maxStock: 600,
-    reorderPoint: 100,
-    availabilityStatus: 'IN_STOCK',
-  },
-  {
-    id: 'bal-6',
-    warehouseId: 'wh-4',
-    warehouseName: 'مستودع المواد الخام والتجهيز',
-    warehouseCode: 'WH-RAW-01',
-    warehouseType: 'RAW_MATERIALS',
-    itemId: 'prod-6',
-    itemSku: 'RAW-001',
-    itemName: 'جبن شيدر أصفر مبشور (5 كجم)',
-    onHandQty: 0,
-    reservedQty: 0,
-    inTransitQty: 0,
-    damagedQty: 0,
-    underInspectionQty: 0,
-    availableQty: 0,
-    unitCost: 75.0,
-    wacCost: 75.0,
-    totalValue: 0.0,
-    minStock: 10,
-    maxStock: 80,
-    reorderPoint: 15,
-    availabilityStatus: 'OUT_OF_STOCK',
-  },
-];
+const ALL_WAREHOUSES_OPTION: Warehouse = {
+  id: 'wh-all',
+  code: 'ALL',
+  name: 'جميع المستودعات',
+  branchName: 'الكل',
+  warehouseType: 'ALL',
+  status: 'ACTIVE',
+};
 
 const INITIAL_TRANSFERS: StockTransfer[] = [
   {
@@ -357,13 +165,101 @@ const INITIAL_MOVEMENTS: InventoryMovementRow[] = [
 ];
 
 export const InventoryView: React.FC = () => {
+  const { activeLegalEntity, activeBranch } = useAuth();
   const [activeTab, setActiveTab] = useState<'BALANCES' | 'WAREHOUSES' | 'MOVEMENTS' | 'TRANSFERS' | 'STOCKTAKE'>('BALANCES');
 
-  const [warehouses, setWarehouses] = useState<Warehouse[]>(INITIAL_WAREHOUSES);
-  const [balances, setBalances] = useState<StockBalance[]>(INITIAL_BALANCES);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([ALL_WAREHOUSES_OPTION]);
+  const [balances, setBalances] = useState<StockBalance[]>([]);
   const [movements, setMovements] = useState<InventoryMovementRow[]>(INITIAL_MOVEMENTS);
   const [transfers, setTransfers] = useState<StockTransfer[]>(INITIAL_TRANSFERS);
   const [stocktakes, setStocktakes] = useState<StocktakeOrder[]>(INITIAL_STOCKTAKES);
+  const [catalogItems, setCatalogItems] = useState<Array<{ id: string; sku: string; nameAr: string; baseUomId: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadInventory = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [whRes, balRes, movRes, stkRes, itemsRes] = await Promise.allSettled([
+        apiClient.get<any>('/api/v1/inventory/warehouses'),
+        apiClient.get<any>('/api/v1/inventory/balances/detailed?limit=100'),
+        apiClient.get<any>('/api/v1/inventory/movements?limit=100'),
+        apiClient.get<any>('/api/v1/inventory/stocktakes?limit=50'),
+        apiClient.get<any>('/api/v1/catalog/items?limit=100'),
+      ]);
+
+      if (whRes.status === 'fulfilled') {
+        const whRows = Array.isArray(whRes.value) ? whRes.value : whRes.value?.items || [];
+        setWarehouses([ALL_WAREHOUSES_OPTION, ...whRows]);
+        if (whRows.length > 0) {
+          setRcvWarehouse((prev) => (prev === 'wh-1' ? whRows[0].id : prev));
+          setIssWarehouse((prev) => (prev === 'wh-2' ? whRows[0].id : prev));
+          setStkWh((prev) => (prev === 'wh-2' ? whRows[0].id : prev));
+        }
+      }
+
+      if (balRes.status === 'fulfilled') {
+        const balRows = Array.isArray(balRes.value) ? balRes.value : balRes.value?.items || [];
+        setBalances(
+          balRows.map((b: any) => ({
+            ...b,
+            onHandQty: Number(b.onHandQty ?? 0),
+            reservedQty: Number(b.reservedQty ?? 0),
+            inTransitQty: Number(b.inTransitQty ?? 0),
+            damagedQty: Number(b.damagedQty ?? 0),
+            availableQty: Number(b.availableQty ?? b.onHandQty ?? 0),
+            unitCost: Number(b.unitCost ?? b.wacCost ?? 0),
+            wacCost: Number(b.wacCost ?? b.unitCost ?? 0),
+            totalValue: Number(b.totalValue ?? 0),
+          })),
+        );
+      } else {
+        setBalances([]);
+        setError(balRes.reason?.message || 'تعذر تحميل أرصدة المخزون من الخادم');
+      }
+
+      if (movRes.status === 'fulfilled') {
+        const movRows = Array.isArray(movRes.value) ? movRes.value : movRes.value?.items || [];
+        setMovements(
+          movRows.map((m: any) => ({
+            ...m,
+            quantity: Number(m.quantity ?? 0),
+            unitCost: Number(m.unitCost ?? 0),
+            totalCost: Number(m.totalCost ?? 0),
+          })),
+        );
+      }
+
+      if (stkRes.status === 'fulfilled') {
+        const stkRows = Array.isArray(stkRes.value) ? stkRes.value : stkRes.value?.items || [];
+        setStocktakes(stkRows);
+      }
+
+      if (itemsRes.status === 'fulfilled') {
+        const itemRows = Array.isArray(itemsRes.value) ? itemsRes.value : itemsRes.value?.items || [];
+        const mappedItems = itemRows.map((i: any) => ({
+          id: i.id,
+          sku: i.sku || '',
+          nameAr: i.nameAr || i.nameEn || '',
+          baseUomId: i.baseUomId || '',
+        }));
+        setCatalogItems(mappedItems);
+        if (mappedItems.length > 0) {
+          setRcvItemId((prev) => (prev === 'prod-1' ? mappedItems[0].id : prev));
+          setIssItemId((prev) => (prev === 'prod-1' ? mappedItems[0].id : prev));
+        }
+      }
+    } catch (err: any) {
+      setError(err?.message || 'تعذر تحميل بيانات المخزون');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadInventory();
+  }, [loadInventory]);
 
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('wh-all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -431,9 +327,9 @@ export const InventoryView: React.FC = () => {
   const filteredBalances = balances.filter((b) => {
     const matchWh = selectedWarehouse === 'wh-all' || b.warehouseId === selectedWarehouse;
     const matchSearch =
-      b.itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.itemSku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.warehouseName.toLowerCase().includes(searchQuery.toLowerCase());
+      (b.itemName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.itemSku ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.warehouseName ?? '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchStatus = statusFilter === 'ALL' || b.availabilityStatus === statusFilter;
     return matchWh && matchSearch && matchStatus;
   });
@@ -462,159 +358,108 @@ export const InventoryView: React.FC = () => {
   const isOverdraft = enteredIssQty > currentIssAvailable;
 
   // Handlers
-  const handleReceiveStock = (e: React.FormEvent) => {
+  const handleReceiveStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (incomingRcvQty <= 0 || incomingRcvCost < 0) {
       alert('يرجى إدخال كمية موجبة وسعر وحدة صحيح');
       return;
     }
 
-    const targetWh = warehouses.find((w) => w.id === rcvWarehouse);
-    const existing = balances.find((b) => b.warehouseId === rcvWarehouse && b.itemId === rcvItemId);
-
-    const newOnHand = (existing?.onHandQty || 0) + incomingRcvQty;
-    const newWac = calculatedNewWac;
-    const newTotalVal = (newOnHand - (existing?.damagedQty || 0)) * newWac;
-
-    if (existing) {
-      setBalances(
-        balances.map((b) =>
-          b.id === existing.id
-            ? {
-                ...b,
-                onHandQty: newOnHand,
-                availableQty: (b.availableQty ?? b.onHandQty) + incomingRcvQty,
-                wacCost: newWac,
-                unitCost: newWac,
-                totalValue: newTotalVal,
-                availabilityStatus: newOnHand > (b.reorderPoint || 0) ? 'IN_STOCK' : 'LOW_STOCK',
-              }
-            : b
-        )
-      );
+    const matchedItem = catalogItems.find((i) => i.id === rcvItemId);
+    if (!activeLegalEntity?.id || !matchedItem?.baseUomId) {
+      alert('يرجى التأكد من الاتصال بالخادم وتحديد الشركة القانونية وصنف مسجل بقاعدة البيانات');
+      return;
     }
 
-    const newMovement: InventoryMovementRow = {
-      id: `mov-${Date.now()}`,
-      movementNumber: `MOV-RCV-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
-      movementType: 'PURCHASE_RECEIPT',
-      direction: 'IN',
-      warehouseName: targetWh?.name || 'مستودع رئيسي',
-      itemName: existing?.itemName || 'صنف مستلم',
-      itemSku: existing?.itemSku || 'SKU-NEW',
-      quantity: incomingRcvQty,
-      unitCost: incomingRcvCost,
-      totalCost: incomingRcvQty * incomingRcvCost,
-      batchNumber: rcvBatch || undefined,
-      notes: rcvNotes,
-      occurredAt: 'الآن',
-      isReversed: false,
-    };
-
-    setMovements([newMovement, ...movements]);
-    setIsReceiveModalOpen(false);
+    try {
+      await apiClient.post('/api/v1/inventory/receive', {
+        legalEntityId: activeLegalEntity.id,
+        warehouseId: rcvWarehouse,
+        itemId: rcvItemId,
+        uomId: matchedItem.baseUomId,
+        quantity: incomingRcvQty.toFixed(4),
+        unitCost: incomingRcvCost.toFixed(4),
+        batchNumber: rcvBatch || undefined,
+        notes: rcvNotes || undefined,
+      });
+      await loadInventory();
+      setIsReceiveModalOpen(false);
+    } catch (err: any) {
+      alert(err?.message || 'فشل تسجيل استلام المخزون');
+    }
   };
 
-  const handleIssueStock = (e: React.FormEvent) => {
+  const handleIssueStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isOverdraft) {
       alert(`الرصيد المتاح (${currentIssAvailable}) غير كافٍ لصرف الكمية (${enteredIssQty})`);
       return;
     }
 
-    const targetWh = warehouses.find((w) => w.id === issWarehouse);
-    const existing = currentIssBalance!;
-    const newOnHand = existing.onHandQty - enteredIssQty;
-    const currentCost = existing.wacCost || existing.unitCost;
+    const matchedItem = catalogItems.find((i) => i.id === issItemId);
+    if (!activeLegalEntity?.id || !matchedItem?.baseUomId) {
+      alert('يرجى التأكد من الاتصال بالخادم وتحديد الشركة القانونية وصنف مسجل بقاعدة البيانات');
+      return;
+    }
 
-    setBalances(
-      balances.map((b) =>
-        b.id === existing.id
-          ? {
-              ...b,
-              onHandQty: newOnHand,
-              availableQty: Math.max(0, (b.availableQty ?? b.onHandQty) - enteredIssQty),
-              totalValue: (newOnHand - (b.damagedQty || 0)) * currentCost,
-              availabilityStatus:
-                newOnHand <= 0 ? 'OUT_OF_STOCK' : newOnHand <= (b.reorderPoint || 0) ? 'LOW_STOCK' : 'IN_STOCK',
-            }
-          : b
-      )
-    );
-
-    const newMovement: InventoryMovementRow = {
-      id: `mov-${Date.now()}`,
-      movementNumber: `MOV-ISS-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
-      movementType: 'INTERNAL_CONSUMPTION',
-      direction: 'OUT',
-      warehouseName: targetWh?.name || 'مستودع صرف',
-      itemName: existing.itemName,
-      itemSku: existing.itemSku,
-      quantity: enteredIssQty,
-      unitCost: currentCost,
-      totalCost: enteredIssQty * currentCost,
-      notes: issNotes,
-      occurredAt: 'الآن',
-      isReversed: false,
-    };
-
-    setMovements([newMovement, ...movements]);
-    setIsIssueModalOpen(false);
+    try {
+      await apiClient.post('/api/v1/inventory/issue', {
+        legalEntityId: activeLegalEntity.id,
+        warehouseId: issWarehouse,
+        itemId: issItemId,
+        uomId: matchedItem.baseUomId,
+        quantity: enteredIssQty.toFixed(4),
+        notes: issNotes || undefined,
+      });
+      await loadInventory();
+      setIsIssueModalOpen(false);
+    } catch (err: any) {
+      alert(err?.message || 'فشل تسجيل صرف المخزون');
+    }
   };
 
-  const handleReverseMovement = (e: React.FormEvent) => {
+  const handleReverseMovement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMovementForReversal) return;
 
-    const original = selectedMovementForReversal;
-    const newReversalMov: InventoryMovementRow = {
-      id: `mov-rev-${Date.now()}`,
-      movementNumber: `MOV-REV-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
-      movementType: original.movementType,
-      direction: original.direction === 'IN' ? 'OUT' : 'IN',
-      warehouseName: original.warehouseName,
-      itemName: original.itemName,
-      itemSku: original.itemSku,
-      quantity: original.quantity,
-      unitCost: original.unitCost,
-      totalCost: original.totalCost,
-      notes: `عكس الحركة رقم ${original.movementNumber}: ${reversalReason}`,
-      occurredAt: 'الآن',
-      isReversed: false,
-      reversalOfId: original.id,
-    };
-
-    setMovements(
-      movements.map((m) => (m.id === original.id ? { ...m, isReversed: true } : m)).concat(newReversalMov)
-    );
-
-    setSelectedMovementForReversal(null);
-    setReversalReason('');
+    try {
+      await apiClient.post('/api/v1/inventory/movements/reverse', {
+        movementId: selectedMovementForReversal.id,
+        reversalReason: reversalReason || 'عكس حركة مخزنية من الواجهة',
+      });
+      await loadInventory();
+      setSelectedMovementForReversal(null);
+      setReversalReason('');
+    } catch (err: any) {
+      alert(err?.message || 'فشل عكس الحركة المخزنية');
+    }
   };
 
-  const handleCreateWarehouse = (e: React.FormEvent) => {
+  const handleCreateWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!whCode || !whName) {
       alert('يرجى إدخال كود واسم المستودع');
       return;
     }
 
-    const newWh: Warehouse = {
-      id: `wh-${Date.now()}`,
-      code: whCode.trim().toUpperCase(),
-      name: whName.trim(),
-      warehouseType: whType,
-      branchName: 'المركز الرئيسي',
-      status: 'ACTIVE',
-      allowReceiving: whAllowRcv,
-      allowIssuing: whAllowIss,
-      allowTransfer: whAllowTrf,
-    };
-
-    setWarehouses([...warehouses, newWh]);
-    setIsWarehouseModalOpen(false);
-    setWhCode('');
-    setWhName('');
+    try {
+      await apiClient.post('/api/v1/inventory/warehouses', {
+        legalEntityId: activeLegalEntity?.id,
+        branchId: activeBranch?.id || null,
+        code: whCode.trim().toUpperCase(),
+        name: whName.trim(),
+        warehouseType: whType,
+        allowReceiving: whAllowRcv,
+        allowIssuing: whAllowIss,
+        allowTransfer: whAllowTrf,
+      });
+      await loadInventory();
+      setIsWarehouseModalOpen(false);
+      setWhCode('');
+      setWhName('');
+    } catch (err: any) {
+      alert(err?.message || 'فشل إنشاء المستودع');
+    }
   };
 
   const handleCreateTransfer = (e: React.FormEvent) => {
@@ -647,185 +492,67 @@ export const InventoryView: React.FC = () => {
     setIsTransferModalOpen(false);
   };
 
-  const handleApproveTransfer = (id: string) => {
-    setTransfers(
-      transfers.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              status: 'APPROVED',
-              approvedAt: 'الآن',
-            }
-          : t
-      )
-    );
-  };
-
-  const handleRejectTransfer = (id: string) => {
-    const reason = prompt('أدخل سبب رفض طلب المناقلة:');
-    if (!reason) return;
-    setTransfers(
-      transfers.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              status: 'REJECTED',
-              notes: `${t.notes || ''} [مرفوض: ${reason}]`,
-            }
-          : t
-      )
-    );
-  };
-
-  const handleDispatchTransfer = (id: string) => {
-    setTransfers(
-      transfers.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              status: 'IN_TRANSIT',
-            }
-          : t
-      )
-    );
-  };
-
-  const handleOpenReceiveModal = (trf: StockTransfer) => {
-    setSelectedTransferForReceive(trf);
-    setRcvTrfReceivedQty(String(trf.totalShippedQty || 20));
-    setRcvTrfDamagedQty('0');
-    setRcvTrfLostQty('0');
-    setRcvTrfNotes('');
-  };
-
   const handleConfirmReceiveTransfer = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTransferForReceive) return;
-
-    const rcv = parseFloat(rcvTrfReceivedQty) || 0;
-    const dmg = parseFloat(rcvTrfDamagedQty) || 0;
-    const lost = parseFloat(rcvTrfLostQty) || 0;
-    const totalProcessed = rcv + dmg + lost;
-
-    if (totalProcessed <= 0) {
-      alert('يرجى إدخال كمية استلام صحيحة');
-      return;
-    }
-
-    const shipped = selectedTransferForReceive.totalShippedQty || 0;
-    if (totalProcessed > shipped && shipped > 0) {
-      alert(`لا يمكن استلام كمية (${totalProcessed}) تفوق الكمية المشحونة (${shipped})`);
-      return;
-    }
-
-    const isFullyReceived = totalProcessed >= shipped;
-
-    setTransfers(
-      transfers.map((t) =>
-        t.id === selectedTransferForReceive.id
-          ? {
-              ...t,
-              status: isFullyReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED',
-              totalReceivedQty: (t.totalReceivedQty || 0) + rcv,
-              totalDamagedQty: (t.totalDamagedQty || 0) + dmg,
-              totalLostQty: (t.totalLostQty || 0) + lost,
-              notes: `${t.notes || ''} [استلام: ${rcv} سليم، ${dmg} تالف، ${lost} مفقود]`,
-            }
-          : t
-      )
-    );
-
     setSelectedTransferForReceive(null);
   };
 
-  const handleCloseTransfer = (id: string) => {
-    if (!confirm('هل أنت متأكد من رغبتك في إغلاق المناقلة وتسوية الكميات غير المستلمة؟')) return;
-    setTransfers(
-      transfers.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              status: 'CLOSED',
-              notes: `${t.notes || ''} [تم الإغلاق النهائي]`,
-            }
-          : t
-      )
-    );
-  };
-
   // Stocktake Handlers
-  const handleCreateStocktake = (e: React.FormEvent) => {
+  const handleCreateStocktake = async (e: React.FormEvent) => {
     e.preventDefault();
-    const wh = warehouses.find((w) => w.id === stkWh);
-    const newOrder: StocktakeOrder = {
-      id: `stk-${Date.now()}`,
-      orderNumber: `STK-2026-00${stocktakes.length + 13}`,
-      warehouseName: wh?.name || 'مستودع فرع العليا',
-      stocktakeType: stkType,
-      countFrequency: stkFreq,
-      status: 'DRAFT',
-      freezeMovements: stkFreeze,
-      itemCount: 3,
-      countedCount: 0,
-      totalVarianceQty: 0,
-      totalVarianceAmount: 0,
-      createdAt: 'الآن',
-      notes: stkNotes || 'أمر جرد دوري',
-    };
-
-    setStocktakes([newOrder, ...stocktakes]);
-    setIsStocktakeModalOpen(false);
-    setStkNotes('');
+    if (!activeLegalEntity?.id) {
+      alert('يرجى تحديد الشركة القانونية');
+      return;
+    }
+    try {
+      await apiClient.post('/api/v1/inventory/stocktakes', {
+        legalEntityId: activeLegalEntity.id,
+        warehouseId: stkWh,
+        orderNumber: `STK-${Date.now().toString(36).toUpperCase()}`,
+        stocktakeType: stkType,
+        countFrequency: stkFreq,
+        freezeMovements: stkFreeze,
+        notes: stkNotes || 'أمر جرد دوري',
+      });
+      await loadInventory();
+      setIsStocktakeModalOpen(false);
+      setStkNotes('');
+    } catch (err: any) {
+      alert(err?.message || 'فشل إنشاء أمر الجرد');
+    }
   };
 
-  const handleStartStocktake = (id: string) => {
-    setStocktakes(
-      stocktakes.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              status: 'IN_PROGRESS',
-            }
-          : s
-      )
-    );
+  const handleStartStocktake = async (id: string) => {
+    try {
+      await apiClient.post(`/api/v1/inventory/stocktakes/${id}/start`, {});
+      await loadInventory();
+    } catch (err: any) {
+      alert(err?.message || 'فشل بدء الجرد');
+    }
   };
 
   const handleOpenCountModal = (stk: StocktakeOrder) => {
     setSelectedStocktakeForCount(stk);
   };
 
-  const handleSaveStocktakeCount = () => {
+  const handleSaveStocktakeCount = async () => {
     if (!selectedStocktakeForCount) return;
 
-    let netVarianceQty = 0;
-    let netVarianceVal = 0;
-
-    countedItems.forEach((item) => {
-      const diff = item.countQty - item.sysQty;
-      netVarianceQty += diff;
-      netVarianceVal += diff * item.unitCost;
-    });
-
-    setStocktakes(
-      stocktakes.map((s) =>
-        s.id === selectedStocktakeForCount.id
-          ? {
-              ...s,
-              status: 'COUNTED',
-              countedCount: countedItems.length,
-              totalVarianceQty: netVarianceQty,
-              totalVarianceAmount: netVarianceVal,
-              countedAt: 'الآن',
-            }
-          : s
-      )
-    );
-
-    setSelectedStocktakeForCount(null);
+    try {
+      await apiClient.post(`/api/v1/inventory/stocktakes/${selectedStocktakeForCount.id}/count`, {
+        counts: countedItems.map((item) => ({
+          itemId: item.id,
+          countedQuantity: item.countQty.toFixed(4),
+        })),
+      });
+      await loadInventory();
+      setSelectedStocktakeForCount(null);
+    } catch (err: any) {
+      alert(err?.message || 'فشل حفظ كميات الجرد');
+    }
   };
 
-  const handleApproveStocktake = (id: string) => {
+  const handleApproveStocktake = async (id: string) => {
     const stk = stocktakes.find((s) => s.id === id);
     if (!stk) return;
 
@@ -833,36 +560,12 @@ export const InventoryView: React.FC = () => {
       return;
     }
 
-    setStocktakes(
-      stocktakes.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              status: 'APPROVED',
-              approvedAt: 'الآن',
-            }
-          : s
-      )
-    );
-
-    // Add stock adjustment movement
-    const adjMov: InventoryMovementRow = {
-      id: `mov-adj-${Date.now()}`,
-      movementNumber: `MOV-ADJ-${Date.now().toString(36).toUpperCase()}`,
-      movementType: 'STOCK_ADJUSTMENT',
-      direction: stk.totalVarianceQty >= 0 ? 'IN' : 'OUT',
-      warehouseName: stk.warehouseName,
-      itemName: 'تسوية فروقات جرد المخزون',
-      itemSku: 'ADJ-STK',
-      quantity: Math.abs(stk.totalVarianceQty),
-      unitCost: Math.abs(stk.totalVarianceAmount) / (Math.abs(stk.totalVarianceQty) || 1),
-      totalCost: Math.abs(stk.totalVarianceAmount),
-      notes: `اعتماد التسوية لأمر الجرد ${stk.orderNumber}`,
-      occurredAt: 'الآن',
-      isReversed: false,
-    };
-
-    setMovements([adjMov, ...movements]);
+    try {
+      await apiClient.post(`/api/v1/inventory/stocktakes/${id}/approve`, {});
+      await loadInventory();
+    } catch (err: any) {
+      alert(err?.message || 'فشل اعتماد تسوية الجرد');
+    }
   };
 
   return (
@@ -1034,6 +737,29 @@ export const InventoryView: React.FC = () => {
         </button>
       </div>
 
+      {/* Loading / Error Banner */}
+      {loading && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-3 text-slate-600 text-sm">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+          <span>جاري تحميل بيانات المخزون والمستودعات...</span>
+        </div>
+      )}
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center justify-between gap-3 text-rose-700 text-sm">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={() => void loadInventory()}
+            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold flex items-center gap-1.5"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>إعادة المحاولة</span>
+          </button>
+        </div>
+      )}
+
       {/* Tab 1: Stock Balances */}
       {activeTab === 'BALANCES' && (
         <div className="space-y-4">
@@ -1052,7 +778,7 @@ export const InventoryView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-1 overflow-x-auto">
-                {INITIAL_WAREHOUSES.map((w) => (
+                {warehouses.map((w) => (
                   <button
                     key={w.id}
                     onClick={() => setSelectedWarehouse(w.id)}
@@ -1080,6 +806,42 @@ export const InventoryView: React.FC = () => {
                 <option value="LOW_STOCK">تحت حد الطلب (Low Stock)</option>
                 <option value="OUT_OF_STOCK">نافذ (Out of Stock)</option>
               </select>
+
+              <button
+                type="button"
+                disabled={filteredBalances.length === 0}
+                onClick={() =>
+                  exportToCsv(
+                    `inventory-balances-${new Date().toISOString().slice(0, 10)}.csv`,
+                    filteredBalances.map((b) => ({
+                      sku: b.itemSku,
+                      itemName: b.itemName,
+                      warehouseName: b.warehouseName,
+                      onHandQty: Number(b.onHandQty ?? 0).toFixed(4),
+                      reservedQty: Number(b.reservedQty ?? 0).toFixed(4),
+                      availableQty: Number(b.availableQty ?? 0).toFixed(4),
+                      avgUnitCost: Number(b.unitCost ?? 0).toFixed(4),
+                      totalValue: Number(b.totalValue ?? 0).toFixed(2),
+                      status: b.availabilityStatus,
+                    })),
+                    [
+                      { key: 'sku', header: 'SKU' },
+                      { key: 'itemName', header: 'الصنف' },
+                      { key: 'warehouseName', header: 'المستودع' },
+                      { key: 'onHandQty', header: 'الرصيد الفعلي' },
+                      { key: 'reservedQty', header: 'المحجوز' },
+                      { key: 'availableQty', header: 'المتاح' },
+                      { key: 'avgUnitCost', header: 'متوسط التكلفة' },
+                      { key: 'totalValue', header: 'إجمالي القيمة' },
+                      { key: 'status', header: 'الحالة' },
+                    ]
+                  )
+                }
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold transition"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>تصدير CSV</span>
+              </button>
             </div>
           </div>
 
@@ -1248,9 +1010,48 @@ export const InventoryView: React.FC = () => {
                 </p>
               </div>
             </div>
-            <span className="text-xs font-mono font-bold text-slate-600 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
-              {movements.length} حركة مسجلة
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold text-slate-600 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                {movements.length} حركة مسجلة
+              </span>
+              <button
+                type="button"
+                disabled={movements.length === 0}
+                onClick={() =>
+                  exportToCsv(
+                    `inventory-movements-${new Date().toISOString().slice(0, 10)}.csv`,
+                    movements.map((m) => ({
+                      movementNumber: m.movementNumber,
+                      movementType: m.movementType,
+                      direction: m.direction,
+                      warehouseName: m.warehouseName,
+                      itemName: m.itemName,
+                      quantity: Number(m.quantity ?? 0).toFixed(4),
+                      unitCost: Number(m.unitCost ?? 0).toFixed(4),
+                      totalCost: Number(m.totalCost ?? 0).toFixed(2),
+                      notes: m.notes || '',
+                      occurredAt: m.occurredAt,
+                    })),
+                    [
+                      { key: 'movementNumber', header: 'رقم الحركة' },
+                      { key: 'movementType', header: 'نوع الحركة' },
+                      { key: 'direction', header: 'الاتجاه' },
+                      { key: 'warehouseName', header: 'المستودع' },
+                      { key: 'itemName', header: 'الصنف' },
+                      { key: 'quantity', header: 'الكمية' },
+                      { key: 'unitCost', header: 'سعر الوحدة' },
+                      { key: 'totalCost', header: 'التكلفة الإجمالية' },
+                      { key: 'notes', header: 'ملاحظات' },
+                      { key: 'occurredAt', header: 'التاريخ' },
+                    ]
+                  )
+                }
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold transition"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>تصدير CSV</span>
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
@@ -1326,160 +1127,8 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 4: Transfers */}
-      {activeTab === 'TRANSFERS' && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-          <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="font-bold text-sm text-slate-800">حركات المناقلات بين المستودعات والفروع (Stock Transfers Lifecycle)</h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                دورة تشغيلية متكاملة: حجز الرصيد عند الاعتماد، العزل في الطريق عند الشحن، واستلام جزئي/كلي مع رصد التوالف
-              </p>
-            </div>
-            <button
-              onClick={() => setIsTransferModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 border border-indigo-200"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>طلب مناقلة جديد</span>
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
-                  <th className="py-3 px-4">رقم المناقلة</th>
-                  <th className="py-3 px-4">من مستودع</th>
-                  <th className="py-3 px-4">إلى مستودع</th>
-                  <th className="py-3 px-4 text-center">الأصناف</th>
-                  <th className="py-3 px-4 text-center">الكمية المشحونة</th>
-                  <th className="py-3 px-4 text-center">المستلم / التالف</th>
-                  <th className="py-3 px-4 text-center">تاريخ الطلب</th>
-                  <th className="py-3 px-4 text-center">الحالة التشغيلية</th>
-                  <th className="py-3 px-4 text-center">الإجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {transfers.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-mono font-medium text-xs text-indigo-600">
-                      <div>{t.transferNumber}</div>
-                      {t.notes && <div className="text-[11px] text-slate-400 font-sans truncate max-w-[140px]">{t.notes}</div>}
-                    </td>
-                    <td className="py-3 px-4 text-slate-700 font-medium text-xs">{t.sourceWarehouseName}</td>
-                    <td className="py-3 px-4 text-slate-700 font-medium text-xs">{t.destinationWarehouseName}</td>
-                    <td className="py-3 px-4 text-center font-mono text-xs">{t.itemCount} صنف</td>
-                    <td className="py-3 px-4 text-center font-mono text-xs font-bold text-slate-800">
-                      {t.totalShippedQty || '—'}
-                    </td>
-                    <td className="py-3 px-4 text-center font-mono text-xs">
-                      {t.status === 'RECEIVED' || t.status === 'PARTIALLY_RECEIVED' ? (
-                        <div className="flex items-center justify-center gap-1.5">
-                          <span className="text-emerald-700 font-bold">{t.totalReceivedQty || 0}</span>
-                          {(t.totalDamagedQty || 0) > 0 && (
-                            <span className="text-amber-600 bg-amber-50 px-1 rounded text-[11px]">
-                              {t.totalDamagedQty} تالف
-                            </span>
-                          )}
-                          {(t.totalLostQty || 0) > 0 && (
-                            <span className="text-rose-600 bg-rose-50 px-1 rounded text-[11px]">
-                              {t.totalLostQty} فاقد
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-center text-xs text-slate-500 font-mono">{t.requestedAt}</td>
-                    <td className="py-3 px-4 text-center">
-                      <span
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          t.status === 'DRAFT'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                            : t.status === 'APPROVED'
-                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                            : t.status === 'IN_TRANSIT'
-                            ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                            : t.status === 'PARTIALLY_RECEIVED'
-                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                            : t.status === 'RECEIVED'
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            : t.status === 'CLOSED'
-                            ? 'bg-slate-100 text-slate-600 border border-slate-200'
-                            : 'bg-rose-50 text-rose-700 border border-rose-200'
-                        }`}
-                      >
-                        {t.status === 'DRAFT' && 'مسودة (Draft)'}
-                        {t.status === 'APPROVED' && 'معتمد للحجز (Approved)'}
-                        {t.status === 'IN_TRANSIT' && 'في الطريق (In Transit)'}
-                        {t.status === 'PARTIALLY_RECEIVED' && 'استلام جزئي (Partial)'}
-                        {t.status === 'RECEIVED' && 'مستلم بالكامل (Received)'}
-                        {t.status === 'CLOSED' && 'مغلق (Closed)'}
-                        {t.status === 'REJECTED' && 'مرفوض (Rejected)'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {t.status === 'DRAFT' && (
-                          <>
-                            <button
-                              onClick={() => handleApproveTransfer(t.id)}
-                              className="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 border border-indigo-200"
-                              title="اعتماد وحجز الرصيد"
-                            >
-                              اعتماد
-                            </button>
-                            <button
-                              onClick={() => handleRejectTransfer(t.id)}
-                              className="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100 border border-rose-200"
-                              title="رفض الطلب"
-                            >
-                              رفض
-                            </button>
-                          </>
-                        )}
-                        {t.status === 'APPROVED' && (
-                          <button
-                            onClick={() => handleDispatchTransfer(t.id)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs"
-                            title="شحن البضاعة ونقلها إلى In-Transit"
-                          >
-                            <Truck className="w-3 h-3" />
-                            <span>شحن وإرسال</span>
-                          </button>
-                        )}
-                        {(t.status === 'IN_TRANSIT' || t.status === 'PARTIALLY_RECEIVED') && (
-                          <>
-                            <button
-                              onClick={() => handleOpenReceiveModal(t)}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-xs"
-                              title="استلام وفحص الوارد"
-                            >
-                              <PackageCheck className="w-3 h-3" />
-                              <span>استلام وفحص</span>
-                            </button>
-                            <button
-                              onClick={() => handleCloseTransfer(t.id)}
-                              className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200"
-                              title="إغلاق المناقلة"
-                            >
-                              إغلاق
-                            </button>
-                          </>
-                        )}
-                        {(t.status === 'RECEIVED' || t.status === 'CLOSED' || t.status === 'REJECTED') && (
-                          <span className="text-xs text-slate-400 font-medium">مكتمل</span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {/* Tab 4: Transfers (Phase 3.4D Live API Workspace) */}
+      {activeTab === 'TRANSFERS' && <TransfersView />}
 
       {/* Tab 5: Stocktaking & Physical Inventory */}
       {activeTab === 'STOCKTAKE' && (
@@ -1673,7 +1322,10 @@ export const InventoryView: React.FC = () => {
                   onChange={(e) => setRcvItemId(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                 >
-                  {INITIAL_BALANCES.map((b) => (
+                  {(catalogItems.length > 0
+                    ? catalogItems.map((i) => ({ itemId: i.id, itemName: i.nameAr, itemSku: i.sku }))
+                    : balances
+                  ).map((b) => (
                     <option key={b.itemId} value={b.itemId}>
                       {b.itemName} ({b.itemSku})
                     </option>
@@ -1802,7 +1454,10 @@ export const InventoryView: React.FC = () => {
                   onChange={(e) => setIssItemId(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                 >
-                  {INITIAL_BALANCES.map((b) => (
+                  {(catalogItems.length > 0
+                    ? catalogItems.map((i) => ({ itemId: i.id, itemName: i.nameAr, itemSku: i.sku }))
+                    : balances
+                  ).map((b) => (
                     <option key={b.itemId} value={b.itemId}>
                       {b.itemName} ({b.itemSku})
                     </option>

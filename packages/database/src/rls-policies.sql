@@ -504,4 +504,183 @@ CREATE POLICY tenant_isolation_tenant_industry_packs ON tenant_industry_packs
   USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 
+-- ====================================================================
+-- Phase 3.1: Financial Resources & Accounting Isolation Policies
+-- ====================================================================
+
+-- 1. Cash Vaults Policy
+ALTER TABLE cash_vaults ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cash_vaults FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_cash_vaults ON cash_vaults;
+CREATE POLICY tenant_isolation_cash_vaults ON cash_vaults
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 2. Bank Accounts Policy
+ALTER TABLE bank_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bank_accounts FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_bank_accounts ON bank_accounts;
+CREATE POLICY tenant_isolation_bank_accounts ON bank_accounts
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 3. Account Mappings Policy
+ALTER TABLE account_mappings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE account_mappings FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_account_mappings ON account_mappings;
+CREATE POLICY tenant_isolation_account_mappings ON account_mappings
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 4. Cost Centers Policy
+ALTER TABLE cost_centers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cost_centers FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_cost_centers ON cost_centers;
+CREATE POLICY tenant_isolation_cost_centers ON cost_centers
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 5. Payment Vouchers Policy
+ALTER TABLE payment_vouchers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_vouchers FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_payment_vouchers ON payment_vouchers;
+CREATE POLICY tenant_isolation_payment_vouchers ON payment_vouchers
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 6. Receipt Vouchers Policy
+ALTER TABLE receipt_vouchers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receipt_vouchers FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_receipt_vouchers ON receipt_vouchers;
+CREATE POLICY tenant_isolation_receipt_vouchers ON receipt_vouchers
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 7. Expenses Policy
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expenses FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_expenses ON expenses;
+CREATE POLICY tenant_isolation_expenses ON expenses
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 8. Vault Transactions Policy
+ALTER TABLE vault_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vault_transactions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_vault_transactions ON vault_transactions;
+CREATE POLICY tenant_isolation_vault_transactions ON vault_transactions
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 9. Bank Reconciliations Policy
+ALTER TABLE bank_reconciliations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bank_reconciliations FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_bank_reconciliations ON bank_reconciliations;
+CREATE POLICY tenant_isolation_bank_reconciliations ON bank_reconciliations
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 10. Settlements Engine Policies (Phase 3.4C)
+ALTER TABLE settlement_providers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settlement_providers FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_settlement_providers ON settlement_providers;
+CREATE POLICY tenant_isolation_settlement_providers ON settlement_providers
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+ALTER TABLE settlement_import_files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settlement_import_files FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_settlement_import_files ON settlement_import_files;
+CREATE POLICY tenant_isolation_settlement_import_files ON settlement_import_files
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+ALTER TABLE settlement_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settlement_batches FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_settlement_batches ON settlement_batches;
+CREATE POLICY tenant_isolation_settlement_batches ON settlement_batches
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+ALTER TABLE settlement_batch_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settlement_batch_lines FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_settlement_batch_lines ON settlement_batch_lines;
+CREATE POLICY tenant_isolation_settlement_batch_lines ON settlement_batch_lines
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+ALTER TABLE settlement_discrepancies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settlement_discrepancies FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_settlement_discrepancies ON settlement_discrepancies;
+CREATE POLICY tenant_isolation_settlement_discrepancies ON settlement_discrepancies
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+ALTER TABLE bank_settlement_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bank_settlement_transactions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_bank_settlement_transactions ON bank_settlement_transactions;
+CREATE POLICY tenant_isolation_bank_settlement_transactions ON bank_settlement_transactions
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 11. Inter-Branch Transfer Discrepancies Policy (Phase 3.4D)
+ALTER TABLE stock_transfer_discrepancies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_transfer_discrepancies FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_stock_transfer_discrepancies ON stock_transfer_discrepancies;
+CREATE POLICY tenant_isolation_stock_transfer_discrepancies ON stock_transfer_discrepancies
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 12. Financial Reconciliation Policies (Phase 3.5)
+ALTER TABLE financial_reconciliation_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE financial_reconciliation_runs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_financial_reconciliation_runs ON financial_reconciliation_runs;
+CREATE POLICY tenant_isolation_financial_reconciliation_runs ON financial_reconciliation_runs
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+ALTER TABLE financial_reconciliation_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE financial_reconciliation_items FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_financial_reconciliation_items ON financial_reconciliation_items;
+CREATE POLICY tenant_isolation_financial_reconciliation_items ON financial_reconciliation_items
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+-- 13. Financial Period Closing Policies (Phase 3.6)
+ALTER TABLE fiscal_years ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fiscal_years FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_fiscal_years ON fiscal_years;
+CREATE POLICY tenant_isolation_fiscal_years ON fiscal_years
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+ALTER TABLE fiscal_period_closing_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fiscal_period_closing_logs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_fiscal_period_closing_logs ON fiscal_period_closing_logs;
+CREATE POLICY tenant_isolation_fiscal_period_closing_logs ON fiscal_period_closing_logs
+  FOR ALL TO rc_app_user
+  USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+
+
+
 

@@ -17,6 +17,7 @@ export interface TenantContext {
   deviceId?: UUID;
   userId: UUID;
   scopes: string[];
+  userScopes?: any[];
 }
 
 export interface PaginatedQuery {

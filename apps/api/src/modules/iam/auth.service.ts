@@ -7,6 +7,7 @@ import {
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { CryptoUtil } from './crypto.util';
+import { invalidateTenantCache } from '../../common/guards/tenant-context.guard';
 import {
   users,
   userMemberships,
@@ -424,6 +425,7 @@ export class AuthService {
         afterState: { status: dto.status },
       }, tx);
 
+      invalidateTenantCache(context.tenantId, userId);
       return updated;
     });
   }
@@ -479,6 +481,7 @@ export class AuthService {
         afterState: dto,
       }, tx);
 
+      invalidateTenantCache(context.tenantId, userId);
       return {
         userId,
         membershipId: membership.id,

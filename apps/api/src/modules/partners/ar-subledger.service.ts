@@ -203,7 +203,8 @@ export class ArSubledgerService {
             eq(partnerBalances.currency, invoice.currency)
           )
         )
-        .limit(1);
+        .limit(1)
+        .for('update');
 
       const currentBalance = parseFloat(balance?.customerBalance || '0');
       const creditLimit = parseFloat(settings?.creditLimit || '0');
@@ -493,7 +494,8 @@ export class ArSubledgerService {
               eq(partnerBalances.currency, voucher.currency)
             )
           )
-          .limit(1);
+          .limit(1)
+          .for('update');
 
         if (bal) {
           const curBal = parseFloat(bal.customerBalance);

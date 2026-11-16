@@ -1,5 +1,6 @@
 import {
   Injectable,
+  OnModuleInit,
   ConflictException,
   NotFoundException,
   BadRequestException,
@@ -8,6 +9,7 @@ import {
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { CryptoUtil } from '../iam/crypto.util';
+import { invalidateTenantCache } from '../../common/guards/tenant-context.guard';
 import {
   tenants,
   groups,
@@ -24,6 +26,15 @@ import {
   auditLogs,
   tenantSubscriptions,
   tenantIndustryPacks,
+  tenantIntegrations,
+  notificationLogs,
+  webhookReplayNonces,
+  salesOrders,
+  purchaseOrders,
+  supplierInvoices,
+  inventoryBalances,
+  inventoryCostLayers,
+  zatcaEgsCertificates,
 } from '@restaurant-cloud/database';
 import {
   CreateTenantRequest,
@@ -48,15 +59,38 @@ import {
   SubscriptionStatus,
   INDUSTRY_CAPABILITIES,
 } from '@restaurant-cloud/domain-kernel';
-import { eq, and, sql } from 'drizzle-orm';
-import { randomUUID } from 'crypto';
+import { eq, and, sql, gte, lte, notInArray } from 'drizzle-orm';
+import {
+  randomUUID,
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  createHash,
+  randomBytes,
+  timingSafeEqual,
+} from 'crypto';
+
+const SECRET_CONFIG_KEYS = new Set([
+  'accessToken',
+  'webhookSecret',
+  'apiKey',
+  'authToken',
+  'secret',
+]);
 
 @Injectable()
-export class TenantService {
+export class TenantService implements OnModuleInit {
   constructor(
     private readonly dbService: DatabaseService,
     private readonly auditService: AuditService
   ) {}
+
+  onModuleInit() {
+    const env = (process.env.NODE_ENV || '').toLowerCase();
+    if (env === 'staging' || env === 'production') {
+      this.getIntegrationEncryptionKey();
+    }
+  }
 
   /**
    * Complete Tenant Onboarding Workflow executed inside an atomic transaction.
@@ -386,6 +420,7 @@ export class TenantService {
         afterState: updated,
       }, tx);
 
+      invalidateTenantCache(context.tenantId);
       return updated;
     });
   }
@@ -395,6 +430,26 @@ export class TenantService {
    */
   async createBranch(context: TenantContext, dto: CreateBranchRequest) {
     return await this.dbService.withTenantContext(context, async (tx) => {
+      // Enforce Subscription maxBranches limit with row lock
+      const [sub] = await tx
+        .select()
+        .from(tenantSubscriptions)
+        .where(eq(tenantSubscriptions.tenantId, context.tenantId))
+        .for('update')
+        .limit(1);
+
+      if (sub) {
+        const [cnt] = await tx
+          .select({ total: sql<number>`count(*)::int` })
+          .from(branches)
+          .where(eq(branches.tenantId, context.tenantId));
+        if ((cnt?.total ?? 0) >= sub.maxBranches) {
+          throw new BadRequestException(
+            `Subscription limit reached: maximum ${sub.maxBranches} branches allowed on plan '${sub.planCode}'`
+          );
+        }
+      }
+
       const [branch] = await tx
         .insert(branches)
         .values({
@@ -485,6 +540,7 @@ export class TenantService {
         afterState: updated,
       }, tx);
 
+      invalidateTenantCache(context.tenantId);
       return updated;
     });
   }
@@ -553,6 +609,7 @@ export class TenantService {
         afterState: updated,
       }, tx);
 
+      invalidateTenantCache(context.tenantId);
       return updated;
     });
   }
@@ -562,6 +619,26 @@ export class TenantService {
    */
   async registerDevice(context: TenantContext, dto: RegisterDeviceRequest) {
     return await this.dbService.withTenantContext(context, async (tx) => {
+      // Enforce Subscription maxDevices limit with row lock
+      const [sub] = await tx
+        .select()
+        .from(tenantSubscriptions)
+        .where(eq(tenantSubscriptions.tenantId, context.tenantId))
+        .for('update')
+        .limit(1);
+
+      if (sub) {
+        const [cnt] = await tx
+          .select({ total: sql<number>`count(*)::int` })
+          .from(devices)
+          .where(eq(devices.tenantId, context.tenantId));
+        if ((cnt?.total ?? 0) >= sub.maxDevices) {
+          throw new BadRequestException(
+            `Subscription limit reached: maximum ${sub.maxDevices} devices allowed on plan '${sub.planCode}'`
+          );
+        }
+      }
+
       const deviceEpoch = randomUUID();
 
       const [device] = await tx
@@ -795,15 +872,23 @@ export class TenantService {
    * Server-side entitlement check verifying tenant holds the required capability or industry.
    */
   async checkEntitlement(tenantId: string, requiredCapabilityOrIndustry: string): Promise<boolean> {
-    const packs = await this.dbService.db
-      .select()
-      .from(tenantIndustryPacks)
-      .where(
-        and(
-          eq(tenantIndustryPacks.tenantId, tenantId),
-          eq(tenantIndustryPacks.status, IndustryPackStatus.ACTIVE)
-        )
-      );
+    const packs = await this.dbService.withTenantContext(
+      {
+        tenantId,
+        userId: '00000000-0000-0000-0000-000000000000',
+        scopes: ['*'],
+      },
+      async (tx) =>
+        await tx
+          .select()
+          .from(tenantIndustryPacks)
+          .where(
+            and(
+              eq(tenantIndustryPacks.tenantId, tenantId),
+              eq(tenantIndustryPacks.status, IndustryPackStatus.ACTIVE)
+            )
+          )
+    );
 
     for (const p of packs) {
       if (p.industry === requiredCapabilityOrIndustry) return true;
@@ -812,5 +897,644 @@ export class TenantService {
     }
 
     return false;
+  }
+
+  // ==================================================================
+  // Integrations & Notifications (WhatsApp, Webhooks, SMS, Email)
+  // ==================================================================
+
+  private deriveKeyAndFingerprint(rawKey: string): { key: Buffer; fingerprint: string } {
+    const key = createHash('sha256').update(rawKey).digest();
+    const fingerprint = createHash('sha256').update(key).digest('hex').slice(0, 8);
+    return { key, fingerprint };
+  }
+
+  private getIntegrationEncryptionKey(): { key: Buffer; fingerprint: string } {
+    const raw = process.env.INTEGRATION_ENCRYPTION_KEY?.trim();
+    if (!raw || raw.length < 32) {
+      throw new Error(
+        'INTEGRATION_ENCRYPTION_KEY is required (minimum 32 characters, independent of JWT_SECRET)'
+      );
+    }
+    if (process.env.JWT_SECRET && raw === process.env.JWT_SECRET.trim()) {
+      throw new Error('INTEGRATION_ENCRYPTION_KEY must be independent of JWT_SECRET');
+    }
+    return this.deriveKeyAndFingerprint(raw);
+  }
+
+  private getDecryptionCandidateKeys(): Array<{ key: Buffer; fingerprint: string }> {
+    const primary = this.getIntegrationEncryptionKey();
+    const prevRaw = process.env.INTEGRATION_ENCRYPTION_PREVIOUS_KEYS || '';
+    const previous = prevRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 32)
+      .map((s) => this.deriveKeyAndFingerprint(s));
+    return [primary, ...previous];
+  }
+
+  private encryptSecret(plain: string): string {
+    const iv = randomBytes(12);
+    const { key, fingerprint } = this.getIntegrationEncryptionKey();
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `__enc:v2:${fingerprint}:${iv.toString('hex')}:${tag.toString('hex')}:${enc.toString('hex')}`;
+  }
+
+  private decryptWithKey(key: Buffer, ivHex: string, tagHex: string, encHex: string): string {
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(encHex, 'hex')),
+      decipher.final(),
+    ]).toString('utf8');
+  }
+
+  private decryptSecret(value: string): string {
+    if (!value.startsWith('__enc:')) return value;
+    const candidates = this.getDecryptionCandidateKeys();
+
+    if (value.startsWith('__enc:v2:')) {
+      const parts = value.slice(9).split(':');
+      if (parts.length !== 4) throw new Error('Invalid v2 encrypted secret format');
+      const [fp, ivHex, tagHex, encHex] = parts;
+      const ordered = [
+        ...candidates.filter((c) => c.fingerprint === fp),
+        ...candidates.filter((c) => c.fingerprint !== fp),
+      ];
+      for (const candidate of ordered) {
+        try {
+          return this.decryptWithKey(candidate.key, ivHex!, tagHex!, encHex!);
+        } catch {
+          // try next rotated key
+        }
+      }
+      throw new Error('Unable to decrypt v2 secret with current or previous integration keys');
+    }
+
+    const parts = value.slice(6).split(':');
+    if (parts.length !== 3) throw new Error('Invalid encrypted secret format');
+    const [ivHex, tagHex, encHex] = parts;
+    for (const candidate of candidates) {
+      try {
+        return this.decryptWithKey(candidate.key, ivHex!, tagHex!, encHex!);
+      } catch {
+        // try next rotated key
+      }
+    }
+    throw new Error('Unable to decrypt legacy secret with current or previous integration keys');
+  }
+
+  private encryptConfigSecrets(
+    incoming: Record<string, any>,
+    existing: Record<string, any> = {}
+  ): Record<string, any> {
+    const result: Record<string, any> = { ...existing };
+    for (const [k, v] of Object.entries(incoming || {})) {
+      if (SECRET_CONFIG_KEYS.has(k)) {
+        if (typeof v === 'string' && v.trim().length > 0 && !v.startsWith('****')) {
+          result[k] = this.encryptSecret(v.trim());
+        }
+      } else {
+        result[k] = v;
+      }
+    }
+    return result;
+  }
+
+  private maskConfigJson(config: Record<string, any> | null | undefined): Record<string, any> {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(config || {})) {
+      if (SECRET_CONFIG_KEYS.has(k) && typeof v === 'string' && v.length > 0) {
+        let last4 = '****';
+        try {
+          const dec = this.decryptSecret(v);
+          last4 = dec.length >= 4 ? dec.slice(-4) : '****';
+        } catch {
+          last4 = '****';
+        }
+        out[k] = `****${last4}`;
+        out[`${k}Configured`] = true;
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+
+  private signWebhookPayload(secret: string, timestamp: number, payload: Record<string, any>): string {
+    const bodyStr = JSON.stringify(payload);
+    const sig = createHmac('sha256', secret)
+      .update(`${timestamp}.${bodyStr}`)
+      .digest('hex');
+    return `t=${timestamp},v1=${sig}`;
+  }
+
+  async verifyWebhookSignature(
+    context: TenantContext,
+    dto: {
+      channel?: string;
+      timestamp: number;
+      rawBody: string;
+      signatureHeader: string;
+      nonce?: string;
+      messageId?: string;
+    }
+  ) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (Math.abs(nowSec - dto.timestamp) > 300) {
+      throw new BadRequestException('Webhook timestamp outside 5-minute replay window');
+    }
+
+    const nonce = (dto.nonce || dto.messageId || '').trim();
+    if (!nonce) {
+      throw new BadRequestException('Webhook nonce or messageId is required for replay protection');
+    }
+
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const channel = (dto.channel || 'WEBHOOK').toUpperCase();
+      const [integration] = await tx
+        .select()
+        .from(tenantIntegrations)
+        .where(
+          and(
+            eq(tenantIntegrations.tenantId, context.tenantId),
+            eq(tenantIntegrations.channel, channel)
+          )
+        )
+        .limit(1);
+
+      const encSecret = integration?.configJson?.webhookSecret;
+      if (!encSecret || typeof encSecret !== 'string') {
+        throw new BadRequestException('Webhook secret is not configured for this tenant');
+      }
+      const secret = this.decryptSecret(encSecret);
+
+      const parts = Object.fromEntries(
+        dto.signatureHeader.split(',').map((p) => {
+          const [k, v] = p.split('=');
+          return [k?.trim(), v?.trim()];
+        })
+      );
+      const receivedHex = parts['v1'];
+      if (!receivedHex) {
+        return { valid: false, reason: 'Missing v1 signature' };
+      }
+
+      const expectedHex = createHmac('sha256', secret)
+        .update(`${dto.timestamp}.${dto.rawBody}`)
+        .digest('hex');
+
+      const a = Buffer.from(receivedHex, 'hex');
+      const b = Buffer.from(expectedHex, 'hex');
+      const valid = a.length === b.length && timingSafeEqual(a, b);
+      if (!valid) {
+        return { valid: false, reason: 'Invalid signature' };
+      }
+
+      const inserted = await tx
+        .insert(webhookReplayNonces)
+        .values({
+          tenantId: context.tenantId,
+          channel,
+          nonce,
+          timestampSec: dto.timestamp,
+          expiresAt: new Date((dto.timestamp + 3600) * 1000),
+        })
+        .onConflictDoNothing({
+          target: [webhookReplayNonces.tenantId, webhookReplayNonces.nonce],
+        })
+        .returning({ id: webhookReplayNonces.id });
+
+      if (inserted.length === 0) {
+        throw new ConflictException('Webhook replay detected: nonce already used');
+      }
+
+      return { valid: true, nonce, recordedId: inserted[0]!.id };
+    });
+  }
+
+  async rotateIntegrationSecrets(context: TenantContext) {
+    const { fingerprint } = this.getIntegrationEncryptionKey();
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tenantIntegrations)
+        .where(eq(tenantIntegrations.tenantId, context.tenantId))
+        .for('update');
+
+      let rotatedChannels = 0;
+      let rotatedSecrets = 0;
+
+      for (const row of rows) {
+        const cfg = { ...(row.configJson || {}) };
+        let changed = false;
+        for (const [k, v] of Object.entries(cfg)) {
+          if (SECRET_CONFIG_KEYS.has(k) && typeof v === 'string' && v.startsWith('__enc:')) {
+            const plain = this.decryptSecret(v);
+            cfg[k] = this.encryptSecret(plain);
+            changed = true;
+            rotatedSecrets += 1;
+          }
+        }
+        if (changed) {
+          await tx
+            .update(tenantIntegrations)
+            .set({
+              configJson: cfg,
+              updatedBy: context.userId,
+              updatedAt: new Date(),
+            })
+            .where(eq(tenantIntegrations.id, row.id));
+          rotatedChannels += 1;
+        }
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'INTEGRATION_KEYS_ROTATED',
+          entityType: 'tenant_integration',
+          entityId: context.tenantId,
+          afterState: { keyFingerprint: fingerprint, rotatedChannels, rotatedSecrets },
+        },
+        tx
+      );
+
+      return { keyFingerprint: fingerprint, rotatedChannels, rotatedSecrets };
+    });
+  }
+
+  async getTenantIntegrations(context: TenantContext) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tenantIntegrations)
+        .where(eq(tenantIntegrations.tenantId, context.tenantId));
+      return rows.map((r) => ({
+        ...r,
+        configJson: this.maskConfigJson(r.configJson),
+      }));
+    });
+  }
+
+  async upsertTenantIntegration(
+    context: TenantContext,
+    channel: string,
+    dto: { provider?: string; isEnabled: boolean; configJson?: Record<string, any> }
+  ) {
+    const normalizedChannel = channel.toUpperCase();
+    if (!['WHATSAPP', 'WEBHOOK', 'SMS', 'EMAIL'].includes(normalizedChannel)) {
+      throw new BadRequestException(`Unsupported integration channel: ${channel}`);
+    }
+
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(tenantIntegrations)
+        .where(
+          and(
+            eq(tenantIntegrations.tenantId, context.tenantId),
+            eq(tenantIntegrations.channel, normalizedChannel)
+          )
+        )
+        .for('update')
+        .limit(1);
+
+      const encryptedConfig = this.encryptConfigSecrets(
+        dto.configJson ?? {},
+        existing?.configJson ?? {}
+      );
+
+      let saved;
+      if (existing) {
+        const [updated] = await tx
+          .update(tenantIntegrations)
+          .set({
+            provider: dto.provider || existing.provider,
+            isEnabled: dto.isEnabled,
+            configJson: encryptedConfig,
+            updatedBy: context.userId,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantIntegrations.id, existing.id))
+          .returning();
+        saved = updated;
+      } else {
+        const [inserted] = await tx
+          .insert(tenantIntegrations)
+          .values({
+            tenantId: context.tenantId,
+            channel: normalizedChannel,
+            provider: dto.provider || (normalizedChannel === 'WHATSAPP' ? 'META_CLOUD_API' : 'CUSTOM'),
+            isEnabled: dto.isEnabled,
+            configJson: encryptedConfig,
+            updatedBy: context.userId,
+          })
+          .returning();
+        saved = inserted;
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'INTEGRATION_CONFIG_UPDATED',
+          entityType: 'tenant_integration',
+          entityId: saved!.id,
+          afterState: {
+            channel: normalizedChannel,
+            isEnabled: dto.isEnabled,
+            provider: saved!.provider,
+            configKeys: Object.keys(encryptedConfig),
+          },
+        },
+        tx
+      );
+
+      return {
+        ...saved!,
+        configJson: this.maskConfigJson(saved!.configJson),
+      };
+    });
+  }
+
+  async dispatchNotification(
+    context: TenantContext,
+    dto: {
+      channel: string;
+      recipient: string;
+      eventType: string;
+      payload?: Record<string, any>;
+      branchId?: string;
+      idempotencyKey?: string;
+      simulateFailure?: boolean;
+    }
+  ) {
+    const normalizedChannel = dto.channel.toUpperCase();
+    if (!['WHATSAPP', 'WEBHOOK', 'SMS', 'EMAIL'].includes(normalizedChannel)) {
+      throw new BadRequestException(`Unsupported notification channel: ${dto.channel}`);
+    }
+    if (!dto.recipient || dto.recipient.trim().length < 2) {
+      throw new BadRequestException('Recipient is required');
+    }
+
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      if (dto.idempotencyKey) {
+        const [existingLog] = await tx
+          .select()
+          .from(notificationLogs)
+          .where(
+            and(
+              eq(notificationLogs.tenantId, context.tenantId),
+              eq(notificationLogs.idempotencyKey, dto.idempotencyKey)
+            )
+          )
+          .limit(1);
+        if (existingLog) {
+          return existingLog;
+        }
+      }
+
+      const [integration] = await tx
+        .select()
+        .from(tenantIntegrations)
+        .where(
+          and(
+            eq(tenantIntegrations.tenantId, context.tenantId),
+            eq(tenantIntegrations.channel, normalizedChannel)
+          )
+        )
+        .limit(1);
+
+      const payloadObj = dto.payload ?? {};
+      let signatureHeader: string | null = null;
+      if (
+        normalizedChannel === 'WEBHOOK' &&
+        integration?.configJson?.webhookSecret &&
+        typeof integration.configJson.webhookSecret === 'string'
+      ) {
+        const secret = this.decryptSecret(integration.configJson.webhookSecret);
+        signatureHeader = this.signWebhookPayload(secret, Math.floor(Date.now() / 1000), payloadObj);
+      }
+
+      let status = 'SENT';
+      let errorMessage: string | null = null;
+      let nextRetryAt: Date | null = null;
+
+      if (!integration || !integration.isEnabled) {
+        status = 'SKIPPED_DISABLED';
+        errorMessage = `Channel '${normalizedChannel}' is not enabled for this tenant`;
+      } else if (dto.simulateFailure || dto.recipient.startsWith('fail://')) {
+        status = 'RETRY_PENDING';
+        errorMessage = 'Simulated delivery failure; scheduled for retry';
+        nextRetryAt = new Date(Date.now() - 1000); // eligible immediately for worker/manual retry
+      }
+
+      const [log] = await tx
+        .insert(notificationLogs)
+        .values({
+          tenantId: context.tenantId,
+          branchId: dto.branchId || context.branchId || null,
+          channel: normalizedChannel,
+          recipient: dto.recipient.trim(),
+          eventType: dto.eventType,
+          payload: payloadObj,
+          status,
+          attemptCount: 1,
+          maxAttempts: 3,
+          nextRetryAt,
+          signatureHeader,
+          idempotencyKey: dto.idempotencyKey || null,
+          errorMessage,
+          sentBy: context.userId,
+        })
+        .returning();
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'NOTIFICATION_DISPATCHED',
+          entityType: 'notification_log',
+          entityId: log!.id,
+          afterState: { channel: normalizedChannel, eventType: dto.eventType, status },
+        },
+        tx
+      );
+
+      return log;
+    });
+  }
+
+  async retryPendingNotifications(context: TenantContext, forceFail = false) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const now = new Date();
+      const due = await tx
+        .select()
+        .from(notificationLogs)
+        .where(
+          and(
+            eq(notificationLogs.tenantId, context.tenantId),
+            eq(notificationLogs.status, 'RETRY_PENDING'),
+            lte(notificationLogs.nextRetryAt, now)
+          )
+        )
+        .for('update');
+
+      const updatedRows = [];
+      for (const row of due) {
+        const nextAttempt = row.attemptCount + 1;
+        const failedPermanently = forceFail && nextAttempt >= row.maxAttempts;
+        const newStatus = forceFail
+          ? failedPermanently
+            ? 'FAILED'
+            : 'RETRY_PENDING'
+          : 'SENT';
+
+        const [updated] = await tx
+          .update(notificationLogs)
+          .set({
+            attemptCount: nextAttempt,
+            status: newStatus,
+            nextRetryAt: newStatus === 'RETRY_PENDING' ? new Date(Date.now() - 1000) : null,
+            errorMessage:
+              newStatus === 'SENT'
+                ? null
+                : `Retry attempt ${nextAttempt}/${row.maxAttempts} failed`,
+          })
+          .where(eq(notificationLogs.id, row.id))
+          .returning();
+        if (updated) updatedRows.push(updated);
+      }
+
+      return updatedRows;
+    });
+  }
+
+  async getNotificationLogs(context: TenantContext, limit = 25, offset = 0) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const safeLimit = Math.min(Math.max(1, limit), 100);
+      const safeOffset = Math.max(0, offset);
+      return await tx
+        .select()
+        .from(notificationLogs)
+        .where(eq(notificationLogs.tenantId, context.tenantId))
+        .orderBy(sql`${notificationLogs.createdAt} DESC`)
+        .limit(safeLimit)
+        .offset(safeOffset);
+    });
+  }
+
+  // ==================================================================
+  // Live Executive Dashboard Summary
+  // ==================================================================
+
+  async getDashboardSummary(context: TenantContext) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+
+      const weekStart = new Date(todayStart);
+      weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+
+      const excludedStatuses = ['CANCELLED', 'VOIDED', 'DRAFT'];
+
+      const [salesToday] = await tx
+        .select({
+          orderCount: sql<number>`count(*)::int`,
+          totalAmount: sql<string>`coalesce(sum(${salesOrders.grandTotal}), 0)::text`,
+        })
+        .from(salesOrders)
+        .where(
+          and(
+            eq(salesOrders.tenantId, context.tenantId),
+            gte(salesOrders.createdAt, todayStart),
+            notInArray(salesOrders.status, excludedStatuses)
+          )
+        );
+
+      const weeklyRows = await tx
+        .select({
+          day: sql<string>`to_char(${salesOrders.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+          total: sql<string>`coalesce(sum(${salesOrders.grandTotal}), 0)::text`,
+          orders: sql<number>`count(*)::int`,
+        })
+        .from(salesOrders)
+        .where(
+          and(
+            eq(salesOrders.tenantId, context.tenantId),
+            gte(salesOrders.createdAt, weekStart),
+            notInArray(salesOrders.status, excludedStatuses)
+          )
+        )
+        .groupBy(sql`to_char(${salesOrders.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
+
+      const [poStats] = await tx
+        .select({
+          openCount: sql<number>`count(*) filter (where ${purchaseOrders.status} in ('DRAFT', 'ISSUED', 'PARTIALLY_RECEIVED'))::int`,
+          totalOpenAmount: sql<string>`coalesce(sum(${purchaseOrders.grandTotal}) filter (where ${purchaseOrders.status} in ('DRAFT', 'ISSUED', 'PARTIALLY_RECEIVED')), 0)::text`,
+        })
+        .from(purchaseOrders)
+        .where(eq(purchaseOrders.tenantId, context.tenantId));
+
+      const [apStats] = await tx
+        .select({
+          unpaidCount: sql<number>`count(*) filter (where ${supplierInvoices.status} in ('APPROVED', 'PARTIALLY_PAID'))::int`,
+          unpaidTotal: sql<string>`coalesce(sum(${supplierInvoices.grandTotal} - ${supplierInvoices.paidAmount}) filter (where ${supplierInvoices.status} in ('APPROVED', 'PARTIALLY_PAID')), 0)::text`,
+        })
+        .from(supplierInvoices)
+        .where(eq(supplierInvoices.tenantId, context.tenantId));
+
+      const [invStats] = await tx
+        .select({
+          trackedRows: sql<number>`count(*)::int`,
+          totalOnHand: sql<string>`coalesce(sum(${inventoryBalances.onHandQty}), 0)::text`,
+        })
+        .from(inventoryBalances)
+        .where(eq(inventoryBalances.tenantId, context.tenantId));
+
+      const [invValueStats] = await tx
+        .select({
+          totalValue: sql<string>`coalesce(sum(${inventoryCostLayers.quantityRemaining} * ${inventoryCostLayers.unitCost}), 0)::text`,
+        })
+        .from(inventoryCostLayers)
+        .where(eq(inventoryCostLayers.tenantId, context.tenantId));
+
+      const [zatcaStats] = await tx
+        .select({
+          egsCount: sql<number>`count(*)::int`,
+        })
+        .from(zatcaEgsCertificates)
+        .where(eq(zatcaEgsCertificates.tenantId, context.tenantId));
+
+      return {
+        salesToday: {
+          orderCount: salesToday?.orderCount || 0,
+          totalAmount: parseFloat(salesToday?.totalAmount || '0'),
+        },
+        weeklySales: weeklyRows.map((r) => ({
+          day: r.day,
+          total: parseFloat(r.total || '0'),
+          orders: r.orders || 0,
+        })),
+        purchasing: {
+          openPoCount: poStats?.openCount || 0,
+          openPoAmount: parseFloat(poStats?.totalOpenAmount || '0'),
+          unpaidInvoiceCount: apStats?.unpaidCount || 0,
+          unpaidInvoiceAmount: parseFloat(apStats?.unpaidTotal || '0'),
+        },
+        inventory: {
+          trackedBalances: invStats?.trackedRows || 0,
+          totalOnHandQty: parseFloat(invStats?.totalOnHand || '0'),
+          totalInventoryValue: parseFloat(invValueStats?.totalValue || '0'),
+        },
+        zatca: {
+          egsUnitsCount: zatcaStats?.egsCount || 0,
+        },
+      };
+    });
   }
 }

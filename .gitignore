@@ -18,6 +18,8 @@ out/
 .env
 .env.*
 !.env.example
+*.zatca.secrets.json
+.zatca-secrets/
 
 # Uploads and media
 uploads/
@@ -50,3 +52,9 @@ redisdata/
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+# Playwright & Temporary Scratch Scripts
+test-results/
+playwright-report/
+scratch/
+packages/database/scripts/temp-query.cjs

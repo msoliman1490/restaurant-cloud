@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import {
   ShieldCheck,
   Plus,
@@ -36,6 +37,8 @@ export const RolesView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const toast = useToast();
 
   // Create Role Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -69,8 +72,12 @@ export const RolesView: React.FC = () => {
 
   const handleCreateRole = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
     if (roleForm.permissionIds.length === 0) {
-      setError('يرجى تحديد صلاحية واحدة على الأقل');
+      const msg = 'يرجى تحديد صلاحية واحدة على الأقل';
+      setModalError(msg);
+      toast.warning(msg);
+      setError(msg);
       return;
     }
     setIsSubmitting(true);
@@ -80,12 +87,18 @@ export const RolesView: React.FC = () => {
         method: 'POST',
         body: JSON.stringify(roleForm),
       });
-      setSuccessMsg('تم إنشاء الدور المخصص بنجاح');
+      const msg = 'تم إنشاء الدور المخصص بنجاح';
+      toast.success(msg);
+      setSuccessMsg(msg);
       setIsModalOpen(false);
+      setModalError(null);
       setRoleForm({ code: '', name: '', permissionIds: [] });
       await fetchData();
     } catch (err: any) {
-      setError(err?.message || 'فشل في إنشاء الدور');
+      const errMsg = err?.message || 'فشل في إنشاء الدور';
+      setModalError(errMsg);
+      toast.error(errMsg);
+      setError(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -220,6 +233,14 @@ export const RolesView: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Inline Error Alert */}
+            {modalError && (
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>{modalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateRole} className="space-y-4 text-sm">
               <div>

@@ -307,7 +307,8 @@ export class ApSubledgerService {
             eq(partnerBalances.currency, invoice.currency)
           )
         )
-        .limit(1);
+        .limit(1)
+        .for('update');
 
       if (balance) {
         const curVendorBal = parseFloat(balance.vendorBalance);
@@ -524,7 +525,8 @@ export class ApSubledgerService {
               eq(partnerBalances.currency, voucher.currency)
             )
           )
-          .limit(1);
+          .limit(1)
+          .for('update');
 
         if (bal) {
           const curBal = parseFloat(bal.vendorBalance);

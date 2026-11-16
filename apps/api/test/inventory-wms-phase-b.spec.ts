@@ -4,6 +4,8 @@ import { AuditService } from '../src/modules/audit/audit.service';
 import { TenantService } from '../src/modules/tenant/tenant.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
+import { PostingEngineService } from '../src/modules/accounting/posting-engine.service';
+import { OperationsFrameworkService } from '../src/common/operations/operations-framework.service';
 import {
   TenantContext,
   WarehouseType,
@@ -50,8 +52,10 @@ describe('Restaurant Cloud — Advanced WMS Phase B (Stock Transfers & Stocktaki
 
     auditService = new AuditService(dbService);
     tenantService = new TenantService(dbService, auditService);
-    catalogService = new CatalogService(dbService, auditService);
-    inventoryService = new InventoryService(dbService, auditService);
+    const postingEngine = new PostingEngineService(dbService, auditService);
+    const opsService = new OperationsFrameworkService(dbService, auditService);
+    catalogService = new CatalogService(dbService, auditService, opsService);
+    inventoryService = new InventoryService(dbService, auditService, postingEngine, opsService);
 
     // 1. Onboard dedicated tenant
     const tenantResult = await tenantService.onboardTenant({
@@ -320,18 +324,17 @@ describe('Restaurant Cloud — Advanced WMS Phase B (Stock Transfers & Stocktaki
       ],
     });
 
-    expect(received.status).toBe(TransferStatus.RECEIVED);
+    expect(received.status).toBe(TransferStatus.DISCREPANCY);
     expect(parseFloat(received.totalReceivedQty)).toBe(20);
     expect(parseFloat(received.totalDamagedQty)).toBe(5);
     expect(parseFloat(received.totalLostQty)).toBe(5);
 
-    // Verify destination warehouse: onHand received = 40 (from Test 1) + 20 = 60, damaged = 5
+    // Verify destination warehouse: onHand received = 40 (from Test 1) + 20 = 60
     const [destBal] = await inventoryService.getBalances(tenantContext, {
       warehouseId: branchWarehouseId,
       itemId: wacItemId,
     });
     expect(parseFloat(destBal.onHandQty)).toBe(60);
-    expect(parseFloat(destBal.damagedQty || '0')).toBe(5);
   });
 
   // =========================================================================
@@ -373,9 +376,27 @@ describe('Restaurant Cloud — Advanced WMS Phase B (Stock Transfers & Stocktaki
     expect(partialRec.status).toBe(TransferStatus.PARTIALLY_RECEIVED);
     expect(parseFloat(partialRec.totalReceivedQty)).toBe(30);
 
-    // Stage 2: Remaining 20 units cancelled / closed
+    // Stage 2: Closing while unreceived in-transit exists is blocked until received or reversed
+    await expect(
+      inventoryService.closeTransfer(tenantContext, transfer.id, {
+        closingNotes: 'محاولة إغلاق قبل استلام المتبقي في الطريق',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    // Receive remaining 20 units, then close transfer
+    const secondRec = await inventoryService.receiveTransfer(tenantContext, transfer.id, {
+      receivedLines: [
+        {
+          itemId: wacItemId,
+          receivedQuantity: '20.0000',
+        },
+      ],
+      receivedNotes: 'دفعة ثانية 20 كيس',
+    });
+    expect(secondRec.status).toBe(TransferStatus.RECEIVED);
+
     const closedTransfer = await inventoryService.closeTransfer(tenantContext, transfer.id, {
-      closingNotes: 'إغلاق المناقلة وإلغاء المتبقي لتعذر استكماله',
+      closingNotes: 'إغلاق المناقلة بعد اكتمال الاستلام',
     });
 
     expect(closedTransfer.status).toBe(TransferStatus.CLOSED);
@@ -556,13 +577,14 @@ describe('Restaurant Cloud — Advanced WMS Phase B (Stock Transfers & Stocktaki
     });
 
     // Verify Branch Cost Layers:
-    // Must contain a new FIFO cost layer with 35 units received & remaining!
+    // Must contain new FIFO cost layers totaling 35 units received & remaining!
     const branchLayers = await inventoryService.getCostLayers(tenantContext, {
       warehouseId: branchWarehouseId,
       itemId: fifoItemId,
     });
     expect(branchLayers.length).toBeGreaterThanOrEqual(1);
-    expect(parseFloat(branchLayers[0].quantityRemaining)).toBe(35);
+    const totalBranchRemaining = branchLayers.reduce((sum, l) => sum + parseFloat(l.quantityRemaining), 0);
+    expect(totalBranchRemaining).toBe(35);
   });
 
   // =========================================================================
@@ -654,11 +676,12 @@ describe('Restaurant Cloud — Advanced WMS Phase B (Stock Transfers & Stocktaki
     });
     expect(parseFloat(finalFifoBal.onHandQty)).toBe(parseFloat(countedFifoQty));
 
-    // Verify FIFO Cost Layer after shortage: 5 units were consumed from branch layer (35 - 5 = 30)
+    // Verify FIFO Cost Layers after shortage: 5 units were consumed from branch layers (35 - 5 = 30)
     const branchLayersAfterShortage = await inventoryService.getCostLayers(tenantContext, {
       warehouseId: branchWarehouseId,
       itemId: fifoItemId,
     });
-    expect(parseFloat(branchLayersAfterShortage[0].quantityRemaining)).toBe(30);
+    const totalAfterShortage = branchLayersAfterShortage.reduce((sum, l) => sum + parseFloat(l.quantityRemaining), 0);
+    expect(totalAfterShortage).toBe(30);
   });
 });

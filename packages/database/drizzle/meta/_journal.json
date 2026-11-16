@@ -50,6 +50,167 @@
       "when": 1794210000000,
       "tag": "0006_advanced_wms_phase_b_transfers_stocktake",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794220000000,
+      "tag": "0007_business_partners_ar_ap_subledgers",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0008_phase3_financial_resources_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794310000000,
+      "tag": "0009_phase3_account_mapping_branch_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794380000000,
+      "tag": "0010_phase3_recipes_and_production",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794390000000,
+      "tag": "0011_dining_tables_and_voids",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794400000000,
+      "tag": "0012_phase3_shift_cash_transactions",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794410000000,
+      "tag": "0013_pos_shifts_closing_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794480000000,
+      "tag": "0014_phase3_settlements_engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794560000000,
+      "tag": "0015_phase3_interbranch_transfers",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794640000000,
+      "tag": "0016_phase3_reconciliation_and_reporting",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794650000000,
+      "tag": "0017_phase3_6_period_closing",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794660000000,
+      "tag": "0018_phase3_7_zatca_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794670000000,
+      "tag": "0019_hr_employees_attendance",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794680000000,
+      "tag": "0020_delivery_drivers",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794690000000,
+      "tag": "0021_hr_documents_advances_custody",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794700000000,
+      "tag": "0022_dining_kitchen_tickets",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794710000000,
+      "tag": "0023_purchasing_invoices_returns",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794720000000,
+      "tag": "0024_integrations_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794730000000,
+      "tag": "0025_integrations_security_retry",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794740000000,
+      "tag": "0026_webhook_replay_nonces",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794750000000,
+      "tag": "0027_schema_parity_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794760000000,
+      "tag": "0028_performance_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794770000000,
+      "tag": "0029_purchase_requests_parity",
+      "breakpoints": true
     }
   ]
 }

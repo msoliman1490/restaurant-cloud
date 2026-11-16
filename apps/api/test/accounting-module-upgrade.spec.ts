@@ -682,4 +682,105 @@ describe('Restaurant Cloud — Accounting Module UX & Functional Upgrade Spec', 
     expect(posted.status).toBe('POSTED');
     expect(parseFloat(posted.debitTotal)).toBe(2500);
   });
+
+  // ==================================================================
+  // Scenario 15: Inter-Account Transfer Validation & Same-Account Guard
+  // ==================================================================
+  it('TEST-15: Rejects transfer between identical accounts and ensures no balances or journals are mutated', async () => {
+    // 1. Snapshot initial balances
+    const [initialVault] = await dbService.withTenantContext(tenantContext, async (tx) => {
+      return await tx.select().from(cashVaults).where(eq(cashVaults.id, testVaultId)).limit(1);
+    });
+    const [initialBank] = await dbService.withTenantContext(tenantContext, async (tx) => {
+      return await tx.select().from(bankAccounts).where(eq(bankAccounts.id, testBankId)).limit(1);
+    });
+
+    const initialVaultBal = parseFloat(initialVault.balance);
+    const initialBankBal = parseFloat(initialBank.balance);
+
+    // 2. Reject same vault to same vault
+    await expect(
+      accountingService.bankTransfer(tenantContext, {
+        legalEntityId,
+        sourceType: 'VAULT',
+        sourceId: testVaultId,
+        destinationType: 'VAULT',
+        destinationId: testVaultId,
+        amount: '1000.0000',
+        notes: 'تحويل لنفس الخزينة غير مسموح',
+      })
+    ).rejects.toThrow('لا يمكن التحويل من الحساب إلى نفسه. اختر حسابًا آخر كوجهة');
+
+    // 3. Reject same bank to same bank
+    await expect(
+      accountingService.bankTransfer(tenantContext, {
+        legalEntityId,
+        sourceType: 'BANK',
+        sourceId: testBankId,
+        destinationType: 'BANK',
+        destinationId: testBankId,
+        amount: '500.0000',
+        notes: 'تحويل لنفس الحساب البنكي غير مسموح',
+      })
+    ).rejects.toThrow('لا يمكن التحويل من الحساب إلى نفسه. اختر حسابًا آخر كوجهة');
+
+    // 4. Reject when source and destination are different entities but share the same underlying COA account
+    const secondVault = await accountingService.createCashVault(tenantContext, {
+      legalEntityId,
+      branchId,
+      code: `VLT-DUP-${Date.now().toString().slice(-4)}`,
+      name: 'خزينة فرعية تشترك بنفس حساب الأستاذ',
+      nameAr: 'خزينة فرعية تشترك بنفس حساب الأستاذ',
+      accountId: vaultAccountId, // same COA account as testVaultId
+      openingBalance: '1000.0000',
+    });
+
+    await expect(
+      accountingService.bankTransfer(tenantContext, {
+        legalEntityId,
+        sourceType: 'VAULT',
+        sourceId: testVaultId,
+        destinationType: 'VAULT',
+        destinationId: secondVault.id,
+        amount: '300.0000',
+        notes: 'تحويل بين كيانين يشتركان بنفس حساب الأستاذ',
+      })
+    ).rejects.toThrow('لا يمكن التحويل من الحساب إلى نفسه. اختر حسابًا آخر كوجهة');
+
+    // 5. Assert database balances remained completely unchanged
+    const [afterVault] = await dbService.withTenantContext(tenantContext, async (tx) => {
+      return await tx.select().from(cashVaults).where(eq(cashVaults.id, testVaultId)).limit(1);
+    });
+    const [afterBank] = await dbService.withTenantContext(tenantContext, async (tx) => {
+      return await tx.select().from(bankAccounts).where(eq(bankAccounts.id, testBankId)).limit(1);
+    });
+
+    expect(parseFloat(afterVault.balance)).toBe(initialVaultBal);
+    expect(parseFloat(afterBank.balance)).toBe(initialBankBal);
+
+    // 6. Assert a valid transfer between different accounts works smoothly
+    const transferRes = await accountingService.bankTransfer(tenantContext, {
+      legalEntityId,
+      sourceType: 'BANK',
+      sourceId: testBankId,
+      destinationType: 'VAULT',
+      destinationId: testVaultId,
+      amount: '2500.0000',
+      notes: 'تحويل سليم من البنك إلى الخزينة',
+    });
+
+    expect(transferRes.success).toBe(true);
+    expect(transferRes.journalNumber).toBeDefined();
+
+    // Verify balances updated correctly after valid transfer
+    const [finalVault] = await dbService.withTenantContext(tenantContext, async (tx) => {
+      return await tx.select().from(cashVaults).where(eq(cashVaults.id, testVaultId)).limit(1);
+    });
+    const [finalBank] = await dbService.withTenantContext(tenantContext, async (tx) => {
+      return await tx.select().from(bankAccounts).where(eq(bankAccounts.id, testBankId)).limit(1);
+    });
+
+    expect(parseFloat(finalBank.balance)).toBe(initialBankBal - 2500);
+    expect(parseFloat(finalVault.balance)).toBe(initialVaultBal + 2500);
+  });
 });

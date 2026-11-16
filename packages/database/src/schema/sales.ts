@@ -82,6 +82,7 @@ export const salesOrders = pgTable(
     taxTotal: numeric('tax_total', { precision: 12, scale: 4 }).notNull().default('0.0000'),
     grandTotal: numeric('grand_total', { precision: 12, scale: 4 }).notNull().default('0.0000'),
     idempotencyKey: varchar('idempotency_key', { length: 255 }),
+    version: integer('version').notNull().default(1),
     notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, numeric, text, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, numeric, integer, text, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { tenants, legalEntities, warehouses } from './tenants.js';
 import { items, unitsOfMeasure, suppliers } from './catalog.js';
 import {
@@ -24,6 +24,7 @@ export const purchaseRequests = pgTable(
     approvedBy: uuid('approved_by'),
     neededByDate: timestamp('needed_by_date', { withTimezone: true }),
     notes: text('notes'),
+    version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -68,6 +69,7 @@ export const purchaseOrders = pgTable(
     currency: varchar('currency', { length: 3 }).notNull().default('SAR'),
     notes: text('notes'),
     issuedBy: uuid('issued_by'),
+    version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -162,6 +164,7 @@ export const supplierInvoices = pgTable(
     paidAmount: numeric('paid_amount', { precision: 14, scale: 4 }).notNull().default('0.0000'),
     currency: varchar('currency', { length: 3 }).notNull().default('SAR'),
     notes: text('notes'),
+    version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, numeric, boolean, text, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, numeric, integer, boolean, text, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { tenants, legalEntities, branches, warehouses } from './tenants.js';
 import { items, unitsOfMeasure } from './catalog.js';
 import {
@@ -77,6 +77,7 @@ export const stockTransfers = pgTable(
     dispatchJournalEntryId: uuid('dispatch_journal_entry_id'),
     receiveJournalEntryId: uuid('receive_journal_entry_id'),
     destJournalEntryId: uuid('dest_journal_entry_id'),
+    version: integer('version').notNull().default(1),
     notes: text('notes'),
   },
   (table) => [

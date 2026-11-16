@@ -121,6 +121,8 @@ export const journalEntries = pgTable(
     postedBy: uuid('posted_by'),
     approvedBy: uuid('approved_by'),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
   },
   (table) => [
     index('idx_journal_entries_tenant_id').on(table.tenantId),

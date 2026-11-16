@@ -244,6 +244,7 @@ export class PurchasingService {
         .set({
           status: PurchaseRequestStatus.APPROVED,
           approvedBy: context.userId,
+          version: (pr.version ?? 1) + 1,
         })
         .where(eq(purchaseRequests.id, pr.id))
         .returning();
@@ -631,6 +632,7 @@ export class PurchasingService {
         .set({
           status: PurchaseOrderStatus.ISSUED,
           issuedBy: context.userId,
+          version: (po.version ?? 1) + 1,
         })
         .where(eq(purchaseOrders.id, po.id))
         .returning();

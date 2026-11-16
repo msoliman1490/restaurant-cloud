@@ -171,6 +171,23 @@ describe('SaaS Onboarding, Auth Hardening, Subscriptions & Super Admin (Live API
   });
 
   it('onboards a new tenant with auto-generated tenantCode, Saudi National Address, PDPL consent & onboarding progress', async () => {
+    const badVatRes = await apiCall('/tenants/onboard', {
+      method: 'POST',
+      body: {
+        displayName: `Bad Vat ${uniqueSuffix}`,
+        initialLegalEntity: {
+          legalName: `Bad Vat Co ${uniqueSuffix}`,
+          vatNumber: '253113521400003',
+        },
+        initialAdminUser: {
+          email: `bad.vat.${uniqueSuffix}@example.sa`,
+          displayName: 'Bad Vat',
+          password: initialPassword,
+        },
+      },
+    });
+    expect(badVatRes.status).toBe(400);
+
     const res = await apiCall('/tenants/onboard', {
       method: 'POST',
       body: {

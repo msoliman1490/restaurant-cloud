@@ -67,7 +67,7 @@ export const CreateTenantRequestSchema = z.object({
   termsAccepted: z.boolean().optional().default(true),
   initialLegalEntity: z.object({
     legalName: z.string().min(2).max(255),
-    vatNumber: z.string().regex(/^\d{15}$/, 'Saudi VAT number must be 15 digits'),
+    vatNumber: z.string().regex(/^3\d{9}00003$/, 'Saudi VAT number must be 15 digits, start with 3, and end with 00003'),
     crNumber: z.string().optional(),
     functionalCurrency: z.string().length(3).default('SAR'),
     buildingNumber: z.string().max(20).optional(),
@@ -150,7 +150,7 @@ export const CreateLegalEntityRequestSchema = z.object({
   legalName: z.string().min(2).max(255),
   commercialName: z.string().max(255).optional(),
   crNumber: z.string().optional(),
-  vatNumber: z.string().regex(/^\d{15}$/, 'Saudi VAT number must be 15 digits'),
+  vatNumber: z.string().regex(/^3\d{9}00003$/, 'Saudi VAT number must be 15 digits, start with 3, and end with 00003'),
   functionalCurrency: z.string().length(3).default('SAR'),
   timezone: z.string().default('Asia/Riyadh'),
   ...SaudiNationalAddressFields,
@@ -162,7 +162,7 @@ export const UpdateLegalEntityRequestSchema = z.object({
   legalName: z.string().min(2).max(255).optional(),
   commercialName: z.string().max(255).optional(),
   crNumber: z.string().optional(),
-  vatNumber: z.string().regex(/^\d{15}$/, 'Saudi VAT number must be 15 digits').optional(),
+  vatNumber: z.string().regex(/^3\d{9}00003$/, 'Saudi VAT number must be 15 digits, start with 3, and end with 00003').optional(),
   timezone: z.string().optional(),
   ...SaudiNationalAddressFields,
 });

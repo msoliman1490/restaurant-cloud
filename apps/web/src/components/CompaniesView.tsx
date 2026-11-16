@@ -532,7 +532,8 @@ export const CompaniesView: React.FC = () => {
                   <input
                     type="text"
                     required
-                    pattern="^\d{15}$"
+                    pattern="^3\d{9}00003$"
+                    title="الرقم الضريبي السعودي يجب أن يكون 15 خانة ويبدأ بـ 3 وينتهي بـ 00003"
                     value={entityForm.vatNumber}
                     onChange={(e) => setEntityForm({ ...entityForm, vatNumber: e.target.value })}
                     placeholder="300000000000003"

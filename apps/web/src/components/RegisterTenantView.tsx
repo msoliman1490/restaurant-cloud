@@ -159,11 +159,11 @@ export const RegisterTenantView: React.FC<RegisterTenantViewProps> = ({
         return false;
       }
     } else if (step === 3) {
-      if (!legalName.trim() || !/^\d{15}$/.test(vatNumber.trim())) {
+      if (!legalName.trim() || !/^3\d{9}00003$/.test(vatNumber.trim())) {
         setError(
           isEn
-            ? 'Enter legal entity name and a valid 15-digit Saudi VAT number.'
-            : 'يرجى إدخال الاسم القانوني ورقم ضريبي سعودي مكون من 15 رقماً.'
+            ? 'Enter legal entity name and a valid 15-digit Saudi VAT number starting with 3 and ending with 00003.'
+            : 'يرجى إدخال الاسم القانوني ورقم ضريبي سعودي مكون من 15 خانة يبدأ بـ 3 وينتهي بـ 00003.'
         );
         return false;
       }

@@ -46,9 +46,13 @@ export enum SubscriptionPlanCode {
 export enum SubscriptionStatus {
   TRIAL = 'TRIAL',
   ACTIVE = 'ACTIVE',
+  RENEWAL = 'RENEWAL',
+  PAYMENT_PENDING = 'PAYMENT_PENDING',
   PAST_DUE = 'PAST_DUE',
+  GRACE_PERIOD = 'GRACE_PERIOD',
   SUSPENDED = 'SUSPENDED',
   CANCELLED = 'CANCELLED',
+  REACTIVATED = 'REACTIVATED',
   EXPIRED = 'EXPIRED',
 }
 

@@ -19,11 +19,15 @@ import {
   Truck,
   UserCheck,
   Scale,
+  CreditCard,
+  Sparkles,
+  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react';
 
 export type NavTab =
   | 'dashboard'
+  | 'onboarding'
   | 'pos'
   | 'catalog'
   | 'inventory'
@@ -42,7 +46,9 @@ export type NavTab =
   | 'roles'
   | 'settings'
   | 'audit'
-  | 'industries';
+  | 'industries'
+  | 'subscription'
+  | 'super-admin';
 
 export interface NavItemConfig {
   id: NavTab;
@@ -51,6 +57,7 @@ export interface NavItemConfig {
   icon: LucideIcon;
   requiredPermissions?: string[];
   requiredIndustry?: string;
+  requiresPlatformAdmin?: boolean;
   cashierAllowed?: boolean;
   badgeCount?: number;
 }
@@ -249,6 +256,27 @@ export const NAVIGATION_GROUPS: NavGroupConfig[] = [
         labelEn: 'Industry Sectors & Plans',
         icon: Layers,
         requiredPermissions: ['tenant.read', 'tenant.manage'],
+      },
+      {
+        id: 'onboarding',
+        labelAr: 'معالج تهيئة المنشأة',
+        labelEn: 'Setup Wizard',
+        icon: Sparkles,
+        requiredPermissions: ['tenant.read', 'tenant.manage'],
+      },
+      {
+        id: 'subscription',
+        labelAr: 'الاشتراك والفوترة',
+        labelEn: 'Subscription & Billing',
+        icon: CreditCard,
+        requiredPermissions: ['tenant.read', 'tenant.manage'],
+      },
+      {
+        id: 'super-admin',
+        labelAr: 'إدارة المنصة (Super Admin)',
+        labelEn: 'Platform Super Admin',
+        icon: ShieldAlert,
+        requiresPlatformAdmin: true,
       },
     ],
   },

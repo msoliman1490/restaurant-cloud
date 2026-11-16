@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   locale = 'ar',
 }) => {
-  const { role, permissions, hasPermission } = useAuth();
+  const { user, role, permissions, hasPermission } = useAuth();
   const isCashierOnly = role?.name === 'CASHIER';
   const isEn = locale === 'en';
   const navRef = useRef<HTMLElement>(null);
@@ -88,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [currentTab]);
 
   const canAccessItem = (item: NavItemConfig): boolean => {
+    if (item.requiresPlatformAdmin && !user?.isPlatformAdmin) return false;
     if (isCashierOnly && !item.cashierAllowed) return false;
     if (item.requiredIndustry && !activeIndustries.includes(item.requiredIndustry)) {
       return false;
@@ -107,7 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ...group,
         items: group.items.filter(canAccessItem),
       })).filter((group) => group.items.length > 0),
-    [activeIndustries, isCashierOnly, permissions],
+    [activeIndustries, isCashierOnly, permissions, user?.isPlatformAdmin],
   );
 
   const toggleGroup = (groupId: string) => {

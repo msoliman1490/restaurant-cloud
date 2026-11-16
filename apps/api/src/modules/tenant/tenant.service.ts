@@ -35,6 +35,10 @@ import {
   inventoryBalances,
   inventoryCostLayers,
   zatcaEgsCertificates,
+  subscriptionPlans,
+  saasPolicies,
+  pdplConsents,
+  onboardingProgress,
 } from '@restaurant-cloud/database';
 import {
   CreateTenantRequest,
@@ -92,22 +96,56 @@ export class TenantService implements OnModuleInit {
     }
   }
 
+  private async generateUniqueTenantCode(displayName: string): Promise<string> {
+    const db = this.dbService.db;
+    const baseSlug = displayName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 24) || 'org';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const suffix = randomBytes(2).toString('hex');
+      const candidate = `rc-${baseSlug}-${suffix}`;
+      const [existing] = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.code, candidate))
+        .limit(1);
+      if (!existing) return candidate;
+    }
+    return `rc-${randomBytes(4).toString('hex')}`;
+  }
+
   /**
    * Complete Tenant Onboarding Workflow executed inside an atomic transaction.
    * Creates Tenant -> Group -> Legal Entity -> Branch -> Warehouse -> Admin User -> Owner Role.
    */
   async onboardTenant(dto: CreateTenantRequest) {
     const db = this.dbService.db;
+    const normalizedEmail = dto.initialAdminUser.email.trim().toLowerCase();
+
+    const [existingUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, normalizedEmail))
+      .limit(1);
+    if (existingUser) {
+      throw new ConflictException(`Email '${normalizedEmail}' is already registered`);
+    }
+
+    const tenantCode = dto.code
+      ? dto.code.trim().toLowerCase()
+      : await this.generateUniqueTenantCode(dto.displayName);
 
     // Check if tenant code is already taken
     const [existing] = await db
       .select({ id: tenants.id })
       .from(tenants)
-      .where(eq(tenants.code, dto.code))
+      .where(eq(tenants.code, tenantCode))
       .limit(1);
 
     if (existing) {
-      throw new ConflictException(`Tenant code '${dto.code}' is already registered`);
+      throw new ConflictException(`Tenant code '${tenantCode}' is already registered`);
     }
 
     const hashedPassword = await CryptoUtil.hashPassword(dto.initialAdminUser.password);
@@ -124,7 +162,7 @@ export class TenantService implements OnModuleInit {
         .insert(tenants)
         .values({
           id: newTenantId,
-          code: dto.code,
+          code: tenantCode,
           displayName: dto.displayName,
           deploymentMode: dto.deploymentMode,
           primaryLocale: dto.primaryLocale,
@@ -146,7 +184,7 @@ export class TenantService implements OnModuleInit {
 
       if (!newGroup) throw new Error('Failed to create default group');
 
-      // 3. Create Primary Legal Entity
+      // 3. Create Primary Legal Entity (including Saudi National Address if provided)
       const [newLegalEntity] = await tx
         .insert(legalEntities)
         .values({
@@ -157,6 +195,13 @@ export class TenantService implements OnModuleInit {
           crNumber: dto.initialLegalEntity.crNumber,
           functionalCurrency: dto.initialLegalEntity.functionalCurrency,
           timezone: dto.timezone,
+          buildingNumber: dto.initialLegalEntity.buildingNumber,
+          streetName: dto.initialLegalEntity.streetName,
+          district: dto.initialLegalEntity.district,
+          city: dto.initialLegalEntity.city,
+          postalCode: dto.initialLegalEntity.postalCode,
+          additionalNumber: dto.initialLegalEntity.additionalNumber,
+          country: dto.initialLegalEntity.countryCode || 'SA',
         })
         .returning();
 
@@ -260,20 +305,31 @@ export class TenantService implements OnModuleInit {
         accessMode: 'ALLOW',
       });
 
-      // 9. Provision SaaS Trial Subscription & Industry Pack
+      // 9. Provision SaaS Trial Subscription from Dynamic Plan Catalog & Industry Pack
+      const requestedPlanCode = (dto.planCode || 'STARTER').toUpperCase();
+      const [planRow] = await tx
+        .select()
+        .from(subscriptionPlans)
+        .where(eq(subscriptionPlans.code, requestedPlanCode))
+        .limit(1);
+
+      const trialDays = planRow?.trialDays ?? 14;
       const trialEnds = new Date();
-      trialEnds.setDate(trialEnds.getDate() + 14);
+      trialEnds.setDate(trialEnds.getDate() + trialDays);
 
       const [subscription] = await tx
         .insert(tenantSubscriptions)
         .values({
           tenantId: newTenant.id,
-          planCode: SubscriptionPlanCode.FREE_TRIAL,
+          planCode: planRow?.code ?? SubscriptionPlanCode.FREE_TRIAL,
           status: SubscriptionStatus.TRIAL,
-          maxBranches: 3,
-          maxDevices: 5,
-          maxUsers: 10,
+          billingCycle: dto.billingCycle ?? 'MONTHLY',
+          autoRenew: true,
+          maxBranches: planRow?.maxBranches ?? 3,
+          maxDevices: planRow?.maxDevices ?? 5,
+          maxUsers: planRow?.maxUsers ?? 10,
           trialEndsAt: trialEnds,
+          currentPeriodEnd: trialEnds,
         })
         .returning();
 
@@ -289,6 +345,45 @@ export class TenantService implements OnModuleInit {
         })
         .returning();
 
+      // 9b. Record PDPL & E-Commerce Terms Consents
+      if (dto.pdplConsentAccepted !== false || dto.termsAccepted !== false) {
+        const activePolicies = await tx.select().from(saasPolicies);
+        const pdplPolicy = activePolicies.find(
+          (p) => p.policyKey === 'PRIVACY_POLICY' || p.policyKey === 'PDPL_PRIVACY'
+        );
+        const termsPolicy = activePolicies.find((p) => p.policyKey === 'ECOMMERCE_TERMS');
+        if (dto.pdplConsentAccepted !== false) {
+          await tx.insert(pdplConsents).values({
+            tenantId: newTenant.id,
+            userId: adminUser.id,
+            consentType: 'PRIVACY_POLICY',
+            policyVersion: pdplPolicy?.version ?? '2026.1',
+            accepted: true,
+          });
+        }
+        if (dto.termsAccepted !== false) {
+          await tx.insert(pdplConsents).values({
+            tenantId: newTenant.id,
+            userId: adminUser.id,
+            consentType: 'ECOMMERCE_TERMS',
+            policyVersion: termsPolicy?.version ?? '2026.1',
+            accepted: true,
+          });
+        }
+      }
+
+      // 9c. Initialize Resumable Onboarding Progress
+      const initialSteps = ['legal_entity', 'branch', 'warehouse', 'industry'];
+      const [progress] = await tx
+        .insert(onboardingProgress)
+        .values({
+          tenantId: newTenant.id,
+          currentStep: 'tax',
+          completedSteps: initialSteps,
+          isCompleted: false,
+        })
+        .returning();
+
       // 10. Record Immutable Audit Log
       await tx.insert(auditLogs).values({
         tenantId: newTenant.id,
@@ -301,6 +396,7 @@ export class TenantService implements OnModuleInit {
           legalEntity: newLegalEntity.legalName,
           adminEmail: adminUser.email,
           primaryIndustry,
+          planCode: subscription?.planCode,
         }),
       });
 
@@ -319,10 +415,12 @@ export class TenantService implements OnModuleInit {
         warehouse: newWarehouse,
         subscription,
         activeIndustryPacks: [primaryPack],
+        onboardingProgress: progress,
         user: {
           id: adminUser.id,
           email: adminUser.email,
           displayName: adminUser.displayName,
+          isPlatformAdmin: false,
         },
         token,
       };

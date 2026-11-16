@@ -19,6 +19,10 @@ import {
   UpdateUserStatusRequestSchema,
   UpdateUserScopesRequestSchema,
   CreateRoleRequestSchema,
+  ForgotPasswordRequestSchema,
+  ResetPasswordRequestSchema,
+  RequestVerificationSchema,
+  VerifyContactSchema,
 } from '@restaurant-cloud/shared-contracts';
 import { TenantContext } from '@restaurant-cloud/domain-kernel';
 
@@ -30,6 +34,46 @@ export class AuthController {
   async login(@Body() body: unknown) {
     const validatedDto = LoginRequestSchema.parse(body);
     const data = await this.authService.login(validatedDto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('auth/forgot-password')
+  async forgotPassword(@Body() body: unknown) {
+    const validatedDto = ForgotPasswordRequestSchema.parse(body);
+    const data = await this.authService.forgotPassword(validatedDto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('auth/reset-password')
+  async resetPassword(@Body() body: unknown) {
+    const validatedDto = ResetPasswordRequestSchema.parse(body);
+    const data = await this.authService.resetPassword(validatedDto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('auth/request-verification')
+  async requestVerification(@Body() body: unknown) {
+    const validatedDto = RequestVerificationSchema.parse(body);
+    const data = await this.authService.requestVerification(validatedDto);
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @Post('auth/verify-contact')
+  async verifyContact(@Body() body: unknown) {
+    const validatedDto = VerifyContactSchema.parse(body);
+    const data = await this.authService.verifyContact(validatedDto);
     return {
       success: true,
       data,

@@ -3,7 +3,9 @@ import {
   UnauthorizedException,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
+import { createHash, randomInt, timingSafeEqual } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { CryptoUtil } from './crypto.util';
@@ -16,6 +18,7 @@ import {
   membershipScopes,
   permissions,
   rolePermissions,
+  authVerificationTokens,
 } from '@restaurant-cloud/database';
 import {
   LoginRequest,
@@ -23,9 +26,13 @@ import {
   UpdateUserStatusRequest,
   UpdateUserScopesRequest,
   CreateRoleRequest,
+  ForgotPasswordRequest,
+  ResetPasswordRequest,
+  RequestVerificationRequest,
+  VerifyContactRequest,
 } from '@restaurant-cloud/shared-contracts';
 import { TenantContext, TenantStatus } from '@restaurant-cloud/domain-kernel';
-import { eq, and, or, isNull } from 'drizzle-orm';
+import { eq, and, or, isNull, desc, gt } from 'drizzle-orm';
 
 @Injectable()
 export class AuthService {
@@ -52,9 +59,24 @@ export class AuthService {
       throw new UnauthorizedException('User account is suspended');
     }
 
+    if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+      throw new UnauthorizedException(
+        'Account temporarily locked due to too many failed login attempts. Please try again later.'
+      );
+    }
+
     // 2. Verify Password
     const isValid = await CryptoUtil.verifyPassword(dto.password, user.passwordHash);
     if (!isValid) {
+      const nextAttempts = (user.failedLoginAttempts ?? 0) + 1;
+      const shouldLock = nextAttempts >= 5;
+      await db
+        .update(users)
+        .set({
+          failedLoginAttempts: nextAttempts,
+          lockedUntil: shouldLock ? new Date(Date.now() + 15 * 60 * 1000) : null,
+        })
+        .where(eq(users.id, user.id));
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -100,10 +122,14 @@ export class AuthService {
       throw new UnauthorizedException('Target organization is suspended');
     }
 
-    // 4. Update last login timestamp
+    // 4. Update last login timestamp & reset failed attempt counter
     await db
       .update(users)
-      .set({ lastLoginAt: new Date() })
+      .set({
+        lastLoginAt: new Date(),
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      })
       .where(eq(users.id, user.id));
 
     // 5. Fetch role and permissions for selected membership
@@ -134,6 +160,9 @@ export class AuthService {
         id: user.id,
         email: user.email,
         displayName: user.displayName,
+        isPlatformAdmin: Boolean(user.isPlatformAdmin),
+        emailVerifiedAt: user.emailVerifiedAt,
+        phoneVerifiedAt: user.phoneVerifiedAt,
       },
       role: role ? { id: role.id, name: role.name } : null,
       permissions: permissionCodes,
@@ -150,6 +179,191 @@ export class AuthService {
     };
   }
 
+  private hashVerificationCode(code: string): string {
+    return createHash('sha256').update(code.trim()).digest('hex');
+  }
+
+  private isTestEnv(): boolean {
+    return process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+  }
+
+  async requestVerification(dto: RequestVerificationRequest) {
+    const db = this.dbService.db;
+    const normalizedTarget =
+      dto.purpose === 'EMAIL_VERIFY' ? dto.target.trim().toLowerCase() : dto.target.trim();
+    const code = String(randomInt(100000, 999999));
+    const tokenHash = this.hashVerificationCode(code);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    const [matchingUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        dto.purpose === 'EMAIL_VERIFY'
+          ? eq(users.email, normalizedTarget)
+          : eq(users.phone, normalizedTarget)
+      )
+      .limit(1);
+
+    await db.insert(authVerificationTokens).values({
+      userId: matchingUser?.id ?? null,
+      target: normalizedTarget,
+      purpose: dto.purpose,
+      tokenHash,
+      expiresAt,
+    });
+
+    return {
+      accepted: true,
+      message: 'If the target is eligible, a verification code has been issued.',
+      ...(this.isTestEnv() ? { devPreviewCode: code } : {}),
+    };
+  }
+
+  async verifyContact(dto: VerifyContactRequest) {
+    const db = this.dbService.db;
+    const normalizedTarget =
+      dto.purpose === 'EMAIL_VERIFY' ? dto.target.trim().toLowerCase() : dto.target.trim();
+
+    const [tokenRow] = await db
+      .select()
+      .from(authVerificationTokens)
+      .where(
+        and(
+          eq(authVerificationTokens.target, normalizedTarget),
+          eq(authVerificationTokens.purpose, dto.purpose),
+          isNull(authVerificationTokens.consumedAt),
+          gt(authVerificationTokens.expiresAt, new Date())
+        )
+      )
+      .orderBy(desc(authVerificationTokens.createdAt))
+      .limit(1);
+
+    if (!tokenRow) {
+      throw new BadRequestException('Verification code is invalid or expired');
+    }
+
+    const candidateHash = Buffer.from(this.hashVerificationCode(dto.code), 'hex');
+    const storedHash = Buffer.from(tokenRow.tokenHash, 'hex');
+    const isMatch =
+      candidateHash.length === storedHash.length &&
+      timingSafeEqual(candidateHash, storedHash);
+
+    if (!isMatch) {
+      throw new BadRequestException('Verification code is invalid or expired');
+    }
+
+    const now = new Date();
+    await db
+      .update(authVerificationTokens)
+      .set({ consumedAt: now })
+      .where(eq(authVerificationTokens.id, tokenRow.id));
+
+    if (tokenRow.userId) {
+      await db
+        .update(users)
+        .set(
+          dto.purpose === 'EMAIL_VERIFY'
+            ? { emailVerifiedAt: now }
+            : { phoneVerifiedAt: now }
+        )
+        .where(eq(users.id, tokenRow.userId));
+    }
+
+    return {
+      verified: true,
+      purpose: dto.purpose,
+      target: normalizedTarget,
+      verifiedAt: now,
+    };
+  }
+
+  async forgotPassword(dto: ForgotPasswordRequest) {
+    const db = this.dbService.db;
+    const email = dto.email.trim().toLowerCase();
+    const [user] = await db
+      .select({ id: users.id, status: users.status })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    let devCode: string | undefined;
+    if (user && user.status === 'ACTIVE') {
+      const code = String(randomInt(100000, 999999));
+      devCode = code;
+      await db.insert(authVerificationTokens).values({
+        userId: user.id,
+        target: email,
+        purpose: 'PASSWORD_RESET',
+        tokenHash: this.hashVerificationCode(code),
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      });
+    }
+
+    return {
+      accepted: true,
+      message: 'If an account matches this email, password reset instructions have been issued.',
+      ...(this.isTestEnv() && devCode ? { devPreviewCode: devCode } : {}),
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordRequest) {
+    const db = this.dbService.db;
+    const email = dto.email.trim().toLowerCase();
+
+    const [tokenRow] = await db
+      .select()
+      .from(authVerificationTokens)
+      .where(
+        and(
+          eq(authVerificationTokens.target, email),
+          eq(authVerificationTokens.purpose, 'PASSWORD_RESET'),
+          isNull(authVerificationTokens.consumedAt),
+          gt(authVerificationTokens.expiresAt, new Date())
+        )
+      )
+      .orderBy(desc(authVerificationTokens.createdAt))
+      .limit(1);
+
+    if (!tokenRow || !tokenRow.userId) {
+      throw new BadRequestException('Reset code is invalid or expired');
+    }
+
+    const candidateHash = Buffer.from(this.hashVerificationCode(dto.code), 'hex');
+    const storedHash = Buffer.from(tokenRow.tokenHash, 'hex');
+    const isMatch =
+      candidateHash.length === storedHash.length &&
+      timingSafeEqual(candidateHash, storedHash);
+
+    if (!isMatch) {
+      throw new BadRequestException('Reset code is invalid or expired');
+    }
+
+    const now = new Date();
+    const passwordHash = await CryptoUtil.hashPassword(dto.newPassword);
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(authVerificationTokens)
+        .set({ consumedAt: now })
+        .where(eq(authVerificationTokens.id, tokenRow.id));
+
+      await tx
+        .update(users)
+        .set({
+          passwordHash,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        })
+        .where(eq(users.id, tokenRow.userId!));
+    });
+
+    return {
+      reset: true,
+      message: 'Password has been updated successfully.',
+    };
+  }
+
   async getMe(context: TenantContext) {
     const db = this.dbService.db;
 
@@ -158,6 +372,9 @@ export class AuthService {
         id: users.id,
         email: users.email,
         displayName: users.displayName,
+        isPlatformAdmin: users.isPlatformAdmin,
+        emailVerifiedAt: users.emailVerifiedAt,
+        phoneVerifiedAt: users.phoneVerifiedAt,
       })
       .from(users)
       .where(eq(users.id, context.userId))

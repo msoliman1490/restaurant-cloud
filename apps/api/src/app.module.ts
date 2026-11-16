@@ -21,6 +21,7 @@ import { SettlementsModule } from './modules/settlements/settlements.module';
 import { ZatcaModule } from './modules/zatca/zatca.module';
 import { HrModule } from './modules/hr/hr.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
+import { SaasModule } from './modules/saas/saas.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { DeliveryModule } from './modules/delivery/delivery.module';
     ZatcaModule,
     HrModule,
     DeliveryModule,
+    SaasModule,
   ],
   controllers: [AppController],
   providers: [

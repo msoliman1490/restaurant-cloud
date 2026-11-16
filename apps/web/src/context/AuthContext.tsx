@@ -26,6 +26,11 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string, tenantCode?: string) => Promise<void>;
+  establishSession: (
+    token: string,
+    user: User,
+    activeTenant: TenantRef
+  ) => Promise<void>;
   logout: () => void;
   selectTenant: (tenantCode: string) => Promise<void>;
   selectBranch: (branchId: string) => void;
@@ -201,6 +206,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setState(newState);
   };
 
+  const establishSession = async (
+    token: string,
+    user: User,
+    activeTenant: TenantRef
+  ) => {
+    apiClient.setToken(token);
+    const hierarchy = await loadHierarchy();
+    const firstEntity = hierarchy?.legalEntities[0] || null;
+    const firstBranch = hierarchy?.branches[0] || null;
+    const role: RoleRef = { name: 'TENANT_OWNER' };
+    const permissions = ['*'];
+    const availableTenants = [activeTenant];
+
+    try {
+      sessionStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify({
+          token,
+          user,
+          role,
+          permissions,
+          activeTenant,
+          availableTenants,
+          activeBranchId: firstBranch?.id,
+        })
+      );
+    } catch {
+      // Ignore
+    }
+
+    setState({
+      user,
+      token,
+      role,
+      permissions,
+      activeTenant,
+      availableTenants,
+      activeLegalEntity: firstEntity,
+      activeBranch: firstBranch,
+      hierarchy,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+  };
+
   const selectBranch = (branchId: string) => {
     if (!state.hierarchy) return;
     const branch = state.hierarchy.branches.find((b) => b.id === branchId);
@@ -243,6 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         ...state,
         login,
+        establishSession,
         logout,
         selectTenant,
         selectBranch,

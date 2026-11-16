@@ -2,6 +2,9 @@ export interface User {
   id: string;
   email: string;
   displayName: string;
+  isPlatformAdmin?: boolean;
+  emailVerifiedAt?: string | null;
+  phoneVerifiedAt?: string | null;
 }
 
 export interface TenantRef {

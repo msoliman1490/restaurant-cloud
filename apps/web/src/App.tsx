@@ -25,6 +25,9 @@ import { RolesView } from './components/RolesView';
 import { SettingsView } from './components/SettingsView';
 import { AuditLogsView } from './components/AuditLogsView';
 import { LoginView } from './components/LoginView';
+import { OnboardingWizardView } from './components/OnboardingWizardView';
+import { SubscriptionBillingView } from './components/SubscriptionBillingView';
+import { SuperAdminView } from './components/SuperAdminView';
 import { CommandPalette, CommandItem } from './components/ui/CommandPalette';
 import { KeyboardShortcutsModal } from './components/ui/KeyboardShortcutsModal';
 import { Loader2 } from 'lucide-react';
@@ -56,7 +59,7 @@ const COMMAND_ITEMS: CommandItem[] = [
 ];
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const { locale, dir, toggleLocale } = useLocale();
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [isPosFullscreen, setIsPosFullscreen] = useState(false);
@@ -106,7 +109,11 @@ const AppContent: React.FC = () => {
           </p>
         </div>
       ) : !isAuthenticated ? (
-        <LoginView locale={locale} onToggleLocale={toggleLocale} />
+        <LoginView
+          locale={locale}
+          onToggleLocale={toggleLocale}
+          onRegisteredToOnboarding={() => setCurrentTab('onboarding')}
+        />
       ) : currentTab === 'pos' && isPosFullscreen ? (
         <div
           className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased p-4 md:p-6 lg:p-8"
@@ -179,6 +186,18 @@ const AppContent: React.FC = () => {
                 {currentTab === 'roles' && <RolesView />}
                 {currentTab === 'settings' && <SettingsView />}
                 {currentTab === 'audit' && <AuditLogsView />}
+                {currentTab === 'onboarding' && (
+                  <OnboardingWizardView
+                    locale={locale}
+                    onNavigate={(tab) => setCurrentTab(tab)}
+                  />
+                )}
+                {currentTab === 'subscription' && (
+                  <SubscriptionBillingView locale={locale} />
+                )}
+                {currentTab === 'super-admin' && user?.isPlatformAdmin && (
+                  <SuperAdminView locale={locale} />
+                )}
               </div>
             </main>
           </div>

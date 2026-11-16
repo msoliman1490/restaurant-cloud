@@ -55,17 +55,28 @@ import {
 // ====================================================================
 
 export const CreateTenantRequestSchema = z.object({
-  code: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/, 'Code must be lowercase alphanumeric and hyphens'),
+  code: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/, 'Code must be lowercase alphanumeric and hyphens').optional(),
   displayName: z.string().min(2).max(255),
   deploymentMode: z.nativeEnum(DeploymentMode).default(DeploymentMode.SHARED),
   primaryLocale: z.string().default('ar-SA'),
   timezone: z.string().default('Asia/Riyadh'),
   primaryIndustry: z.nativeEnum(IndustryType).optional().default(IndustryType.RESTAURANT),
+  planCode: z.string().min(2).max(50).optional().default('STARTER'),
+  billingCycle: z.enum(['MONTHLY', 'ANNUAL']).optional().default('MONTHLY'),
+  pdplConsentAccepted: z.boolean().optional().default(true),
+  termsAccepted: z.boolean().optional().default(true),
   initialLegalEntity: z.object({
     legalName: z.string().min(2).max(255),
     vatNumber: z.string().regex(/^\d{15}$/, 'Saudi VAT number must be 15 digits'),
     crNumber: z.string().optional(),
     functionalCurrency: z.string().length(3).default('SAR'),
+    buildingNumber: z.string().max(20).optional(),
+    streetName: z.string().max(255).optional(),
+    district: z.string().max(120).optional(),
+    city: z.string().max(120).optional(),
+    postalCode: z.string().max(20).optional(),
+    additionalNumber: z.string().max(20).optional(),
+    countryCode: z.string().length(2).optional().default('SA'),
   }),
   initialAdminUser: z.object({
     email: z.string().email(),
@@ -224,6 +235,35 @@ export const LoginRequestSchema = z.object({
 });
 
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+
+export const ForgotPasswordRequestSchema = z.object({
+  email: z.string().email(),
+});
+
+export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequestSchema>;
+
+export const ResetPasswordRequestSchema = z.object({
+  email: z.string().email(),
+  code: z.string().min(4).max(16),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
+
+export const RequestVerificationSchema = z.object({
+  target: z.string().min(3).max(255),
+  purpose: z.enum(['EMAIL_VERIFY', 'PHONE_VERIFY']),
+});
+
+export type RequestVerificationRequest = z.infer<typeof RequestVerificationSchema>;
+
+export const VerifyContactSchema = z.object({
+  target: z.string().min(3).max(255),
+  purpose: z.enum(['EMAIL_VERIFY', 'PHONE_VERIFY']),
+  code: z.string().min(4).max(16),
+});
+
+export type VerifyContactRequest = z.infer<typeof VerifyContactSchema>;
 
 export const CreateUserRequestSchema = z.object({
   email: z.string().email(),

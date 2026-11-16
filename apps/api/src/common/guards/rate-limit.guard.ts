@@ -40,7 +40,14 @@ export class RateLimitGuard implements CanActivate {
 
     const ip = this.extractClientIp(request);
     const key = `${ip}:${rawUrl}`;
-    const limit = rawUrl.includes('/auth/login') ? LOGIN_LIMIT : DEFAULT_LIMIT;
+    const isSensitiveRoute =
+      rawUrl.includes('/auth/login') ||
+      rawUrl.includes('/auth/forgot-password') ||
+      rawUrl.includes('/auth/reset-password') ||
+      rawUrl.includes('/auth/request-verification') ||
+      rawUrl.includes('/auth/verify-contact') ||
+      rawUrl.includes('/tenants/onboard');
+    const limit = isSensitiveRoute ? LOGIN_LIMIT : DEFAULT_LIMIT;
     const now = Date.now();
     const windowStart = now - WINDOW_MS;
 

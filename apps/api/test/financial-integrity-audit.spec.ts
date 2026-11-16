@@ -244,10 +244,15 @@ describe('Financial Integrity, 10x Concurrency Idempotency & Draft Safety Audit 
     const orderIds = new Set(responses.map((r) => r.body.data.id));
     expect(orderIds.size).toBe(1);
 
-    // Verify DB evidence: exactly 1 order, 1 payment, 1 balanced journal entry
-    const dbOrders = await db.select().from(salesOrders).where(eq(salesOrders.tenantId, tenantId));
-    const dbPayments = await db.select().from(payments).where(eq(payments.tenantId, tenantId));
-    const dbJournals = await db.select().from(journalEntries).where(eq(journalEntries.tenantId, tenantId));
+    // Verify DB evidence inside RLS tenant context: exactly 1 order, 1 payment, 1 balanced journal entry
+    const { dbOrders, dbPayments, dbJournals } = await withTenantContext(
+      { tenantId, userId: createdUserIds[0], scopes: ['*'] } as any,
+      async (tx) => ({
+        dbOrders: await tx.select().from(salesOrders).where(eq(salesOrders.tenantId, tenantId)),
+        dbPayments: await tx.select().from(payments).where(eq(payments.tenantId, tenantId)),
+        dbJournals: await tx.select().from(journalEntries).where(eq(journalEntries.tenantId, tenantId)),
+      })
+    );
 
     expect(dbOrders.length).toBe(1);
     expect(dbPayments.length).toBe(1);
@@ -288,7 +293,10 @@ describe('Financial Integrity, 10x Concurrency Idempotency & Draft Safety Audit 
     for (const r of prResponses) expect([200, 201]).toContain(r.status);
     const prId = prResponses[0]!.body.data.id;
 
-    const dbPrs = await db.select().from(purchaseRequests).where(eq(purchaseRequests.tenantId, tenantId));
+    const dbPrs = await withTenantContext(
+      { tenantId, userId: createdUserIds[0], scopes: ['*'] } as any,
+      async (tx) => tx.select().from(purchaseRequests).where(eq(purchaseRequests.tenantId, tenantId))
+    );
     expect(dbPrs.length).toBe(1);
     expect(dbPrs[0]!.version).toBe(1);
 
@@ -300,21 +308,31 @@ describe('Financial Integrity, 10x Concurrency Idempotency & Draft Safety Audit 
     const statuses = [app1.status, app2.status].sort();
     expect(statuses).toEqual([201, 409]);
 
-    const [updatedPr] = await db.select().from(purchaseRequests).where(eq(purchaseRequests.id, prId));
+    const [updatedPr] = await withTenantContext(
+      { tenantId, userId: createdUserIds[0], scopes: ['*'] } as any,
+      async (tx) => tx.select().from(purchaseRequests).where(eq(purchaseRequests.id, prId))
+    );
     expect(updatedPr!.status).toBe('APPROVED');
     expect(updatedPr!.version).toBe(2);
   }, 30000);
 
   it('enforces Journal Entry immutability (reversal only) and verifies 0034 DB locks', async () => {
     // Reversing posted journal entry creates a balanced reversal entry without mutating original
-    const revRes = await apiCall(`/accounting/journal-entries/${createdJournalId}/reverse`, {
+    const revRes = await apiCall('/accounting/journal-entries/reverse', {
       method: 'POST',
       token,
-      body: { reason: 'Audit Reversal Test' },
+      body: {
+        journalEntryId: createdJournalId,
+        reversalReason: 'Audit Reversal Test',
+        newJournalNumber: `REV-${uniqueSuffix}`,
+      },
     });
     expect([200, 201]).toContain(revRes.status);
 
-    const allJournals = await db.select().from(journalEntries).where(eq(journalEntries.tenantId, tenantId));
+    const allJournals = await withTenantContext(
+      { tenantId, userId: createdUserIds[0], scopes: ['*'] } as any,
+      async (tx) => tx.select().from(journalEntries).where(eq(journalEntries.tenantId, tenantId))
+    );
     expect(allJournals.length).toBe(2);
     for (const j of allJournals) {
       expect(Number(j.debitTotal)).toBeCloseTo(Number(j.creditTotal), 4);

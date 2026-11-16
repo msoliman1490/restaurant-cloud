@@ -524,4 +524,44 @@ export class DocumentNumberingService {
         );
     });
   }
+
+  async withAllocatedNumber<T>(
+    context: TenantContext,
+    params: {
+      legalEntityId: string;
+      branchId?: string | null;
+      documentType: string;
+      sourceType: string;
+    },
+    fn: (allocatedNumber: string) => Promise<T>,
+    extractId: (result: T) => string | undefined = (r: any) => r?.id
+  ): Promise<T> {
+    const alloc = await this.allocateNextNumber(context, {
+      legalEntityId: params.legalEntityId,
+      branchId: params.branchId ?? undefined,
+      documentType: params.documentType,
+      sourceType: params.sourceType,
+    });
+    try {
+      const result = await fn(alloc.formattedNumber);
+      await this.markAllocationStatus(
+        context,
+        alloc.formattedNumber,
+        params.documentType,
+        params.legalEntityId,
+        'USED',
+        extractId(result)
+      );
+      return result;
+    } catch (err) {
+      await this.markAllocationStatus(
+        context,
+        alloc.formattedNumber,
+        params.documentType,
+        params.legalEntityId,
+        'FAILED_TX'
+      ).catch(() => {});
+      throw err;
+    }
+  }
 }

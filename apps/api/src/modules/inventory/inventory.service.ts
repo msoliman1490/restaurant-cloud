@@ -8,6 +8,7 @@ import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingEngineService } from '../accounting/posting-engine.service';
 import { OperationsFrameworkService } from '../../common/operations/operations-framework.service';
+import { DocumentNumberingService } from '../../common/operations/document-numbering.service';
 import {
   inventoryBalances,
   inventoryMovements,
@@ -77,7 +78,8 @@ export class InventoryService {
     private readonly dbService: DatabaseService,
     private readonly auditService: AuditService,
     private readonly postingEngine: PostingEngineService,
-    private readonly opsFramework: OperationsFrameworkService
+    private readonly opsFramework: OperationsFrameworkService,
+    private readonly documentNumbering: DocumentNumberingService
   ) {}
 
   // ==================================================================
@@ -281,7 +283,15 @@ export class InventoryService {
       throw new BadRequestException('المستودع المصدر والمستودع الوجهة لا يمكن أن يكونا متطابقين');
     }
 
-    return await this.dbService.withTenantContext(context, async (tx) => {
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'STOCK_TRANSFER',
+        sourceType: 'stock_transfers',
+      },
+      async (allocatedTransferNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
       if (dto.idempotencyKey) {
         const [existingIdem] = await tx
           .select()
@@ -347,22 +357,6 @@ export class InventoryService {
           : sourceWh.branchId !== destWh.branchId
             ? TransferType.SAME_LEGAL_ENTITY
             : TransferType.SAME_BRANCH;
-
-      const [existingNumber] = await tx
-        .select({ id: stockTransfers.id })
-        .from(stockTransfers)
-        .where(
-          and(
-            eq(stockTransfers.tenantId, context.tenantId),
-            eq(stockTransfers.legalEntityId, dto.legalEntityId),
-            eq(stockTransfers.transferNumber, dto.transferNumber)
-          )
-        )
-        .limit(1);
-
-      if (existingNumber) {
-        throw new ConflictException(`رقم المناقلة '${dto.transferNumber}' مسجل مسبقاً في هذه المنشأة`);
-      }
 
       const preparedLines: Array<{
         itemId: string;
@@ -449,7 +443,7 @@ export class InventoryService {
           destinationLegalEntityId: destWh.legalEntityId,
           sourceBranchId: sourceWh.branchId,
           destinationBranchId: destWh.branchId,
-          transferNumber: dto.transferNumber,
+          transferNumber: allocatedTransferNumber,
           sourceWarehouseId: dto.sourceWarehouseId,
           destinationWarehouseId: dto.destinationWarehouseId,
           status: TransferStatus.DRAFT,
@@ -488,7 +482,9 @@ export class InventoryService {
       );
 
       return { ...transfer, lines };
-    });
+        });
+      }
+    );
   }
 
   async submitTransfer(
@@ -2488,50 +2484,41 @@ export class InventoryService {
     context: TenantContext,
     dto: CreateStocktakeOrderRequest
   ) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      // Validate warehouse
-      const [warehouse] = await tx
-        .select()
-        .from(warehouses)
-        .where(
-          and(
-            eq(warehouses.tenantId, context.tenantId),
-            eq(warehouses.id, dto.warehouseId)
-          )
-        )
-        .limit(1);
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'STOCK_ADJUSTMENT',
+        sourceType: 'stocktake_orders',
+      },
+      async (allocatedOrderNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          // Validate warehouse
+          const [warehouse] = await tx
+            .select()
+            .from(warehouses)
+            .where(
+              and(
+                eq(warehouses.tenantId, context.tenantId),
+                eq(warehouses.id, dto.warehouseId)
+              )
+            )
+            .limit(1);
 
-      if (!warehouse) {
-        throw new NotFoundException(`المستودع '${dto.warehouseId}' غير موجود`);
-      }
-      if (warehouse.status !== 'ACTIVE') {
-        throw new BadRequestException('المستودع المحدد غير نشط حالياً');
-      }
+          if (!warehouse) {
+            throw new NotFoundException(`المستودع '${dto.warehouseId}' غير موجود`);
+          }
+          if (warehouse.status !== 'ACTIVE') {
+            throw new BadRequestException('المستودع المحدد غير نشط حالياً');
+          }
 
-      // Check orderNumber uniqueness for legal entity
-      const [existing] = await tx
-        .select({ id: stocktakeOrders.id })
-        .from(stocktakeOrders)
-        .where(
-          and(
-            eq(stocktakeOrders.tenantId, context.tenantId),
-            eq(stocktakeOrders.legalEntityId, dto.legalEntityId),
-            eq(stocktakeOrders.orderNumber, dto.orderNumber)
-          )
-        )
-        .limit(1);
-
-      if (existing) {
-        throw new ConflictException(`أمر الجرد رقم '${dto.orderNumber}' مسجل مسبقاً في هذه المنشأة`);
-      }
-
-      const [order] = await tx
-        .insert(stocktakeOrders)
-        .values({
-          tenantId: context.tenantId,
-          legalEntityId: dto.legalEntityId,
-          warehouseId: dto.warehouseId,
-          orderNumber: dto.orderNumber,
+          const [order] = await tx
+            .insert(stocktakeOrders)
+            .values({
+              tenantId: context.tenantId,
+              legalEntityId: dto.legalEntityId,
+              warehouseId: dto.warehouseId,
+              orderNumber: allocatedOrderNumber,
           stocktakeType: dto.stocktakeType || StocktakeType.FULL,
           countFrequency: dto.countFrequency || StocktakeFrequency.PERIODIC,
           freezeMovements: dto.freezeMovements || false,
@@ -2558,7 +2545,9 @@ export class InventoryService {
       );
 
       return order;
-    });
+        });
+      }
+    );
   }
 
   async startStocktake(context: TenantContext, orderId: string) {
@@ -3117,31 +3106,39 @@ export class InventoryService {
   // ==================================================================
 
   async createAdjustment(context: TenantContext, dto: CreateStockAdjustmentRequest) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      // Validate warehouse
-      const [warehouse] = await tx
-        .select({ id: warehouses.id })
-        .from(warehouses)
-        .where(
-          and(
-            eq(warehouses.tenantId, context.tenantId),
-            eq(warehouses.id, dto.warehouseId)
-          )
-        )
-        .limit(1);
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'STOCK_ADJUSTMENT',
+        sourceType: 'stock_adjustments',
+      },
+      async (allocatedAdjustmentNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          // Validate warehouse
+          const [warehouse] = await tx
+            .select({ id: warehouses.id })
+            .from(warehouses)
+            .where(
+              and(
+                eq(warehouses.tenantId, context.tenantId),
+                eq(warehouses.id, dto.warehouseId)
+              )
+            )
+            .limit(1);
 
-      if (!warehouse) {
-        throw new NotFoundException(`Warehouse '${dto.warehouseId}' not found`);
-      }
+          if (!warehouse) {
+            throw new NotFoundException(`Warehouse '${dto.warehouseId}' not found`);
+          }
 
-      // Insert Adjustment Header
-      const [adjustment] = await tx
-        .insert(stockAdjustments)
-        .values({
-          tenantId: context.tenantId,
-          legalEntityId: dto.legalEntityId,
-          warehouseId: dto.warehouseId,
-          adjustmentNumber: dto.adjustmentNumber,
+          // Insert Adjustment Header
+          const [adjustment] = await tx
+            .insert(stockAdjustments)
+            .values({
+              tenantId: context.tenantId,
+              legalEntityId: dto.legalEntityId,
+              warehouseId: dto.warehouseId,
+              adjustmentNumber: allocatedAdjustmentNumber,
           reason: dto.reason,
           notes: dto.notes || null,
           adjustedBy: context.userId,
@@ -3263,7 +3260,9 @@ export class InventoryService {
         ...adjustment,
         lines: createdLines,
       };
-    });
+        });
+      }
+    );
   }
 
   // ==================================================================
@@ -4108,7 +4107,7 @@ export class InventoryService {
   // ==================================================================
 
   async issueStock(context: TenantContext, dto: IssueStockRequest, externalTx?: any) {
-    const run = async (tx: any) => {
+    const run = async (tx: any, allocatedDeliveryNumber?: string) => {
       // 1. Warehouse validation
       const [warehouse] = await tx
         .select()
@@ -4233,7 +4232,9 @@ export class InventoryService {
         .returning();
 
       // 5. Central Movement Ledger entry
-      const movementNumber = `MOV-ISS-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+      const movementNumber =
+        allocatedDeliveryNumber ||
+        `MOV-ISS-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
 
       const [movement] = await tx
         .insert(inventoryMovements)
@@ -4253,7 +4254,7 @@ export class InventoryService {
           batchNumber: dto.batchNumber || null,
           sourceType: dto.sourceType || 'MANUAL_ISSUE',
           sourceId: dto.sourceId || sql`gen_random_uuid()`,
-          sourceDocumentNumber: dto.sourceDocumentNumber || null,
+          sourceDocumentNumber: allocatedDeliveryNumber || dto.sourceDocumentNumber || null,
           performedBy: context.userId || null,
           notes: dto.notes || null,
           status: 'COMPLETED',
@@ -4284,7 +4285,37 @@ export class InventoryService {
         balance: updatedBalance,
       };
     };
-    return externalTx ? await run(externalTx) : await this.dbService.withTenantContext(context, run);
+    if (externalTx) {
+      return await run(externalTx);
+    }
+
+    const [whMeta] = await this.dbService.withTenantContext(context, async (tx) =>
+      tx
+        .select({ legalEntityId: warehouses.legalEntityId, branchId: warehouses.branchId })
+        .from(warehouses)
+        .where(and(eq(warehouses.tenantId, context.tenantId), eq(warehouses.id, dto.warehouseId)))
+        .limit(1)
+    );
+
+    if (!whMeta || !whMeta.legalEntityId) {
+      throw new NotFoundException('المستودع المحدد غير موجود أو غير مرتبط بمنشأة قانونية');
+    }
+
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: whMeta.legalEntityId,
+        branchId: whMeta.branchId,
+        documentType: 'DELIVERY_NOTE',
+        sourceType: 'inventory_movements',
+      },
+      async (allocatedDeliveryNumber) => {
+        return await this.dbService.withTenantContext(context, (tx) =>
+          run(tx, allocatedDeliveryNumber)
+        );
+      },
+      (r: any) => r.movement.id
+    );
   }
 
   // ==================================================================

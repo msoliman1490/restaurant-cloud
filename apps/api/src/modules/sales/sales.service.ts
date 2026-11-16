@@ -1012,8 +1012,7 @@ export class SalesService {
 
     let effectiveDto = dto;
     let allocatedNum: { formattedNumber: string; documentType: string } | null = null;
-    const needsServerNumber =
-      dto.orderNumber === 'AUTO' || dto.orderNumber.startsWith('OFFLINE-');
+    const needsServerNumber = true;
 
     if (needsServerNumber) {
       if (dto.idempotencyKey) {
@@ -1807,7 +1806,40 @@ export class SalesService {
       }>;
     }
   ) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
+    const [orderMeta] = await this.dbService.withTenantContext(context, async (tx) =>
+      tx
+        .select({
+          legalEntityId: salesOrders.legalEntityId,
+          branchId: salesOrders.branchId,
+        })
+        .from(salesOrders)
+        .where(and(eq(salesOrders.tenantId, context.tenantId), eq(salesOrders.id, orderId)))
+        .limit(1)
+    );
+
+    if (!orderMeta) {
+      throw new NotFoundException(`Order '${orderId}' not found`);
+    }
+
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: orderMeta.legalEntityId,
+        branchId: orderMeta.branchId,
+        documentType: 'CREDIT_NOTE',
+        sourceType: 'sales_refunds',
+      },
+      async (allocatedCreditNoteNumber) => {
+        return await this.documentNumbering.withAllocatedNumber(
+          context,
+          {
+            legalEntityId: orderMeta.legalEntityId,
+            branchId: orderMeta.branchId,
+            documentType: 'JOURNAL_ENTRY',
+            sourceType: 'sales_refund_journals',
+          },
+          async (allocatedJournalNumber) => {
+            return await this.dbService.withTenantContext(context, async (tx) => {
       if (dto.idempotencyKey) {
         const [existingRefundPmt] = await tx
           .select({ id: payments.id, orderId: payments.orderId })
@@ -2150,7 +2182,7 @@ export class SalesService {
         );
       }
 
-      const jvNumber = `JV-REFUND-${order.orderNumber}-${Date.now().toString().slice(-4)}`;
+      const jvNumber = allocatedJournalNumber;
       const refundJournal = await this.postingEngine.postEntry(
         context,
         {
@@ -2160,7 +2192,7 @@ export class SalesService {
           journalType: JournalType.SALES,
           sourceType: 'sales_refund',
           sourceId: order.id,
-          description: `قيد مردودات مبيعات - الفاتورة #${order.orderNumber}`,
+          description: `قيد إشعار دائن #${allocatedCreditNoteNumber} لمردودات الفاتورة #${order.orderNumber}`,
           lines: refundJournalLines,
         },
         tx
@@ -2173,16 +2205,26 @@ export class SalesService {
           action: 'SALES_ORDER_REFUNDED',
           entityType: 'sales_orders',
           entityId: order.id,
-          afterState: { updatedOrder, dto, refundJournalId: refundJournal.id },
+          afterState: {
+            updatedOrder,
+            dto,
+            creditNoteNumber: allocatedCreditNoteNumber,
+            refundJournalId: refundJournal.id,
+          },
         },
         tx
       );
 
       return {
         ...updatedOrder,
+        creditNoteNumber: allocatedCreditNoteNumber,
         refundJournal,
       };
-    });
+            });
+          }
+        );
+      }
+    );
   }
 
   async getSalesOrders(

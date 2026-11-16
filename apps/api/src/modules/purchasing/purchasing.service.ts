@@ -481,9 +481,11 @@ export class PurchasingService {
       throw new BadRequestException('supplierId is required to convert a purchase request to PO');
     }
 
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      const [pr] = await tx
-        .select()
+    const [prMeta] = await this.dbService.withTenantContext(context, async (tx) =>
+      tx
+        .select({
+          legalEntityId: purchaseRequests.legalEntityId,
+        })
         .from(purchaseRequests)
         .where(
           and(
@@ -491,42 +493,65 @@ export class PurchasingService {
             eq(purchaseRequests.id, requestId)
           )
         )
-        .for('update')
-        .limit(1);
+        .limit(1)
+    );
 
-      if (!pr) {
-        throw new NotFoundException(`Purchase request '${requestId}' not found`);
-      }
+    if (!prMeta) {
+      throw new NotFoundException(`Purchase request '${requestId}' not found`);
+    }
 
-      if (pr.status === 'CONVERTED_TO_PO') {
-        throw new ConflictException(
-          `Purchase request '${pr.requestNumber}' has already been converted to a purchase order`
-        );
-      }
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: prMeta.legalEntityId,
+        documentType: 'PURCHASE_ORDER',
+        sourceType: 'purchase_orders',
+      },
+      async (allocatedOrderNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          const [pr] = await tx
+            .select()
+            .from(purchaseRequests)
+            .where(
+              and(
+                eq(purchaseRequests.tenantId, context.tenantId),
+                eq(purchaseRequests.id, requestId)
+              )
+            )
+            .for('update')
+            .limit(1);
 
-      if (pr.status !== PurchaseRequestStatus.APPROVED) {
-        throw new ConflictException(
-          `Purchase request '${pr.requestNumber}' must be APPROVED before converting to PO (current status: '${pr.status}')`
-        );
-      }
+          if (!pr) {
+            throw new NotFoundException(`Purchase request '${requestId}' not found`);
+          }
 
-      const prLines = await tx
-        .select()
-        .from(purchaseRequestLines)
-        .where(
-          and(
-            eq(purchaseRequestLines.tenantId, context.tenantId),
-            eq(purchaseRequestLines.requestId, pr.id)
-          )
-        );
+          if (pr.status === 'CONVERTED_TO_PO') {
+            throw new ConflictException(
+              `Purchase request '${pr.requestNumber}' has already been converted to a purchase order`
+            );
+          }
 
-      if (prLines.length === 0) {
-        throw new BadRequestException(`Purchase request '${pr.requestNumber}' has no lines to convert`);
-      }
+          if (pr.status !== PurchaseRequestStatus.APPROVED) {
+            throw new ConflictException(
+              `Purchase request '${pr.requestNumber}' must be APPROVED before converting to PO (current status: '${pr.status}')`
+            );
+          }
 
-      const orderNumber =
-        dto.orderNumber?.trim() ||
-        `PO-${pr.requestNumber}-${Date.now().toString(36).toUpperCase()}`;
+          const prLines = await tx
+            .select()
+            .from(purchaseRequestLines)
+            .where(
+              and(
+                eq(purchaseRequestLines.tenantId, context.tenantId),
+                eq(purchaseRequestLines.requestId, pr.id)
+              )
+            );
+
+          if (prLines.length === 0) {
+            throw new BadRequestException(`Purchase request '${pr.requestNumber}' has no lines to convert`);
+          }
+
+          const orderNumber = allocatedOrderNumber;
 
       const [existingPo] = await tx
         .select({ id: purchaseOrders.id })
@@ -648,7 +673,10 @@ export class PurchasingService {
         purchaseRequest: updatedPr,
         purchaseOrder: { ...po, lines: createdPoLines },
       };
-    });
+        });
+      },
+      (r) => r.purchaseOrder.id
+    );
   }
 
   // ==================================================================
@@ -656,24 +684,16 @@ export class PurchasingService {
   // ==================================================================
 
   async createPurchaseOrder(context: TenantContext, dto: CreatePurchaseOrder) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      const [existing] = await tx
-        .select({ id: purchaseOrders.id })
-        .from(purchaseOrders)
-        .where(
-          and(
-            eq(purchaseOrders.tenantId, context.tenantId),
-            eq(purchaseOrders.legalEntityId, dto.legalEntityId),
-            eq(purchaseOrders.orderNumber, dto.orderNumber)
-          )
-        )
-        .limit(1);
-
-      if (existing) {
-        throw new ConflictException(`Purchase order '${dto.orderNumber}' already exists`);
-      }
-
-      // Calculate totals
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'PURCHASE_ORDER',
+        sourceType: 'purchase_orders',
+      },
+      async (allocatedOrderNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          // Calculate totals
       let subtotal = 0;
       let taxTotal = 0;
 
@@ -713,7 +733,7 @@ export class PurchasingService {
           legalEntityId: dto.legalEntityId,
           supplierId: dto.supplierId,
           warehouseId: dto.warehouseId,
-          orderNumber: dto.orderNumber,
+          orderNumber: allocatedOrderNumber,
           status: initialStatus,
           expectedDeliveryDate: dto.expectedDeliveryDate ? new Date(dto.expectedDeliveryDate) : null,
           subtotal: subtotal.toFixed(4),
@@ -745,7 +765,9 @@ export class PurchasingService {
       );
 
       return { ...po, lines: createdLines };
-    });
+        });
+      }
+    );
   }
 
   async approvePurchaseOrder(context: TenantContext, orderId: string) {
@@ -971,24 +993,16 @@ export class PurchasingService {
   // ==================================================================
 
   async receiveGoods(context: TenantContext, dto: CreateGoodsReceipt) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      const [existing] = await tx
-        .select({ id: goodsReceipts.id })
-        .from(goodsReceipts)
-        .where(
-          and(
-            eq(goodsReceipts.tenantId, context.tenantId),
-            eq(goodsReceipts.legalEntityId, dto.legalEntityId),
-            eq(goodsReceipts.receiptNumber, dto.receiptNumber)
-          )
-        )
-        .limit(1);
-
-      if (existing) {
-        throw new ConflictException(`Goods receipt '${dto.receiptNumber}' already exists`);
-      }
-
-      if (dto.purchaseOrderId) {
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'GOODS_RECEIPT',
+        sourceType: 'goods_receipts',
+      },
+      async (allocatedReceiptNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          if (dto.purchaseOrderId) {
         const [po] = await tx
           .select()
           .from(purchaseOrders)
@@ -1025,7 +1039,7 @@ export class PurchasingService {
           purchaseOrderId: dto.purchaseOrderId || null,
           supplierId: dto.supplierId,
           warehouseId: dto.warehouseId,
-          receiptNumber: dto.receiptNumber,
+          receiptNumber: allocatedReceiptNumber,
           deliveryNoteNumber: dto.deliveryNoteNumber || null,
           status: GoodsReceiptStatus.RECEIVED,
           receivedBy: context.userId,
@@ -1147,7 +1161,9 @@ export class PurchasingService {
       );
 
       return { ...grn, lines: createdLines };
-    });
+        });
+      }
+    );
   }
 
   // ==================================================================
@@ -1155,27 +1171,16 @@ export class PurchasingService {
   // ==================================================================
 
   async createSupplierInvoice(context: TenantContext, dto: CreateSupplierInvoice) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      // Check duplicate invoice number from this supplier
-      const [existing] = await tx
-        .select({ id: supplierInvoices.id })
-        .from(supplierInvoices)
-        .where(
-          and(
-            eq(supplierInvoices.tenantId, context.tenantId),
-            eq(supplierInvoices.supplierId, dto.supplierId),
-            eq(supplierInvoices.invoiceNumber, dto.invoiceNumber)
-          )
-        )
-        .limit(1);
-
-      if (existing) {
-        throw new ConflictException(
-          `Invoice '${dto.invoiceNumber}' from this supplier is already registered`
-        );
-      }
-
-      // 3-Way Matching Validation (PO + GRN + Invoice)
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'PURCHASE_INVOICE',
+        sourceType: 'supplier_invoices',
+      },
+      async (allocatedInvoiceNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          // 3-Way Matching Validation (PO + GRN + Invoice)
       let lockedPoLines: any[] = [];
       if (dto.purchaseOrderId) {
         const [po] = await tx
@@ -1347,7 +1352,7 @@ export class PurchasingService {
           supplierId: dto.supplierId,
           purchaseOrderId: dto.purchaseOrderId || null,
           goodsReceiptId: dto.goodsReceiptId || null,
-          invoiceNumber: dto.invoiceNumber,
+          invoiceNumber: allocatedInvoiceNumber,
           status: SupplierInvoiceStatus.APPROVED,
           invoiceDate: new Date(dto.invoiceDate),
           dueDate: new Date(dto.dueDate),
@@ -1356,7 +1361,10 @@ export class PurchasingService {
           grandTotal: grandTotal.toFixed(4),
           paidAmount: '0.0000',
           currency: dto.currency || 'SAR',
-          notes: dto.notes || null,
+          notes:
+            dto.invoiceNumber && dto.invoiceNumber !== 'AUTO'
+              ? `[VendorRef: ${dto.invoiceNumber}]${dto.notes ? ' ' + dto.notes : ''}`
+              : dto.notes || null,
         })
         .returning();
 
@@ -1462,7 +1470,9 @@ export class PurchasingService {
       );
 
       return { ...invoice, lines: createdLines };
-    });
+        });
+      }
+    );
   }
 
   // ==================================================================
@@ -1470,24 +1480,16 @@ export class PurchasingService {
   // ==================================================================
 
   async createPurchaseReturn(context: TenantContext, dto: CreatePurchaseReturn) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      const [existingReturn] = await tx
-        .select({ id: purchaseReturns.id })
-        .from(purchaseReturns)
-        .where(
-          and(
-            eq(purchaseReturns.tenantId, context.tenantId),
-            eq(purchaseReturns.legalEntityId, dto.legalEntityId),
-            eq(purchaseReturns.returnNumber, dto.returnNumber)
-          )
-        )
-        .limit(1);
-
-      if (existingReturn) {
-        throw new ConflictException(`Purchase return '${dto.returnNumber}' already exists`);
-      }
-
-      let resolvedWarehouseId = dto.warehouseId || null;
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'DEBIT_NOTE',
+        sourceType: 'purchase_returns',
+      },
+      async (allocatedReturnNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          let resolvedWarehouseId = dto.warehouseId || null;
 
       if (dto.goodsReceiptId) {
         const [grn] = await tx
@@ -1588,7 +1590,7 @@ export class PurchasingService {
           legalEntityId: dto.legalEntityId,
           supplierId: dto.supplierId,
           goodsReceiptId: dto.goodsReceiptId || null,
-          returnNumber: dto.returnNumber,
+          returnNumber: allocatedReturnNumber,
           status: PurchaseReturnStatus.COMPLETED,
           reason: dto.reason,
           totalAmount: totalReturnAmount.toFixed(4),
@@ -1725,7 +1727,9 @@ export class PurchasingService {
       );
 
       return { ...ret, lines: createdLines };
-    });
+        });
+      }
+    );
   }
 
   async getSupplierBalance(
@@ -1763,27 +1767,16 @@ export class PurchasingService {
   // ==================================================================
 
   async createSupplierPayment(context: TenantContext, dto: CreateSupplierPaymentRequest) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      // 1. Check duplicate payment number
-      const [existing] = await tx
-        .select({ id: supplierPayments.id })
-        .from(supplierPayments)
-        .where(
-          and(
-            eq(supplierPayments.tenantId, context.tenantId),
-            eq(supplierPayments.legalEntityId, dto.legalEntityId),
-            eq(supplierPayments.paymentNumber, dto.paymentNumber)
-          )
-        )
-        .limit(1);
-
-      if (existing) {
-        throw new ConflictException(
-          `Supplier payment number '${dto.paymentNumber}' already exists`
-        );
-      }
-
-      const paymentAmt = parseFloat(dto.amount);
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        documentType: 'PAYMENT',
+        sourceType: 'supplier_payments',
+      },
+      async (allocatedPaymentNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          const paymentAmt = parseFloat(dto.amount);
       if (paymentAmt <= 0) {
         throw new BadRequestException('Payment amount must be greater than zero');
       }
@@ -1851,7 +1844,7 @@ export class PurchasingService {
           legalEntityId: dto.legalEntityId,
           supplierId: dto.supplierId,
           invoiceId: dto.invoiceId || null,
-          paymentNumber: dto.paymentNumber,
+          paymentNumber: allocatedPaymentNumber,
           amount: dto.amount,
           paymentMethod: dto.paymentMethod,
           referenceNumber: dto.referenceNumber || null,
@@ -1909,11 +1902,11 @@ export class PurchasingService {
         context,
         {
           legalEntityId: dto.legalEntityId,
-          journalNumber: `JV-PMT-${dto.paymentNumber}`,
+          journalNumber: `JV-PMT-${allocatedPaymentNumber}`,
           journalType: JournalType.GENERAL,
           sourceType: 'supplier_payment',
           sourceId: payment.id,
-          description: `Supplier Payment ${dto.paymentNumber}`,
+          description: `Supplier Payment ${allocatedPaymentNumber}`,
           lines: [
             {
               mappingKey: DefaultAccountMappingKey.ACCOUNTS_PAYABLE,
@@ -1930,7 +1923,7 @@ export class PurchasingService {
               debit: '0.0000',
               credit: paymentAmt.toFixed(4),
               currency: 'SAR',
-              description: `Cash/Bank Disbursement for Payment ${dto.paymentNumber}`,
+              description: `Cash/Bank Disbursement for Payment ${allocatedPaymentNumber}`,
             },
           ],
         },
@@ -1951,7 +1944,9 @@ export class PurchasingService {
       );
 
       return payment;
-    });
+        });
+      }
+    );
   }
 
   async cancelSupplierPayment(

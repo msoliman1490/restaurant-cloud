@@ -8,6 +8,7 @@ import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { SalesService } from '../sales/sales.service';
 import { OperationsFrameworkService } from '../../common/operations/operations-framework.service';
+import { DocumentNumberingService } from '../../common/operations/document-numbering.service';
 import {
   diningTables,
   tableSessions,
@@ -82,6 +83,7 @@ export class DiningService {
     private readonly auditService: AuditService,
     private readonly salesService: SalesService,
     private readonly opsFramework: OperationsFrameworkService,
+    private readonly documentNumbering: DocumentNumberingService,
   ) {}
 
   // ==================================================================
@@ -465,7 +467,13 @@ export class DiningService {
       }
 
       if (!currentOrder) {
-        const orderNumber = `DIN-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+        const alloc = await this.documentNumbering.allocateNextNumber(context, {
+          legalEntityId: dto.legalEntityId,
+          branchId: dto.branchId,
+          documentType: 'POS_TRANSACTION',
+          sourceType: 'sales_orders',
+        });
+        const orderNumber = alloc.formattedNumber;
         const [created] = await tx
           .insert(salesOrders)
           .values({

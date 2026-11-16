@@ -7,6 +7,7 @@ import {
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingEngineService } from '../accounting/posting-engine.service';
+import { DocumentNumberingService } from '../../common/operations/document-numbering.service';
 import {
   deliveryZones,
   deliveryDrivers,
@@ -104,6 +105,7 @@ export class DeliveryService {
     private readonly dbService: DatabaseService,
     private readonly auditService: AuditService,
     private readonly postingEngine: PostingEngineService,
+    private readonly documentNumbering: DocumentNumberingService,
   ) {}
 
   private async assertBranchBelongsToEntity(
@@ -320,7 +322,16 @@ export class DeliveryService {
       throw new BadRequestException('بيانات العميل وعنوان التوصيل مطلوبة');
     }
 
-    return await this.dbService.withTenantContext(context, async (tx) => {
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId,
+        documentType: 'DELIVERY_NOTE',
+        sourceType: 'delivery_orders',
+      },
+      async (allocatedDeliveryNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
       await this.assertBranchBelongsToEntity(tx, context.tenantId, dto.legalEntityId, dto.branchId);
 
       const [order] = await tx
@@ -390,7 +401,7 @@ export class DeliveryService {
           driverId: dto.driverId || null,
           channel: dto.channel || 'IN_HOUSE',
           aggregatorName: dto.aggregatorName?.trim() || null,
-          externalReference: dto.externalReference?.trim() || null,
+          externalReference: allocatedDeliveryNumber,
           customerName: dto.customerName.trim(),
           customerPhone: dto.customerPhone.trim(),
           deliveryAddress: dto.deliveryAddress.trim(),
@@ -398,7 +409,10 @@ export class DeliveryService {
           codAmount: Number(dto.codAmount ?? 0).toFixed(4),
           status: initialStatus,
           assignedAt,
-          notes: dto.notes || null,
+          notes:
+            dto.externalReference?.trim() && dto.externalReference.trim() !== 'AUTO'
+              ? `[ExternalRef: ${dto.externalReference.trim()}]${dto.notes ? ' ' + dto.notes : ''}`
+              : dto.notes || null,
         })
         .returning();
 
@@ -407,7 +421,9 @@ export class DeliveryService {
       }
 
       return created;
-    });
+        });
+      }
+    );
   }
 
   async listDeliveryOrders(

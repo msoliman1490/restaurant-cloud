@@ -73,6 +73,7 @@ import {
 import { eq, and, or, ilike, sql, desc, asc, inArray, gte, lte, lt } from 'drizzle-orm';
 
 import { OperationsFrameworkService } from '../../common/operations/operations-framework.service';
+import { DocumentNumberingService } from '../../common/operations/document-numbering.service';
 
 @Injectable()
 export class AccountingService {
@@ -80,7 +81,8 @@ export class AccountingService {
     private readonly dbService: DatabaseService,
     private readonly auditService: AuditService,
     private readonly postingEngine: PostingEngineService,
-    private readonly opsFramework: OperationsFrameworkService
+    private readonly opsFramework: OperationsFrameworkService,
+    private readonly documentNumbering: DocumentNumberingService
   ) {}
 
   // ==================================================================
@@ -1626,28 +1628,20 @@ export class AccountingService {
       });
     }
 
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      const amount = parseFloat(dto.amount);
-      if (amount <= 0) throw new BadRequestException('مبلغ سند الصرف يجب أن يكون أكبر من صفر');
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+        documentType: 'PAYMENT',
+        sourceType: 'payment_vouchers',
+      },
+      async (allocatedVoucherNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          const amount = parseFloat(dto.amount);
+          if (amount <= 0) throw new BadRequestException('مبلغ سند الصرف يجب أن يكون أكبر من صفر');
 
-      // 1. Check unique voucher number
-      const [existingNumber] = await tx
-        .select({ id: paymentVouchers.id })
-        .from(paymentVouchers)
-        .where(
-          and(
-            eq(paymentVouchers.tenantId, context.tenantId),
-            eq(paymentVouchers.legalEntityId, dto.legalEntityId),
-            eq(paymentVouchers.voucherNumber, dto.voucherNumber)
-          )
-        )
-        .limit(1);
-
-      if (existingNumber) {
-        throw new ConflictException(`رقم سند الصرف '${dto.voucherNumber}' مسجل مسبقاً`);
-      }
-
-      // 2. Strict Overdraft Prevention for Vaults
+          // 2. Strict Overdraft Prevention for Vaults
       let creditAccountId: string;
       if (dto.sourceType === 'VAULT') {
         const [vault] = await tx
@@ -1743,7 +1737,7 @@ export class AccountingService {
           tenantId: context.tenantId,
           legalEntityId: dto.legalEntityId,
           branchId: dto.branchId || null,
-          voucherNumber: dto.voucherNumber,
+          voucherNumber: allocatedVoucherNumber,
           voucherDate: dto.voucherDate ? new Date(dto.voucherDate) : new Date(),
           voucherType: dto.voucherType,
           beneficiaryType: dto.beneficiaryType,
@@ -1769,7 +1763,9 @@ export class AccountingService {
         ...voucher,
         journalEntry: jv,
       };
-    });
+        });
+      }
+    );
   }
 
   async listPaymentVouchers(context: TenantContext, legalEntityId: string) {
@@ -1799,27 +1795,20 @@ export class AccountingService {
       });
     }
 
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      const amount = parseFloat(dto.amount);
-      if (amount <= 0) throw new BadRequestException('مبلغ سند القبض يجب أن يكون أكبر من صفر');
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+        documentType: 'RECEIPT',
+        sourceType: 'receipt_vouchers',
+      },
+      async (allocatedVoucherNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          const amount = parseFloat(dto.amount);
+          if (amount <= 0) throw new BadRequestException('مبلغ سند القبض يجب أن يكون أكبر من صفر');
 
-      const [existingNumber] = await tx
-        .select({ id: receiptVouchers.id })
-        .from(receiptVouchers)
-        .where(
-          and(
-            eq(receiptVouchers.tenantId, context.tenantId),
-            eq(receiptVouchers.legalEntityId, dto.legalEntityId),
-            eq(receiptVouchers.voucherNumber, dto.voucherNumber)
-          )
-        )
-        .limit(1);
-
-      if (existingNumber) {
-        throw new ConflictException(`رقم سند القبض '${dto.voucherNumber}' مسجل مسبقاً`);
-      }
-
-      // Destination: Vault or Bank
+          // Destination: Vault or Bank
       let debitAccountId: string;
       if (dto.destinationType === 'VAULT') {
         const [vault] = await tx
@@ -1909,7 +1898,7 @@ export class AccountingService {
           tenantId: context.tenantId,
           legalEntityId: dto.legalEntityId,
           branchId: dto.branchId || null,
-          voucherNumber: dto.voucherNumber,
+          voucherNumber: allocatedVoucherNumber,
           voucherDate: dto.voucherDate ? new Date(dto.voucherDate) : new Date(),
           voucherType: dto.voucherType,
           payerType: dto.payerType,
@@ -1934,7 +1923,9 @@ export class AccountingService {
         ...voucher,
         journalEntry: jv,
       };
-    });
+        });
+      }
+    );
   }
 
   async listReceiptVouchers(context: TenantContext, legalEntityId: string) {
@@ -2388,24 +2379,38 @@ export class AccountingService {
       });
     }
 
-    return await this.postingEngine.postEntry(context, {
-      legalEntityId: dto.legalEntityId,
-      branchId: dto.branchId,
-      journalNumber: dto.journalNumber,
-      journalType: dto.journalType,
-      sourceType: dto.sourceType || 'MANUAL',
-      sourceId: dto.sourceId || randomUUID(),
-      description: dto.description,
-      notes: dto.notes,
-      entryDate: dto.entryDate ? new Date(dto.entryDate) : undefined,
-      lines: dto.lines,
-    });
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+        documentType: 'JOURNAL_ENTRY',
+        sourceType: 'journal_entries',
+      },
+      async (allocatedJournalNumber) => {
+        return await this.postingEngine.postEntry(context, {
+          legalEntityId: dto.legalEntityId,
+          branchId: dto.branchId,
+          journalNumber: allocatedJournalNumber,
+          journalType: dto.journalType,
+          sourceType: dto.sourceType || 'MANUAL',
+          sourceId: dto.sourceId || randomUUID(),
+          description: dto.description,
+          notes: dto.notes,
+          entryDate: dto.entryDate ? new Date(dto.entryDate) : undefined,
+          lines: dto.lines,
+        });
+      }
+    );
   }
 
   async reverseJournalEntry(context: TenantContext, dto: ReverseJournalEntryRequest) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      const [entry] = await tx
-        .select()
+    const [entryMeta] = await this.dbService.withTenantContext(context, async (tx) =>
+      tx
+        .select({
+          legalEntityId: journalEntries.legalEntityId,
+          branchId: journalEntries.branchId,
+        })
         .from(journalEntries)
         .where(
           and(
@@ -2413,39 +2418,63 @@ export class AccountingService {
             eq(journalEntries.id, dto.journalEntryId)
           )
         )
-        .limit(1);
+        .limit(1)
+    );
 
-      if (!entry) throw new NotFoundException(`القيد '${dto.journalEntryId}' غير موجود`);
+    if (!entryMeta) throw new NotFoundException(`القيد '${dto.journalEntryId}' غير موجود`);
 
-      if (entry.status === JournalStatus.REVERSED) {
-        throw new BadRequestException('تم عكس هذا القيد مسبقاً ولا يمكن عكسه مرة أخرى');
-      }
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: entryMeta.legalEntityId,
+        branchId: entryMeta.branchId,
+        documentType: 'JOURNAL_ENTRY',
+        sourceType: 'journal_reversal',
+      },
+      async (allocatedJournalNumber) => {
+        return await this.dbService.withTenantContext(context, async (tx) => {
+          const [entry] = await tx
+            .select()
+            .from(journalEntries)
+            .where(
+              and(
+                eq(journalEntries.tenantId, context.tenantId),
+                eq(journalEntries.id, dto.journalEntryId)
+              )
+            )
+            .limit(1);
 
-      const originalLines = await tx
-        .select()
-        .from(journalLines)
-        .where(eq(journalLines.journalEntryId, entry.id));
+          if (!entry) throw new NotFoundException(`القيد '${dto.journalEntryId}' غير موجود`);
 
-      // Mark original entry as REVERSED
-      await tx
-        .update(journalEntries)
-        .set({ status: JournalStatus.REVERSED })
-        .where(eq(journalEntries.id, entry.id));
+          if (entry.status === JournalStatus.REVERSED) {
+            throw new BadRequestException('تم عكس هذا القيد مسبقاً ولا يمكن عكسه مرة أخرى');
+          }
 
-      // Post inverted entry
-      const reversalLines = originalLines.map((l) => ({
-        accountId: l.accountId,
-        branchId: l.branchId,
-        costCenterId: l.costCenterId,
-        partnerId: l.partnerId,
-        partnerRole: l.partnerRole,
-        debit: l.credit,
-        credit: l.debit,
-        currency: l.currency,
-        description: `عكس القيد ${entry.journalNumber}: ${dto.reversalReason}`,
-      }));
+          const originalLines = await tx
+            .select()
+            .from(journalLines)
+            .where(eq(journalLines.journalEntryId, entry.id));
 
-      const newJournalNum = dto.newJournalNumber || `REV-${entry.journalNumber}-${Date.now().toString().slice(-4)}`;
+          // Mark original entry as REVERSED
+          await tx
+            .update(journalEntries)
+            .set({ status: JournalStatus.REVERSED })
+            .where(eq(journalEntries.id, entry.id));
+
+          // Post inverted entry
+          const reversalLines = originalLines.map((l) => ({
+            accountId: l.accountId,
+            branchId: l.branchId,
+            costCenterId: l.costCenterId,
+            partnerId: l.partnerId,
+            partnerRole: l.partnerRole,
+            debit: l.credit,
+            credit: l.debit,
+            currency: l.currency,
+            description: `عكس القيد ${entry.journalNumber}: ${dto.reversalReason}`,
+          }));
+
+          const newJournalNum = allocatedJournalNumber;
 
       const reversalResult = await this.postingEngine.postEntry(
         context,
@@ -2475,7 +2504,9 @@ export class AccountingService {
       );
 
       return reversalResult;
-    });
+        });
+      }
+    );
   }
 
   /**
@@ -2630,24 +2661,33 @@ export class AccountingService {
    * Create Multi-Line Journal Entry (supports DRAFT and POSTED)
    */
   async createJournalEntry(context: TenantContext, dto: CreateJournalEntry) {
-    if (dto.status === JournalStatus.DRAFT) {
-      return await this.dbService.withTenantContext(context, async (tx) => {
-        let totalDebit = 0;
-        let totalCredit = 0;
-        for (const l of dto.lines) {
-          totalDebit += parseFloat(l.debit || '0');
-          totalCredit += parseFloat(l.credit || '0');
-        }
+    return await this.documentNumbering.withAllocatedNumber(
+      context,
+      {
+        legalEntityId: dto.legalEntityId,
+        branchId: dto.branchId || undefined,
+        documentType: 'JOURNAL_ENTRY',
+        sourceType: 'journal_entries',
+      },
+      async (allocatedJournalNumber) => {
+        if (dto.status === JournalStatus.DRAFT) {
+          return await this.dbService.withTenantContext(context, async (tx) => {
+            let totalDebit = 0;
+            let totalCredit = 0;
+            for (const l of dto.lines) {
+              totalDebit += parseFloat(l.debit || '0');
+              totalCredit += parseFloat(l.credit || '0');
+            }
 
-        const entryDate = dto.entryDate ? new Date(dto.entryDate) : new Date();
+            const entryDate = dto.entryDate ? new Date(dto.entryDate) : new Date();
 
-        const [draft] = await tx
-          .insert(journalEntries)
-          .values({
-            tenantId: context.tenantId,
-            legalEntityId: dto.legalEntityId,
-            branchId: dto.branchId || null,
-            journalNumber: dto.journalNumber,
+            const [draft] = await tx
+              .insert(journalEntries)
+              .values({
+                tenantId: context.tenantId,
+                legalEntityId: dto.legalEntityId,
+                branchId: dto.branchId || null,
+                journalNumber: allocatedJournalNumber,
             journalType: dto.journalType,
             sourceType: dto.sourceType || 'MANUAL',
             sourceId: dto.sourceId || randomUUID(),
@@ -2696,18 +2736,20 @@ export class AccountingService {
       });
     }
 
-    return await this.postingEngine.postEntry(context, {
-      legalEntityId: dto.legalEntityId,
-      branchId: dto.branchId,
-      journalNumber: dto.journalNumber,
-      journalType: dto.journalType,
-      sourceType: dto.sourceType || 'MANUAL',
-      sourceId: dto.sourceId || randomUUID(),
-      description: dto.description,
-      notes: dto.notes,
-      entryDate: dto.entryDate ? new Date(dto.entryDate) : undefined,
-      lines: dto.lines,
-    });
+        return await this.postingEngine.postEntry(context, {
+          legalEntityId: dto.legalEntityId,
+          branchId: dto.branchId,
+          journalNumber: allocatedJournalNumber,
+          journalType: dto.journalType,
+          sourceType: dto.sourceType || 'MANUAL',
+          sourceId: dto.sourceId || randomUUID(),
+          description: dto.description,
+          notes: dto.notes,
+          entryDate: dto.entryDate ? new Date(dto.entryDate) : undefined,
+          lines: dto.lines,
+        });
+      }
+    );
   }
 
   /**

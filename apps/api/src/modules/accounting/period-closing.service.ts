@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   TenantContext,
@@ -12,6 +13,9 @@ import {
   PeriodClosingAction,
   ClosingCheckSeverity,
   JournalStatus,
+  JournalType,
+  AccountType,
+  DefaultAccountMappingKey,
   ReconciliationStatus,
   TransferDiscrepancyStatus,
 } from '@restaurant-cloud/domain-kernel';
@@ -19,14 +23,24 @@ import {
   fiscalYears,
   fiscalPeriods,
   fiscalPeriodClosingLogs,
+  fiscalYearOpeningBalances,
+  fiscalYearOpeningSnapshots,
   journalEntries,
   journalLines,
+  chartOfAccounts,
+  accountMappings,
   posShifts,
   settlementBatches,
   stockTransfers,
   stockTransferDiscrepancies,
   paymentVouchers,
   receiptVouchers,
+  arInvoices,
+  apInvoices,
+  partnerBalances,
+  supplierBalances,
+  inventoryBalances,
+  items,
   legalEntities,
   branches,
 } from '@restaurant-cloud/database';
@@ -34,8 +48,10 @@ import { eq, and, gte, lte, desc, asc, sql, inArray, ne } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { OperationsFrameworkService } from '../../common/operations/operations-framework.service';
+import { DocumentNumberingService } from '../../common/operations/document-numbering.service';
 import { AccountingService } from './accounting.service';
 import { ReconciliationService } from './reconciliation.service';
+import { PostingEngineService } from './posting-engine.service';
 
 export interface PreClosingCheckItem {
   code: string;
@@ -54,6 +70,8 @@ export class PeriodClosingService {
     private readonly opsFramework: OperationsFrameworkService,
     private readonly accountingService: AccountingService,
     private readonly reconciliationService: ReconciliationService,
+    @Optional() private readonly postingEngine?: PostingEngineService,
+    @Optional() private readonly documentNumbering?: DocumentNumberingService,
   ) {}
 
   private async verifyEntityScope(
@@ -753,7 +771,7 @@ export class PeriodClosingService {
             ),
           )
           .limit(1);
-        if (existingLog) {
+        if (existingLog && existingLog.periodId) {
           const [p] = await tx
             .select()
             .from(fiscalPeriods)
@@ -878,7 +896,7 @@ export class PeriodClosingService {
             ),
           )
           .limit(1);
-        if (existingLog) {
+        if (existingLog && existingLog.periodId) {
           const [p] = await tx
             .select()
             .from(fiscalPeriods)
@@ -1128,6 +1146,1577 @@ export class PeriodClosingService {
         .offset(offset);
 
       return { data: rows, total: cnt, page, limit, totalPages: Math.ceil(cnt / limit) };
+    });
+  }
+
+  // ==================================================================
+  // 6. Priority 3 — Fiscal Year Closing, Opening Balances & Reopening
+  //    (Continuous GL Architecture — Zero Double-Counting)
+  // ==================================================================
+
+  private async getFiscalYearAndVerifyScope(
+    tx: any,
+    context: TenantContext,
+    fiscalYearId: string,
+    forUpdate = false,
+  ) {
+    const query = tx
+      .select()
+      .from(fiscalYears)
+      .where(and(eq(fiscalYears.tenantId, context.tenantId), eq(fiscalYears.id, fiscalYearId)))
+      .limit(1);
+    const [fy] = forUpdate ? await query.for('update') : await query;
+    if (!fy) {
+      throw new NotFoundException('السنة المالية غير موجودة');
+    }
+    await this.verifyEntityScope(tx, context, fy.legalEntityId);
+    return fy;
+  }
+
+  private async resolveRetainedEarningsAccountInTx(
+    tx: any,
+    context: TenantContext,
+    legalEntityId: string,
+    explicitAccountId?: string,
+  ): Promise<{ id: string; accountCode: string; name: string } | null> {
+    let targetAccountId = explicitAccountId;
+    if (!targetAccountId) {
+      const [mapped] = await tx
+        .select({ accountId: accountMappings.accountId })
+        .from(accountMappings)
+        .where(
+          and(
+            eq(accountMappings.tenantId, context.tenantId),
+            eq(accountMappings.legalEntityId, legalEntityId),
+            eq(accountMappings.mappingKey, DefaultAccountMappingKey.RETAINED_EARNINGS),
+            eq(accountMappings.isActive, true),
+          ),
+        )
+        .limit(1);
+      targetAccountId = mapped?.accountId;
+    }
+
+    if (!targetAccountId) {
+      // Fallback to standard COA code 311000
+      const [byCode] = await tx
+        .select({
+          id: chartOfAccounts.id,
+          accountCode: chartOfAccounts.accountCode,
+          name: chartOfAccounts.name,
+          accountType: chartOfAccounts.accountType,
+          isPostable: chartOfAccounts.isPostable,
+          status: chartOfAccounts.status,
+        })
+        .from(chartOfAccounts)
+        .where(
+          and(
+            eq(chartOfAccounts.tenantId, context.tenantId),
+            eq(chartOfAccounts.legalEntityId, legalEntityId),
+            eq(chartOfAccounts.accountCode, '311000'),
+          ),
+        )
+        .limit(1);
+      if (byCode && byCode.status === 'ACTIVE' && byCode.isPostable && byCode.accountType === AccountType.EQUITY) {
+        return { id: byCode.id, accountCode: byCode.accountCode, name: byCode.name };
+      }
+      return null;
+    }
+
+    const [acc] = await tx
+      .select({
+        id: chartOfAccounts.id,
+        accountCode: chartOfAccounts.accountCode,
+        name: chartOfAccounts.name,
+        accountType: chartOfAccounts.accountType,
+        isPostable: chartOfAccounts.isPostable,
+        status: chartOfAccounts.status,
+      })
+      .from(chartOfAccounts)
+      .where(
+        and(
+          eq(chartOfAccounts.tenantId, context.tenantId),
+          eq(chartOfAccounts.legalEntityId, legalEntityId),
+          eq(chartOfAccounts.id, targetAccountId),
+        ),
+      )
+      .limit(1);
+
+    if (!acc || acc.status !== 'ACTIVE' || !acc.isPostable || acc.accountType !== AccountType.EQUITY) {
+      return null;
+    }
+    return { id: acc.id, accountCode: acc.accountCode, name: acc.name };
+  }
+
+  private async evaluateYearEndChecksInTx(
+    tx: any,
+    context: TenantContext,
+    fy: any,
+    retainedEarningsAccountId?: string,
+  ) {
+    const startDt = new Date(fy.startDate);
+    const endDt = new Date(fy.endDate);
+    const startDateStr = startDt.toISOString().slice(0, 10);
+    const endDateStr = endDt.toISOString().slice(0, 10);
+    const checks: PreClosingCheckItem[] = [];
+
+    // 1. All fiscal periods belonging to this fiscal year must be CLOSED or LOCKED
+    const fyPeriods = await tx
+      .select({
+        id: fiscalPeriods.id,
+        periodName: fiscalPeriods.periodName,
+        status: fiscalPeriods.status,
+      })
+      .from(fiscalPeriods)
+      .where(
+        and(
+          eq(fiscalPeriods.tenantId, context.tenantId),
+          eq(fiscalPeriods.legalEntityId, fy.legalEntityId),
+          eq(fiscalPeriods.fiscalYearId, fy.id),
+        ),
+      );
+
+    const openPeriods = fyPeriods.filter(
+      (p: any) => p.status !== FiscalPeriodStatus.CLOSED && p.status !== FiscalPeriodStatus.LOCKED,
+    );
+    const missingPeriods = fyPeriods.length === 0;
+    checks.push({
+      code: 'ALL_PERIODS_CLOSED',
+      title: 'إغلاق جميع الفترات المالية للسنة',
+      severity:
+        missingPeriods || openPeriods.length > 0
+          ? ClosingCheckSeverity.BLOCKER
+          : ClosingCheckSeverity.PASS,
+      count: missingPeriods ? 1 : openPeriods.length,
+      message: missingPeriods
+        ? 'لا توجد فترات مالية مرتبطة بهذه السنة المالية'
+        : openPeriods.length > 0
+          ? `يوجد ${openPeriods.length} فترة مالية غير مغلقة تمنع إقفال السنة (${openPeriods.map((p: any) => p.periodName).slice(0, 5).join(', ')})`
+          : `جميع الفترات المالية (${fyPeriods.length}) مغلقة بنجاح`,
+      details: { totalPeriods: fyPeriods.length, openPeriods: openPeriods.slice(0, 12) },
+    });
+
+    // 2. Unposted / Pending journal entries within the fiscal year
+    const [{ unpostedJournalsCnt }] = await tx
+      .select({ unpostedJournalsCnt: sql<number>`count(*)::int` })
+      .from(journalEntries)
+      .where(
+        and(
+          eq(journalEntries.tenantId, context.tenantId),
+          eq(journalEntries.legalEntityId, fy.legalEntityId),
+          gte(journalEntries.entryDate, startDt),
+          lte(journalEntries.entryDate, endDt),
+          inArray(journalEntries.status, [
+            JournalStatus.DRAFT,
+            JournalStatus.PENDING_APPROVAL,
+            JournalStatus.APPROVED,
+            JournalStatus.VALIDATED,
+          ]),
+        ),
+      );
+    checks.push({
+      code: 'UNPOSTED_JOURNALS',
+      title: 'القيود غير المرحلة والمسودات',
+      severity: unpostedJournalsCnt > 0 ? ClosingCheckSeverity.BLOCKER : ClosingCheckSeverity.PASS,
+      count: unpostedJournalsCnt,
+      message:
+        unpostedJournalsCnt > 0
+          ? `يوجد ${unpostedJournalsCnt} قيد غير مرحل ضمن السنة المالية`
+          : 'لا توجد قيود غير مرحلة ضمن السنة المالية',
+    });
+
+    // 3. Unbalanced journal entries within the fiscal year
+    const unbalancedRows = await tx
+      .select({
+        id: journalEntries.id,
+        journalNumber: journalEntries.journalNumber,
+        diff: sql<string>`ABS(COALESCE(SUM(CAST(${journalLines.debit} AS NUMERIC)), 0) - COALESCE(SUM(CAST(${journalLines.credit} AS NUMERIC)), 0))::text`,
+      })
+      .from(journalEntries)
+      .leftJoin(journalLines, eq(journalLines.journalEntryId, journalEntries.id))
+      .where(
+        and(
+          eq(journalEntries.tenantId, context.tenantId),
+          eq(journalEntries.legalEntityId, fy.legalEntityId),
+          gte(journalEntries.entryDate, startDt),
+          lte(journalEntries.entryDate, endDt),
+          ne(journalEntries.status, 'CANCELLED'),
+        ),
+      )
+      .groupBy(journalEntries.id, journalEntries.journalNumber)
+      .having(
+        sql`ABS(COALESCE(SUM(CAST(${journalLines.debit} AS NUMERIC)), 0) - COALESCE(SUM(CAST(${journalLines.credit} AS NUMERIC)), 0)) > 0.0001`,
+      );
+    checks.push({
+      code: 'UNBALANCED_JOURNALS',
+      title: 'توازن جميع قيود السنة المالية',
+      severity: unbalancedRows.length > 0 ? ClosingCheckSeverity.BLOCKER : ClosingCheckSeverity.PASS,
+      count: unbalancedRows.length,
+      message:
+        unbalancedRows.length > 0
+          ? `يوجد ${unbalancedRows.length} قيد غير متوازن في السنة المالية`
+          : 'جميع قيود السنة المالية متوازنة',
+      details: unbalancedRows.slice(0, 10),
+    });
+
+    // 4. Pending / Draft financial documents within the fiscal year
+    const [{ openShiftsCnt }] = await tx
+      .select({ openShiftsCnt: sql<number>`count(*)::int` })
+      .from(posShifts)
+      .where(
+        and(
+          eq(posShifts.tenantId, context.tenantId),
+          eq(posShifts.legalEntityId, fy.legalEntityId),
+          gte(posShifts.openedAt, startDt),
+          lte(posShifts.openedAt, endDt),
+          eq(posShifts.status, 'OPEN'),
+        ),
+      );
+    const [{ pendingBatchesCnt }] = await tx
+      .select({ pendingBatchesCnt: sql<number>`count(*)::int` })
+      .from(settlementBatches)
+      .where(
+        and(
+          eq(settlementBatches.tenantId, context.tenantId),
+          eq(settlementBatches.legalEntityId, fy.legalEntityId),
+          gte(settlementBatches.settlementDate, startDt),
+          lte(settlementBatches.settlementDate, endDt),
+          inArray(settlementBatches.status, ['DRAFT', 'IMPORTED', 'MATCHED', 'APPROVED']),
+        ),
+      );
+    const [{ draftPvCnt }] = await tx
+      .select({ draftPvCnt: sql<number>`count(*)::int` })
+      .from(paymentVouchers)
+      .where(
+        and(
+          eq(paymentVouchers.tenantId, context.tenantId),
+          eq(paymentVouchers.legalEntityId, fy.legalEntityId),
+          gte(paymentVouchers.voucherDate, startDt),
+          lte(paymentVouchers.voucherDate, endDt),
+          inArray(paymentVouchers.status, ['DRAFT', 'PENDING_APPROVAL']),
+        ),
+      );
+    const [{ draftRvCnt }] = await tx
+      .select({ draftRvCnt: sql<number>`count(*)::int` })
+      .from(receiptVouchers)
+      .where(
+        and(
+          eq(receiptVouchers.tenantId, context.tenantId),
+          eq(receiptVouchers.legalEntityId, fy.legalEntityId),
+          gte(receiptVouchers.voucherDate, startDt),
+          lte(receiptVouchers.voucherDate, endDt),
+          inArray(receiptVouchers.status, ['DRAFT', 'PENDING_APPROVAL']),
+        ),
+      );
+    const [{ draftArCnt }] = await tx
+      .select({ draftArCnt: sql<number>`count(*)::int` })
+      .from(arInvoices)
+      .where(
+        and(
+          eq(arInvoices.tenantId, context.tenantId),
+          eq(arInvoices.legalEntityId, fy.legalEntityId),
+          gte(arInvoices.issueDate, startDateStr),
+          lte(arInvoices.issueDate, endDateStr),
+          eq(arInvoices.status, 'DRAFT'),
+        ),
+      );
+    const [{ draftApCnt }] = await tx
+      .select({ draftApCnt: sql<number>`count(*)::int` })
+      .from(apInvoices)
+      .where(
+        and(
+          eq(apInvoices.tenantId, context.tenantId),
+          eq(apInvoices.legalEntityId, fy.legalEntityId),
+          gte(apInvoices.invoiceDate, startDateStr),
+          lte(apInvoices.invoiceDate, endDateStr),
+          eq(apInvoices.status, 'DRAFT'),
+        ),
+      );
+    const [{ openTransferDiscCnt }] = await tx
+      .select({ openTransferDiscCnt: sql<number>`count(*)::int` })
+      .from(stockTransferDiscrepancies)
+      .where(
+        and(
+          eq(stockTransferDiscrepancies.tenantId, context.tenantId),
+          eq(stockTransferDiscrepancies.legalEntityId, fy.legalEntityId),
+          gte(stockTransferDiscrepancies.createdAt, startDt),
+          lte(stockTransferDiscrepancies.createdAt, endDt),
+          inArray(stockTransferDiscrepancies.status, [
+            TransferDiscrepancyStatus.OPEN,
+            TransferDiscrepancyStatus.UNDER_REVIEW,
+          ]),
+        ),
+      );
+
+    const pendingDocsTotal =
+      openShiftsCnt +
+      pendingBatchesCnt +
+      draftPvCnt +
+      draftRvCnt +
+      draftArCnt +
+      draftApCnt +
+      openTransferDiscCnt;
+
+    checks.push({
+      code: 'PENDING_DOCUMENTS',
+      title: 'المستندات غير المرحلة والمسودات (فواتير، سندات، ورديات، تسويات)',
+      severity: pendingDocsTotal > 0 ? ClosingCheckSeverity.BLOCKER : ClosingCheckSeverity.PASS,
+      count: pendingDocsTotal,
+      message:
+        pendingDocsTotal > 0
+          ? `توجد ${pendingDocsTotal} مستندات معلقة أو مسودة تمنع إقفال السنة`
+          : 'لا توجد مستندات مسودة أو معلقة ضمن السنة المالية',
+      details: {
+        openShiftsCnt,
+        pendingBatchesCnt,
+        draftPvCnt,
+        draftRvCnt,
+        draftArCnt,
+        draftApCnt,
+        openTransferDiscCnt,
+      },
+    });
+
+    // 5. Trial Balance integrity for the fiscal year
+    const tb = await this.accountingService.getHierarchicalTrialBalance(context, {
+      legalEntityId: fy.legalEntityId,
+      startDate: startDt.toISOString(),
+      endDate: endDt.toISOString(),
+      includeZeroBalances: false,
+    });
+    checks.push({
+      code: 'TRIAL_BALANCE_INTEGRITY',
+      title: 'توازن ميزان المراجعة قبل الإقفال',
+      severity: tb.grandTotals.isBalanced ? ClosingCheckSeverity.PASS : ClosingCheckSeverity.BLOCKER,
+      count: tb.grandTotals.isBalanced ? 0 : 1,
+      message: tb.grandTotals.isBalanced
+        ? `ميزان المراجعة متوازن (المدين = الدائن = ${tb.grandTotals.closingDebit})`
+        : 'ميزان المراجعة للسنة المالية غير متوازن',
+      details: tb.grandTotals,
+    });
+
+    // 6. Reconciliation check as of fiscal year end
+    const recon = await this.reconciliationService.previewReconciliation(context, {
+      legalEntityId: fy.legalEntityId,
+      asOfDate: endDt.toISOString(),
+    });
+    checks.push({
+      code: 'UNRESOLVED_RECONCILIATION_DISCREPANCIES',
+      title: 'المصالحة المالية للعملاء والموردين والمخزون والنقدية',
+      severity:
+        recon.summary.discrepancyCount > 0
+          ? ClosingCheckSeverity.BLOCKER
+          : recon.summary.notConfiguredCount > 0
+            ? ClosingCheckSeverity.WARNING
+            : ClosingCheckSeverity.PASS,
+      count: recon.summary.discrepancyCount,
+      message:
+        recon.summary.discrepancyCount > 0
+          ? `يوجد ${recon.summary.discrepancyCount} فروقات مالية غير مسوّاة بإجمالي ${recon.summary.totalVariance}`
+          : 'جميع المصالحات المالية متطابقة بالكامل',
+      details: recon.summary,
+    });
+
+    // 7. Retained Earnings account validation
+    const reAccount = await this.resolveRetainedEarningsAccountInTx(
+      tx,
+      context,
+      fy.legalEntityId,
+      retainedEarningsAccountId,
+    );
+    checks.push({
+      code: 'RETAINED_EARNINGS_ACCOUNT',
+      title: 'حساب الأرباح المبقاة (Retained Earnings)',
+      severity: reAccount ? ClosingCheckSeverity.PASS : ClosingCheckSeverity.BLOCKER,
+      count: reAccount ? 0 : 1,
+      message: reAccount
+        ? `حساب الأرباح المبقاة معتمد (${reAccount.accountCode} - ${reAccount.name})`
+        : 'لم يتم العثور على حساب أرباح مبقاة نشط وقابل للترحيل من نوع EQUITY لهذه الشركة القانونية',
+      details: reAccount,
+    });
+
+    const blockersCount = checks.filter((c) => c.severity === ClosingCheckSeverity.BLOCKER).length;
+    const warningsCount = checks.filter((c) => c.severity === ClosingCheckSeverity.WARNING).length;
+
+    return {
+      canClose: blockersCount === 0,
+      blockersCount,
+      warningsCount,
+      checks,
+      trialBalance: tb,
+      reconciliationSummary: recon.summary,
+      retainedEarningsAccount: reAccount,
+    };
+  }
+
+  async runYearEndPreChecks(
+    context: TenantContext,
+    fiscalYearId: string,
+    retainedEarningsAccountId?: string,
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const fy = await this.getFiscalYearAndVerifyScope(tx, context, fiscalYearId);
+      const evalRes = await this.evaluateYearEndChecksInTx(tx, context, fy, retainedEarningsAccountId);
+      return {
+        fiscalYear: fy,
+        canClose: evalRes.canClose,
+        blockersCount: evalRes.blockersCount,
+        warningsCount: evalRes.warningsCount,
+        checks: evalRes.checks,
+        retainedEarningsAccount: evalRes.retainedEarningsAccount,
+      };
+    });
+  }
+
+  /**
+   * Atomically closes a Fiscal Year (Continuous GL):
+   * - Acquires advisory + row lock on fiscal_years
+   * - Enforces all year-end pre-closing checks (12 periods closed, balanced JEs, no drafts, recon clean)
+   * - Zeroes ONLY nominal accounts strictly within [FY.startDate, FY.endDate] into Retained Earnings
+   * - Leaves permanent accounts (ASSET/LIABILITY/EQUITY) untouched for Continuous GL carry-forward
+   * - Locks all FY periods -> LOCKED and sets fiscal_years -> CLOSED
+   * - Optionally executes openNextFiscalYearInTx inside the exact same atomic transaction
+   */
+  async closeFiscalYear(
+    context: TenantContext,
+    dto: {
+      fiscalYearId: string;
+      retainedEarningsAccountId?: string;
+      autoOpenNextYear?: boolean;
+      nextYearCode?: string;
+      nextYearName?: string;
+      idempotencyKey?: string;
+      notes?: string;
+    },
+  ) {
+    if (!this.postingEngine) {
+      throw new BadRequestException('PostingEngineService is not available');
+    }
+
+    const allocRef: { number: string | null; legalEntityId: string | null } = {
+      number: null,
+      legalEntityId: null,
+    };
+
+    try {
+      const outcome = await this.dbService.withTenantContext(context, async (tx) => {
+        // 1. Advisory lock + FOR UPDATE row lock to serialize concurrent year-end close attempts
+        const lockKey = `fy-close:${context.tenantId}:${dto.fiscalYearId}`;
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+        // 2. Idempotency check (same key -> return cached closing result)
+        if (dto.idempotencyKey) {
+          const [existingFy] = await tx
+            .select()
+            .from(fiscalYears)
+            .where(
+              and(
+                eq(fiscalYears.tenantId, context.tenantId),
+                eq(fiscalYears.closingIdempotencyKey, dto.idempotencyKey),
+              ),
+            )
+            .limit(1);
+          if (existingFy) {
+            await this.verifyEntityScope(tx, context, existingFy.legalEntityId);
+            const [closingJe] = existingFy.closingJournalEntryId
+              ? await tx
+                  .select()
+                  .from(journalEntries)
+                  .where(eq(journalEntries.id, existingFy.closingJournalEntryId))
+                  .limit(1)
+              : [null];
+            return {
+              fiscalYear: existingFy,
+              closingJournalEntry: closingJe,
+              netProfitLoss: null,
+              nextFiscalYear: null,
+              idempotentHit: true,
+            };
+          }
+        }
+
+        const fy = await this.getFiscalYearAndVerifyScope(tx, context, dto.fiscalYearId, true);
+
+        if (fy.status === FiscalYearStatus.CLOSED) {
+          throw new ConflictException(`السنة المالية '${fy.yearCode}' مقفلة بالفعل ولا يمكن إقفالها مرتين`);
+        }
+
+        const prevStatus = fy.status;
+
+        // 3. Evaluate all year-end pre-closing checks atomically
+        const evalRes = await this.evaluateYearEndChecksInTx(
+          tx,
+          context,
+          fy,
+          dto.retainedEarningsAccountId,
+        );
+        if (!evalRes.canClose || !evalRes.retainedEarningsAccount) {
+          const blockerMessages = evalRes.checks
+            .filter((c) => c.severity === ClosingCheckSeverity.BLOCKER)
+            .map((c) => c.message);
+          throw new BadRequestException({
+            message: `تعذر إقفال السنة المالية '${fy.yearCode}' لوجود ${evalRes.blockersCount} عوائق تمنع الإقفال`,
+            blockers: blockerMessages,
+            checks: evalRes.checks,
+          });
+        }
+
+        // 4. Transition to CLOSING inside the atomic tx
+        await tx
+          .update(fiscalYears)
+          .set({ status: FiscalYearStatus.CLOSING })
+          .where(eq(fiscalYears.id, fy.id));
+
+        const startDt = new Date(fy.startDate);
+        const endDt = new Date(fy.endDate);
+
+        // 5. Compute nominal account balances STRICTLY within [FY.startDate, FY.endDate]
+        //    Grouped by (accountId, branchId, currency) to preserve branch/currency dimensions
+        const nominalRows = await tx
+          .select({
+            accountId: chartOfAccounts.id,
+            accountCode: chartOfAccounts.accountCode,
+            accountName: sql<string>`COALESCE(${chartOfAccounts.nameAr}, ${chartOfAccounts.name})`,
+            accountType: chartOfAccounts.accountType,
+            branchId: journalLines.branchId,
+            currency: journalLines.currency,
+            totalDebit: sql<string>`COALESCE(SUM(CAST(${journalLines.debit} AS NUMERIC)), 0)::text`,
+            totalCredit: sql<string>`COALESCE(SUM(CAST(${journalLines.credit} AS NUMERIC)), 0)::text`,
+          })
+          .from(journalLines)
+          .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+          .innerJoin(chartOfAccounts, eq(journalLines.accountId, chartOfAccounts.id))
+          .where(
+            and(
+              eq(journalEntries.tenantId, context.tenantId),
+              eq(journalEntries.legalEntityId, fy.legalEntityId),
+              eq(journalEntries.status, JournalStatus.POSTED),
+              gte(journalEntries.entryDate, startDt),
+              lte(journalEntries.entryDate, endDt),
+              inArray(chartOfAccounts.accountType, [
+                AccountType.REVENUE,
+                AccountType.COGS,
+                AccountType.EXPENSE,
+                AccountType.OTHER_INCOME,
+                AccountType.OTHER_EXPENSE,
+              ]),
+            ),
+          )
+          .groupBy(
+            chartOfAccounts.id,
+            chartOfAccounts.accountCode,
+            chartOfAccounts.nameAr,
+            chartOfAccounts.name,
+            chartOfAccounts.accountType,
+            journalLines.branchId,
+            journalLines.currency,
+          );
+
+        const closingLines: any[] = [];
+        let totalClosingDebit = 0;
+        let totalClosingCredit = 0;
+
+        for (const row of nominalRows) {
+          const net = parseFloat(row.totalDebit || '0') - parseFloat(row.totalCredit || '0');
+          if (Math.abs(net) < 0.0001) continue;
+
+          if (net > 0) {
+            // Debit balance (Expense / COGS) -> Credit to zero out
+            closingLines.push({
+              accountId: row.accountId,
+              branchId: row.branchId || null,
+              currency: row.currency || 'SAR',
+              debit: '0.0000',
+              credit: net.toFixed(4),
+              description: `إقفال حساب ${row.accountName} (${row.accountCode}) - السنة المالية ${fy.yearCode}`,
+            });
+            totalClosingCredit += net;
+          } else {
+            // Credit balance (Revenue / Other Income) -> Debit to zero out
+            const absNet = Math.abs(net);
+            closingLines.push({
+              accountId: row.accountId,
+              branchId: row.branchId || null,
+              currency: row.currency || 'SAR',
+              debit: absNet.toFixed(4),
+              credit: '0.0000',
+              description: `إقفال حساب ${row.accountName} (${row.accountCode}) - السنة المالية ${fy.yearCode}`,
+            });
+            totalClosingDebit += absNet;
+          }
+        }
+
+        // Net Profit = totalClosingDebit (Revenues) - totalClosingCredit (Expenses)
+        const netProfitLoss = totalClosingDebit - totalClosingCredit;
+        if (Math.abs(netProfitLoss) > 0.0001) {
+          if (netProfitLoss > 0) {
+            closingLines.push({
+              accountId: evalRes.retainedEarningsAccount.id,
+              debit: '0.0000',
+              credit: netProfitLoss.toFixed(4),
+              description: `ترحيل صافي أرباح السنة المالية ${fy.yearCode} إلى الأرباح المبقاة`,
+            });
+          } else {
+            closingLines.push({
+              accountId: evalRes.retainedEarningsAccount.id,
+              debit: Math.abs(netProfitLoss).toFixed(4),
+              credit: '0.0000',
+              description: `ترحيل صافي خسائر السنة المالية ${fy.yearCode} إلى الأرباح المبقاة`,
+            });
+          }
+        }
+
+        // 6. Post balanced Closing Entry (if there are nominal balances to close)
+        let closingEntry: any = null;
+        if (closingLines.length >= 2) {
+          let journalNumber = `JV-CLOSE-${fy.yearCode}-${Date.now().toString(36).toUpperCase()}`;
+          if (this.documentNumbering) {
+            const alloc = await this.documentNumbering.allocateNextNumber(context, {
+              legalEntityId: fy.legalEntityId,
+              documentType: 'JOURNAL_ENTRY',
+              documentDate: endDt,
+              sourceType: 'fiscal_year_closing',
+            });
+            journalNumber = alloc.formattedNumber;
+            allocRef.number = journalNumber;
+            allocRef.legalEntityId = fy.legalEntityId;
+          }
+
+          closingEntry = await this.postingEngine!.postEntry(
+            context,
+            {
+              legalEntityId: fy.legalEntityId,
+              journalNumber,
+              journalType: JournalType.CLOSING,
+              sourceType: 'fiscal_year_closing',
+              sourceId: fy.id,
+              entryDate: endDt,
+              description: `قيد إقفال السنة المالية ${fy.yearCode}`,
+              notes: dto.notes,
+              lines: closingLines,
+              allowClosingForYearId: fy.id,
+            },
+            tx,
+          );
+        }
+
+        // 7. Lock all fiscal periods of this year -> LOCKED
+        await tx
+          .update(fiscalPeriods)
+          .set({ status: FiscalPeriodStatus.LOCKED })
+          .where(
+            and(
+              eq(fiscalPeriods.tenantId, context.tenantId),
+              eq(fiscalPeriods.legalEntityId, fy.legalEntityId),
+              eq(fiscalPeriods.fiscalYearId, fy.id),
+            ),
+          );
+
+        // 8. Capture post-closing Trial Balance summary directly inside tx (so closing entry is included)
+        const postClosingTb = await this.computePermanentBalancesInTx(tx, context, fy.legalEntityId, endDt);
+
+        const now = new Date();
+        const [closedFy] = await tx
+          .update(fiscalYears)
+          .set({
+            status: FiscalYearStatus.CLOSED,
+            closedAt: now,
+            closedBy: context.userId,
+            closingJournalEntryId: closingEntry?.id ?? null,
+            closingIdempotencyKey: dto.idempotencyKey ?? null,
+            closingTrialBalanceSnapshotJson: postClosingTb.summary,
+          })
+          .where(eq(fiscalYears.id, fy.id))
+          .returning();
+
+        // 9. Write immutable closing log & audit log
+        const [closingLog] = await tx
+          .insert(fiscalPeriodClosingLogs)
+          .values({
+            tenantId: context.tenantId,
+            legalEntityId: fy.legalEntityId,
+            periodId: null,
+            fiscalYearId: fy.id,
+            action: PeriodClosingAction.YEAR_END_CLOSE,
+            previousStatus: prevStatus,
+            newStatus: FiscalYearStatus.CLOSED,
+            actorId: context.userId,
+            reason: dto.notes ?? `إقفال السنة المالية ${fy.yearCode}`,
+            blockersCount: 0,
+            warningsCount: evalRes.warningsCount,
+            checksSnapshotJson: evalRes.checks,
+            trialBalanceSnapshotJson: postClosingTb.summary,
+            idempotencyKey: dto.idempotencyKey ?? null,
+          })
+          .returning();
+
+        await this.auditService.log(
+          {
+            tenantId: context.tenantId,
+            actorId: context.userId,
+            action: 'FISCAL_YEAR_CLOSED',
+            entityType: 'fiscal_year',
+            entityId: fy.id,
+            beforeState: { status: prevStatus },
+            afterState: {
+              status: FiscalYearStatus.CLOSED,
+              closingJournalEntryId: closingEntry?.id ?? null,
+              netProfitLoss: netProfitLoss.toFixed(4),
+              retainedEarningsAccountId: evalRes.retainedEarningsAccount.id,
+            },
+          },
+          tx,
+        );
+
+        // 10. Optionally open next fiscal year & carry forward permanent opening balances atomically
+        let nextYearResult: any = null;
+        if (dto.autoOpenNextYear) {
+          nextYearResult = await this.openNextFiscalYearInTx(tx, context, closedFy!, {
+            nextYearCode: dto.nextYearCode,
+            nextYearName: dto.nextYearName,
+            generateMonthlyPeriods: true,
+            idempotencyKey: dto.idempotencyKey ? `${dto.idempotencyKey}:next` : undefined,
+          });
+        }
+
+        return {
+          fiscalYear: closedFy,
+          closingJournalEntry: closingEntry,
+          closingLog,
+          netProfitLoss: netProfitLoss.toFixed(4),
+          retainedEarningsAccount: evalRes.retainedEarningsAccount,
+          postClosingSummary: postClosingTb.summary,
+          nextFiscalYear: nextYearResult,
+          idempotentHit: false,
+        };
+      });
+
+      if (allocRef.number && allocRef.legalEntityId && this.documentNumbering) {
+        await this.documentNumbering.markAllocationStatus(
+          context,
+          allocRef.number,
+          'JOURNAL_ENTRY',
+          allocRef.legalEntityId,
+          'USED',
+          outcome.closingJournalEntry?.id,
+        );
+      }
+
+      return outcome;
+    } catch (err) {
+      if (allocRef.number && allocRef.legalEntityId && this.documentNumbering) {
+        await this.documentNumbering
+          .markAllocationStatus(
+            context,
+            allocRef.number,
+            'JOURNAL_ENTRY',
+            allocRef.legalEntityId,
+            'FAILED_TX',
+          )
+          .catch(() => {});
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Computes cumulative closing balances of PERMANENT accounts ONLY (ASSET, LIABILITY, EQUITY)
+   * up to `asOfDate`, grouped by (accountId, branchId, currency).
+   * Nominal accounts are already zeroed by the Closing Entry.
+   */
+  private async computePermanentBalancesInTx(
+    tx: any,
+    context: TenantContext,
+    legalEntityId: string,
+    asOfDate: Date,
+  ) {
+    const rows = await tx
+      .select({
+        accountId: chartOfAccounts.id,
+        accountCode: chartOfAccounts.accountCode,
+        accountName: sql<string>`COALESCE(${chartOfAccounts.nameAr}, ${chartOfAccounts.name})`,
+        accountType: chartOfAccounts.accountType,
+        branchId: journalLines.branchId,
+        currency: journalLines.currency,
+        totalDebit: sql<string>`COALESCE(SUM(CAST(${journalLines.debit} AS NUMERIC)), 0)::text`,
+        totalCredit: sql<string>`COALESCE(SUM(CAST(${journalLines.credit} AS NUMERIC)), 0)::text`,
+      })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+      .innerJoin(chartOfAccounts, eq(journalLines.accountId, chartOfAccounts.id))
+      .where(
+        and(
+          eq(journalEntries.tenantId, context.tenantId),
+          eq(journalEntries.legalEntityId, legalEntityId),
+          eq(journalEntries.status, JournalStatus.POSTED),
+          lte(journalEntries.entryDate, asOfDate),
+          inArray(chartOfAccounts.accountType, [
+            AccountType.ASSET,
+            AccountType.LIABILITY,
+            AccountType.EQUITY,
+          ]),
+        ),
+      )
+      .groupBy(
+        chartOfAccounts.id,
+        chartOfAccounts.accountCode,
+        chartOfAccounts.nameAr,
+        chartOfAccounts.name,
+        chartOfAccounts.accountType,
+        journalLines.branchId,
+        journalLines.currency,
+      )
+      .orderBy(asc(chartOfAccounts.accountCode));
+
+    let grandDebit = 0;
+    let grandCredit = 0;
+    const balances: Array<{
+      accountId: string;
+      accountCode: string;
+      accountName: string;
+      accountType: string;
+      branchId: string | null;
+      currency: string;
+      openingDebit: string;
+      openingCredit: string;
+      netBalance: string;
+    }> = [];
+
+    for (const r of rows) {
+      const net = parseFloat(r.totalDebit || '0') - parseFloat(r.totalCredit || '0');
+      if (Math.abs(net) < 0.0001) continue;
+      const od = net > 0 ? net : 0;
+      const oc = net < 0 ? Math.abs(net) : 0;
+      grandDebit += od;
+      grandCredit += oc;
+      balances.push({
+        accountId: r.accountId,
+        accountCode: r.accountCode,
+        accountName: r.accountName,
+        accountType: r.accountType,
+        branchId: r.branchId || null,
+        currency: r.currency || 'SAR',
+        openingDebit: od.toFixed(4),
+        openingCredit: oc.toFixed(4),
+        netBalance: net.toFixed(4),
+      });
+    }
+
+    const discrepancy = Math.abs(grandDebit - grandCredit);
+    return {
+      balances,
+      summary: {
+        asOfDate: asOfDate.toISOString(),
+        accountCount: balances.length,
+        totalDebit: grandDebit.toFixed(4),
+        totalCredit: grandCredit.toFixed(4),
+        discrepancy: discrepancy.toFixed(4),
+        isBalanced: discrepancy < 0.0001,
+      },
+    };
+  }
+
+  private async openNextFiscalYearInTx(
+    tx: any,
+    context: TenantContext,
+    closedFy: any,
+    opts: {
+      nextYearCode?: string;
+      nextYearName?: string;
+      generateMonthlyPeriods?: boolean;
+      idempotencyKey?: string;
+    },
+  ) {
+    if (closedFy.status !== FiscalYearStatus.CLOSED) {
+      throw new BadRequestException('يجب إقفال السنة المالية الحالية أولاً قبل فتح السنة المالية التالية');
+    }
+
+    // Check if next fiscal year already exists for this closed year
+    const [existingNext] = await tx
+      .select()
+      .from(fiscalYears)
+      .where(
+        and(
+          eq(fiscalYears.tenantId, context.tenantId),
+          eq(fiscalYears.legalEntityId, closedFy.legalEntityId),
+          eq(fiscalYears.previousFiscalYearId, closedFy.id),
+        ),
+      )
+      .limit(1);
+
+    let nextFy = existingNext;
+    let generatedPeriods: any[] = [];
+
+    if (nextFy) {
+      // Check if active opening balances already exist (prevent duplicate opening balance carry-forward)
+      const [{ activeBalCnt }] = await tx
+        .select({ activeBalCnt: sql<number>`count(*)::int` })
+        .from(fiscalYearOpeningBalances)
+        .where(
+          and(
+            eq(fiscalYearOpeningBalances.tenantId, context.tenantId),
+            eq(fiscalYearOpeningBalances.fiscalYearId, nextFy.id),
+            eq(fiscalYearOpeningBalances.status, 'ACTIVE'),
+          ),
+        );
+      if (activeBalCnt > 0 || nextFy.openingCarryForwardCompletedAt) {
+        throw new ConflictException(
+          `تم فتح السنة المالية التالية '${nextFy.yearCode}' وترحيل الأرصدة الافتتاحية لها مسبقاً`,
+        );
+      }
+    } else {
+      const prevEnd = new Date(closedFy.endDate);
+      const nextStart = new Date(
+        Date.UTC(prevEnd.getUTCFullYear(), prevEnd.getUTCMonth(), prevEnd.getUTCDate() + 1, 0, 0, 0, 0),
+      );
+      const nextYearNum = nextStart.getUTCFullYear();
+      const nextEnd = new Date(Date.UTC(nextYearNum, 11, 31, 23, 59, 59, 999));
+
+      const yearCode = opts.nextYearCode?.trim() || `FY${nextYearNum}`;
+      const yearName = opts.nextYearName?.trim() || `السنة المالية ${nextYearNum}`;
+
+      // Guard against code or date overlap
+      const [dupCode] = await tx
+        .select({ id: fiscalYears.id })
+        .from(fiscalYears)
+        .where(
+          and(
+            eq(fiscalYears.tenantId, context.tenantId),
+            eq(fiscalYears.legalEntityId, closedFy.legalEntityId),
+            eq(fiscalYears.yearCode, yearCode),
+          ),
+        )
+        .limit(1);
+      if (dupCode) {
+        throw new ConflictException(`السنة المالية '${yearCode}' مسجلة مسبقاً`);
+      }
+
+      const [insertedFy] = await tx
+        .insert(fiscalYears)
+        .values({
+          tenantId: context.tenantId,
+          legalEntityId: closedFy.legalEntityId,
+          yearCode,
+          yearName,
+          startDate: nextStart,
+          endDate: nextEnd,
+          status: FiscalYearStatus.OPEN,
+          previousFiscalYearId: closedFy.id,
+          createdBy: context.userId,
+        })
+        .returning();
+      nextFy = insertedFy!;
+
+      if (opts.generateMonthlyPeriods !== false) {
+        let cur = new Date(Date.UTC(nextStart.getUTCFullYear(), nextStart.getUTCMonth(), 1));
+        let idx = 1;
+        while (cur <= nextEnd && idx <= 12) {
+          const pStart = new Date(cur);
+          const pEnd = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+          const clampedEnd = pEnd > nextEnd ? nextEnd : pEnd;
+          const periodName = `${yearCode}-P${String(idx).padStart(2, '0')}`;
+
+          const [p] = await tx
+            .insert(fiscalPeriods)
+            .values({
+              tenantId: context.tenantId,
+              legalEntityId: closedFy.legalEntityId,
+              fiscalYearId: nextFy.id,
+              periodNumber: idx,
+              periodName,
+              startDate: pStart,
+              endDate: clampedEnd,
+              status: FiscalPeriodStatus.OPEN,
+            })
+            .returning();
+          generatedPeriods.push(p);
+
+          cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 1));
+          idx++;
+        }
+      }
+    }
+
+    // Compute permanent account closing balances as of closedFy.endDate (Continuous GL: NO duplicate GL entries!)
+    const perm = await this.computePermanentBalancesInTx(
+      tx,
+      context,
+      closedFy.legalEntityId,
+      new Date(closedFy.endDate),
+    );
+    if (!perm.summary.isBalanced) {
+      throw new BadRequestException(
+        `تعذر ترحيل الأرصدة الافتتاحية لعدم توازن الأرصدة الدائمة (المدين: ${perm.summary.totalDebit}، الدائن: ${perm.summary.totalCredit})`,
+      );
+    }
+
+    // Insert immutable opening balances for permanent accounts
+    const insertedBalances: any[] = [];
+    for (const b of perm.balances) {
+      const [row] = await tx
+        .insert(fiscalYearOpeningBalances)
+        .values({
+          tenantId: context.tenantId,
+          legalEntityId: closedFy.legalEntityId,
+          fiscalYearId: nextFy.id,
+          sourceFiscalYearId: closedFy.id,
+          accountId: b.accountId,
+          branchId: b.branchId,
+          currency: b.currency,
+          openingDebit: b.openingDebit,
+          openingCredit: b.openingCredit,
+          netBalance: b.netBalance,
+          status: 'ACTIVE',
+          createdBy: context.userId,
+        })
+        .returning();
+      insertedBalances.push(row);
+    }
+
+    // Capture Subledger Opening Snapshots (AR Customers, AP Suppliers, Inventory Valuation, TB Summary)
+    const arRows = await tx
+      .select({
+        partnerId: partnerBalances.partnerId,
+        currency: partnerBalances.currency,
+        customerBalance: partnerBalances.customerBalance,
+        customerUnallocatedReceipts: partnerBalances.customerUnallocatedReceipts,
+      })
+      .from(partnerBalances)
+      .where(
+        and(
+          eq(partnerBalances.tenantId, context.tenantId),
+          eq(partnerBalances.legalEntityId, closedFy.legalEntityId),
+        ),
+      );
+    const arTotal = arRows.reduce((s: number, r: any) => s + parseFloat(r.customerBalance || '0'), 0);
+
+    const apSupRows = await tx
+      .select({
+        supplierId: supplierBalances.supplierId,
+        currentBalance: supplierBalances.currentBalance,
+      })
+      .from(supplierBalances)
+      .where(
+        and(
+          eq(supplierBalances.tenantId, context.tenantId),
+          eq(supplierBalances.legalEntityId, closedFy.legalEntityId),
+        ),
+      );
+    const apPartnerRows = await tx
+      .select({
+        partnerId: partnerBalances.partnerId,
+        currency: partnerBalances.currency,
+        vendorBalance: partnerBalances.vendorBalance,
+      })
+      .from(partnerBalances)
+      .where(
+        and(
+          eq(partnerBalances.tenantId, context.tenantId),
+          eq(partnerBalances.legalEntityId, closedFy.legalEntityId),
+        ),
+      );
+    const apTotal =
+      apSupRows.reduce((s: number, r: any) => s + parseFloat(r.currentBalance || '0'), 0) +
+      apPartnerRows.reduce((s: number, r: any) => s + parseFloat(r.vendorBalance || '0'), 0);
+
+    const invRows = await tx
+      .select({
+        warehouseId: inventoryBalances.warehouseId,
+        itemId: inventoryBalances.itemId,
+        onHandQty: inventoryBalances.onHandQty,
+        wacCost: inventoryBalances.wacCost,
+      })
+      .from(inventoryBalances)
+      .where(
+        and(
+          eq(inventoryBalances.tenantId, context.tenantId),
+          eq(inventoryBalances.legalEntityOwnerId, closedFy.legalEntityId),
+        ),
+      );
+    const invTotalValue = invRows.reduce(
+      (s: number, r: any) =>
+        s + parseFloat(r.onHandQty || '0') * parseFloat(r.wacCost || '0'),
+      0,
+    );
+
+    const snapshotsToInsert = [
+      {
+        snapshotType: 'TRIAL_BALANCE_SUMMARY',
+        totalDebit: perm.summary.totalDebit,
+        totalCredit: perm.summary.totalCredit,
+        isBalanced: perm.summary.isBalanced,
+        payloadJson: perm.summary,
+      },
+      {
+        snapshotType: 'AR_CUSTOMERS',
+        totalDebit: arTotal.toFixed(4),
+        totalCredit: '0.0000',
+        isBalanced: true,
+        payloadJson: { totalArBalance: arTotal.toFixed(4), count: arRows.length, partners: arRows },
+      },
+      {
+        snapshotType: 'AP_SUPPLIERS',
+        totalDebit: '0.0000',
+        totalCredit: apTotal.toFixed(4),
+        isBalanced: true,
+        payloadJson: {
+          totalApBalance: apTotal.toFixed(4),
+          suppliersCount: apSupRows.length,
+          partnersCount: apPartnerRows.length,
+          suppliers: apSupRows,
+          partners: apPartnerRows,
+        },
+      },
+      {
+        snapshotType: 'INVENTORY_VALUATION',
+        totalDebit: invTotalValue.toFixed(4),
+        totalCredit: '0.0000',
+        isBalanced: true,
+        payloadJson: {
+          totalInventoryValue: invTotalValue.toFixed(4),
+          skuWarehouseCount: invRows.length,
+          items: invRows,
+        },
+      },
+    ];
+
+    for (const snap of snapshotsToInsert) {
+      await tx.insert(fiscalYearOpeningSnapshots).values({
+        tenantId: context.tenantId,
+        legalEntityId: closedFy.legalEntityId,
+        fiscalYearId: nextFy.id,
+        sourceFiscalYearId: closedFy.id,
+        snapshotType: snap.snapshotType,
+        status: 'ACTIVE',
+        totalDebit: snap.totalDebit,
+        totalCredit: snap.totalCredit,
+        isBalanced: snap.isBalanced,
+        payloadJson: snap.payloadJson,
+        idempotencyKey: opts.idempotencyKey ? `${opts.idempotencyKey}:${snap.snapshotType}` : null,
+        createdBy: context.userId,
+      });
+    }
+
+    const [updatedNextFy] = await tx
+      .update(fiscalYears)
+      .set({ openingCarryForwardCompletedAt: new Date() })
+      .where(eq(fiscalYears.id, nextFy.id))
+      .returning();
+
+    await tx.insert(fiscalPeriodClosingLogs).values({
+      tenantId: context.tenantId,
+      legalEntityId: closedFy.legalEntityId,
+      periodId: null,
+      fiscalYearId: nextFy.id,
+      action: PeriodClosingAction.NEXT_YEAR_OPENED,
+      previousStatus: 'NONE',
+      newStatus: FiscalYearStatus.OPEN,
+      actorId: context.userId,
+      reason: `فتح السنة المالية ${nextFy.yearCode} وترحيل الأرصدة الافتتاحية من ${closedFy.yearCode}`,
+      blockersCount: 0,
+      warningsCount: 0,
+      trialBalanceSnapshotJson: perm.summary,
+      idempotencyKey: opts.idempotencyKey ?? null,
+    });
+
+    await this.auditService.log(
+      {
+        tenantId: context.tenantId,
+        actorId: context.userId,
+        action: 'NEXT_FISCAL_YEAR_OPENED',
+        entityType: 'fiscal_year',
+        entityId: nextFy.id,
+        afterState: {
+          yearCode: nextFy.yearCode,
+          sourceFiscalYearId: closedFy.id,
+          periodsGenerated: generatedPeriods.length,
+          openingBalancesCount: insertedBalances.length,
+          openingTotalDebit: perm.summary.totalDebit,
+          openingTotalCredit: perm.summary.totalCredit,
+        },
+      },
+      tx,
+    );
+
+    return {
+      fiscalYear: updatedNextFy,
+      periods: generatedPeriods,
+      openingBalancesCount: insertedBalances.length,
+      openingSummary: perm.summary,
+      subledgerTotals: {
+        arCustomers: arTotal.toFixed(4),
+        apSuppliers: apTotal.toFixed(4),
+        inventoryValuation: invTotalValue.toFixed(4),
+      },
+    };
+  }
+
+  async openNextFiscalYear(
+    context: TenantContext,
+    dto: {
+      sourceFiscalYearId: string;
+      nextYearCode?: string;
+      nextYearName?: string;
+      generateMonthlyPeriods?: boolean;
+      idempotencyKey?: string;
+    },
+  ) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const lockKey = `fy-open-next:${context.tenantId}:${dto.sourceFiscalYearId}`;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+      if (dto.idempotencyKey) {
+        const [existingLog] = await tx
+          .select()
+          .from(fiscalPeriodClosingLogs)
+          .where(
+            and(
+              eq(fiscalPeriodClosingLogs.tenantId, context.tenantId),
+              eq(fiscalPeriodClosingLogs.idempotencyKey, dto.idempotencyKey),
+              eq(fiscalPeriodClosingLogs.action, PeriodClosingAction.NEXT_YEAR_OPENED),
+            ),
+          )
+          .limit(1);
+        if (existingLog?.fiscalYearId) {
+          const [fy] = await tx
+            .select()
+            .from(fiscalYears)
+            .where(eq(fiscalYears.id, existingLog.fiscalYearId))
+            .limit(1);
+          return {
+            fiscalYear: fy,
+            openingSummary: existingLog.trialBalanceSnapshotJson,
+            idempotentHit: true,
+          };
+        }
+      }
+
+      const closedFy = await this.getFiscalYearAndVerifyScope(tx, context, dto.sourceFiscalYearId, true);
+      const res = await this.openNextFiscalYearInTx(tx, context, closedFy, {
+        nextYearCode: dto.nextYearCode,
+        nextYearName: dto.nextYearName,
+        generateMonthlyPeriods: dto.generateMonthlyPeriods,
+        idempotencyKey: dto.idempotencyKey,
+      });
+      return { ...res, idempotentHit: false };
+    });
+  }
+
+  /**
+   * Reopens a CLOSED Fiscal Year with strict RBAC (`accounting.fiscal_year.reopen`),
+   * mandatory reason (>= 10 chars), immutable REVERSAL journal entry for the closing entry,
+   * unlocking periods from LOCKED -> CLOSED, and marking carried-forward opening balances SUPERSEDED.
+   */
+  async reopenFiscalYear(
+    context: TenantContext,
+    dto: {
+      fiscalYearId: string;
+      reason: string;
+      idempotencyKey?: string;
+    },
+  ) {
+    if (!this.postingEngine) {
+      throw new BadRequestException('PostingEngineService is not available');
+    }
+
+    const cleanReason = (dto.reason || '').trim();
+    if (cleanReason.length < 10) {
+      throw new BadRequestException('يجب إدخال سبب واضح ومفصل لإعادة فتح السنة المالية (10 أحرف على الأقل)');
+    }
+
+    const revAllocRef: { number: string | null; legalEntityId: string | null } = {
+      number: null,
+      legalEntityId: null,
+    };
+
+    try {
+      const outcome = await this.dbService.withTenantContext(context, async (tx) => {
+        const lockKey = `fy-close:${context.tenantId}:${dto.fiscalYearId}`;
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+        if (dto.idempotencyKey) {
+          const [existingLog] = await tx
+            .select()
+            .from(fiscalPeriodClosingLogs)
+            .where(
+              and(
+                eq(fiscalPeriodClosingLogs.tenantId, context.tenantId),
+                eq(fiscalPeriodClosingLogs.idempotencyKey, dto.idempotencyKey),
+                eq(fiscalPeriodClosingLogs.action, PeriodClosingAction.YEAR_END_REOPENED),
+              ),
+            )
+            .limit(1);
+          if (existingLog?.fiscalYearId) {
+            const [fy] = await tx
+              .select()
+              .from(fiscalYears)
+              .where(eq(fiscalYears.id, existingLog.fiscalYearId))
+              .limit(1);
+            return { fiscalYear: fy, log: existingLog, reversalJournalEntry: null, idempotentHit: true };
+          }
+        }
+
+        const fy = await this.getFiscalYearAndVerifyScope(tx, context, dto.fiscalYearId, true);
+        if (fy.status !== FiscalYearStatus.CLOSED) {
+          throw new BadRequestException(`السنة المالية '${fy.yearCode}' ليست مقفلة حالياً`);
+        }
+
+        // Cannot reopen FY N if FY N+1 is already CLOSED
+        const [nextFy] = await tx
+          .select({ id: fiscalYears.id, yearCode: fiscalYears.yearCode, status: fiscalYears.status })
+          .from(fiscalYears)
+          .where(
+            and(
+              eq(fiscalYears.tenantId, context.tenantId),
+              eq(fiscalYears.legalEntityId, fy.legalEntityId),
+              eq(fiscalYears.previousFiscalYearId, fy.id),
+            ),
+          )
+          .limit(1);
+        if (nextFy && nextFy.status === FiscalYearStatus.CLOSED) {
+          throw new BadRequestException(
+            `لا يمكن إعادة فتح السنة المالية '${fy.yearCode}' لأن السنة المالية التالية '${nextFy.yearCode}' مقفلة بالفعل`,
+          );
+        }
+
+        // Reverse original closing entry via immutable REVERSAL entry (NEVER delete/mutate historical JE)
+        let reversalEntry: any = null;
+        if (fy.closingJournalEntryId) {
+          const origLines = await tx
+            .select()
+            .from(journalLines)
+            .where(eq(journalLines.journalEntryId, fy.closingJournalEntryId));
+
+          if (origLines.length >= 2) {
+            let revJournalNumber = `JV-REOPEN-${fy.yearCode}-${Date.now().toString(36).toUpperCase()}`;
+            if (this.documentNumbering) {
+              const alloc = await this.documentNumbering.allocateNextNumber(context, {
+                legalEntityId: fy.legalEntityId,
+                documentType: 'JOURNAL_ENTRY',
+                documentDate: new Date(fy.endDate),
+                sourceType: 'fiscal_year_reopen',
+              });
+              revJournalNumber = alloc.formattedNumber;
+              revAllocRef.number = revJournalNumber;
+              revAllocRef.legalEntityId = fy.legalEntityId;
+            }
+
+            const reversedLines = origLines.map((l: any) => ({
+              accountId: l.accountId,
+              branchId: l.branchId,
+              costCenterId: l.costCenterId,
+              partnerId: l.partnerId,
+              partnerRole: l.partnerRole,
+              currency: l.currency || 'SAR',
+              debit: l.credit,
+              credit: l.debit,
+              description: `عكس قيد إقفال السنة المالية ${fy.yearCode} - السبب: ${cleanReason}`,
+            }));
+
+            reversalEntry = await this.postingEngine!.postEntry(
+              context,
+              {
+                legalEntityId: fy.legalEntityId,
+                journalNumber: revJournalNumber,
+                journalType: JournalType.REVERSAL,
+                sourceType: 'fiscal_year_reopen',
+                sourceId: fy.id,
+                entryDate: new Date(fy.endDate),
+                description: `قيد عكسي لإعادة فتح السنة المالية ${fy.yearCode}`,
+                notes: cleanReason,
+                lines: reversedLines,
+                allowClosingForYearId: fy.id,
+              },
+              tx,
+            );
+
+            await tx
+              .update(journalEntries)
+              .set({ reversalOfId: fy.closingJournalEntryId })
+              .where(eq(journalEntries.id, reversalEntry.id));
+          }
+        }
+
+        const now = new Date();
+        const [reopenedFy] = await tx
+          .update(fiscalYears)
+          .set({
+            status: FiscalYearStatus.OPEN,
+            reopenedAt: now,
+            reopenedBy: context.userId,
+            reopenReason: cleanReason,
+            reopenReversalJournalEntryId: reversalEntry?.id ?? null,
+            closingIdempotencyKey: null,
+          })
+          .where(eq(fiscalYears.id, fy.id))
+          .returning();
+
+        // Unlock periods from LOCKED back to CLOSED (still require explicit period reopen if editing)
+        await tx
+          .update(fiscalPeriods)
+          .set({ status: FiscalPeriodStatus.CLOSED })
+          .where(
+            and(
+              eq(fiscalPeriods.tenantId, context.tenantId),
+              eq(fiscalPeriods.legalEntityId, fy.legalEntityId),
+              eq(fiscalPeriods.fiscalYearId, fy.id),
+              eq(fiscalPeriods.status, FiscalPeriodStatus.LOCKED),
+            ),
+          );
+
+        // Supersede any carried-forward opening balances & snapshots generated from this fiscal year
+        await tx
+          .update(fiscalYearOpeningBalances)
+          .set({ status: 'SUPERSEDED' })
+          .where(
+            and(
+              eq(fiscalYearOpeningBalances.tenantId, context.tenantId),
+              eq(fiscalYearOpeningBalances.sourceFiscalYearId, fy.id),
+              eq(fiscalYearOpeningBalances.status, 'ACTIVE'),
+            ),
+          );
+        await tx
+          .update(fiscalYearOpeningSnapshots)
+          .set({ status: 'SUPERSEDED' })
+          .where(
+            and(
+              eq(fiscalYearOpeningSnapshots.tenantId, context.tenantId),
+              eq(fiscalYearOpeningSnapshots.sourceFiscalYearId, fy.id),
+              eq(fiscalYearOpeningSnapshots.status, 'ACTIVE'),
+            ),
+          );
+        if (nextFy) {
+          await tx
+            .update(fiscalYears)
+            .set({ openingCarryForwardCompletedAt: null })
+            .where(eq(fiscalYears.id, nextFy.id));
+        }
+
+        const [log] = await tx
+          .insert(fiscalPeriodClosingLogs)
+          .values({
+            tenantId: context.tenantId,
+            legalEntityId: fy.legalEntityId,
+            periodId: null,
+            fiscalYearId: fy.id,
+            action: PeriodClosingAction.YEAR_END_REOPENED,
+            previousStatus: FiscalYearStatus.CLOSED,
+            newStatus: FiscalYearStatus.OPEN,
+            actorId: context.userId,
+            reason: cleanReason,
+            blockersCount: 0,
+            warningsCount: 0,
+            idempotencyKey: dto.idempotencyKey ?? null,
+          })
+          .returning();
+
+        await this.auditService.log(
+          {
+            tenantId: context.tenantId,
+            actorId: context.userId,
+            action: 'FISCAL_YEAR_REOPENED',
+            entityType: 'fiscal_year',
+            entityId: fy.id,
+            beforeState: { status: FiscalYearStatus.CLOSED, closingJournalEntryId: fy.closingJournalEntryId },
+            afterState: {
+              status: FiscalYearStatus.OPEN,
+              reopenReason: cleanReason,
+              reopenReversalJournalEntryId: reversalEntry?.id ?? null,
+            },
+          },
+          tx,
+        );
+
+        return {
+          fiscalYear: reopenedFy,
+          reversalJournalEntry: reversalEntry,
+          log,
+          idempotentHit: false,
+        };
+      });
+
+      if (revAllocRef.number && revAllocRef.legalEntityId && this.documentNumbering) {
+        await this.documentNumbering.markAllocationStatus(
+          context,
+          revAllocRef.number,
+          'JOURNAL_ENTRY',
+          revAllocRef.legalEntityId,
+          'USED',
+          outcome.reversalJournalEntry?.id,
+        );
+      }
+
+      return outcome;
+    } catch (err) {
+      if (revAllocRef.number && revAllocRef.legalEntityId && this.documentNumbering) {
+        await this.documentNumbering
+          .markAllocationStatus(
+            context,
+            revAllocRef.number,
+            'JOURNAL_ENTRY',
+            revAllocRef.legalEntityId,
+            'FAILED_TX',
+          )
+          .catch(() => {});
+      }
+      throw err;
+    }
+  }
+
+  async getFiscalYearOpeningBalances(context: TenantContext, fiscalYearId: string) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const fy = await this.getFiscalYearAndVerifyScope(tx, context, fiscalYearId);
+
+      const balances = await tx
+        .select({
+          id: fiscalYearOpeningBalances.id,
+          accountId: fiscalYearOpeningBalances.accountId,
+          accountCode: chartOfAccounts.accountCode,
+          accountName: sql<string>`COALESCE(${chartOfAccounts.nameAr}, ${chartOfAccounts.name})`,
+          accountType: chartOfAccounts.accountType,
+          branchId: fiscalYearOpeningBalances.branchId,
+          currency: fiscalYearOpeningBalances.currency,
+          openingDebit: fiscalYearOpeningBalances.openingDebit,
+          openingCredit: fiscalYearOpeningBalances.openingCredit,
+          netBalance: fiscalYearOpeningBalances.netBalance,
+          status: fiscalYearOpeningBalances.status,
+          createdAt: fiscalYearOpeningBalances.createdAt,
+        })
+        .from(fiscalYearOpeningBalances)
+        .innerJoin(chartOfAccounts, eq(fiscalYearOpeningBalances.accountId, chartOfAccounts.id))
+        .where(
+          and(
+            eq(fiscalYearOpeningBalances.tenantId, context.tenantId),
+            eq(fiscalYearOpeningBalances.fiscalYearId, fy.id),
+            eq(fiscalYearOpeningBalances.status, 'ACTIVE'),
+          ),
+        )
+        .orderBy(asc(chartOfAccounts.accountCode));
+
+      const snapshots = await tx
+        .select()
+        .from(fiscalYearOpeningSnapshots)
+        .where(
+          and(
+            eq(fiscalYearOpeningSnapshots.tenantId, context.tenantId),
+            eq(fiscalYearOpeningSnapshots.fiscalYearId, fy.id),
+            eq(fiscalYearOpeningSnapshots.status, 'ACTIVE'),
+          ),
+        );
+
+      const totalDebit = balances.reduce((s: number, b: any) => s + parseFloat(b.openingDebit || '0'), 0);
+      const totalCredit = balances.reduce((s: number, b: any) => s + parseFloat(b.openingCredit || '0'), 0);
+
+      return {
+        fiscalYear: fy,
+        balances,
+        totals: {
+          totalDebit: totalDebit.toFixed(4),
+          totalCredit: totalCredit.toFixed(4),
+          discrepancy: Math.abs(totalDebit - totalCredit).toFixed(4),
+          isBalanced: Math.abs(totalDebit - totalCredit) < 0.0001,
+        },
+        snapshots,
+      };
     });
   }
 }

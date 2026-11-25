@@ -36,6 +36,23 @@ const DOC_TYPES = [
   'STOCK_ADJUSTMENT',
 ];
 
+const DOC_TYPE_LABELS: Record<string, string> = {
+  SALES_INVOICE: 'فاتورة مبيعات',
+  POS_TRANSACTION: 'فاتورة نقطة بيع (POS)',
+  PURCHASE_INVOICE: 'فاتورة مشتريات',
+  CREDIT_NOTE: 'إشعار دائن (مرتجع مبيعات)',
+  DEBIT_NOTE: 'إشعار مدين (مرتجع مشتريات)',
+  JOURNAL_ENTRY: 'قيد يومية',
+  RECEIPT: 'سند قبض',
+  PAYMENT: 'سند صرف / دفعة مورد',
+  PURCHASE_ORDER: 'أمر شراء',
+  PURCHASE_REQUEST: 'طلب شراء',
+  GOODS_RECEIPT: 'إذن استلام بضاعة (GRN)',
+  DELIVERY_NOTE: 'إذن تسليم / صرف',
+  STOCK_TRANSFER: 'تحويل مخزني',
+  STOCK_ADJUSTMENT: 'تسوية مخزنية / جرد',
+};
+
 export const DocumentNumberingSettings: React.FC = () => {
   const { hierarchy } = useAuth();
   const entities = hierarchy?.legalEntities ?? [];
@@ -186,7 +203,7 @@ export const DocumentNumberingSettings: React.FC = () => {
             >
               {DOC_TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {DOC_TYPE_LABELS[t] || t} ({t})
                 </option>
               ))}
             </select>
@@ -293,7 +310,10 @@ export const DocumentNumberingSettings: React.FC = () => {
               ) : (
                 sequences.map((s) => (
                   <tr key={s.id}>
-                    <td className="py-2.5 px-3 font-mono font-bold">{s.documentType}</td>
+                    <td className="py-2.5 px-3 font-bold">
+                      <span>{DOC_TYPE_LABELS[s.documentType] || s.documentType}</span>
+                      <span className="block text-[10px] font-mono text-slate-400">{s.documentType}</span>
+                    </td>
                     <td className="py-2.5 px-3 font-mono">{s.periodKey}</td>
                     <td className="py-2.5 px-3 font-mono">{s.prefix}</td>
                     <td className="py-2.5 px-3 font-mono font-bold text-[#0D6E4F]">{s.currentValue}</td>

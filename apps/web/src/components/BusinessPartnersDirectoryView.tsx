@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Edit3,
   FileText,
   Loader2,
   Plus,
@@ -15,6 +16,12 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useLocale } from '../context/LocaleContext';
+import {
+  EMPTY_NATIONAL_ADDRESS,
+  NationalAddressFields,
+  NationalAddressValue,
+  validateNationalAddress,
+} from './NationalAddressFields';
 
 interface PartnerRow {
   id: string;
@@ -30,6 +37,7 @@ interface PartnerRow {
   isActive: boolean;
   isOnHold: boolean;
   roles: string[];
+  nationalAddress?: NationalAddressValue | null;
   arBalance: number;
   apBalance: number;
   totalSales: number;
@@ -88,9 +96,11 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
   const [page, setPage] = useState(1);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingPartnerId, setEditingPartnerId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [nationalAddress, setNationalAddress] = useState<NationalAddressValue>(EMPTY_NATIONAL_ADDRESS);
 
   const [form, setForm] = useState({
     partnerNumber: '',
@@ -141,14 +151,59 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
     loadPartners(1);
   };
 
+  const openCreateModal = () => {
+    setEditingPartnerId(null);
+    setForm({
+      partnerNumber: '',
+      partnerType: 'CORPORATE',
+      legalNameAr: '',
+      legalNameEn: '',
+      tradeNameAr: '',
+      taxIdentificationNumber: '',
+      commercialRegistrationNumber: '',
+      primaryPhone: '',
+      primaryEmail: '',
+      bothRoles: false,
+      notes: '',
+    });
+    setNationalAddress(EMPTY_NATIONAL_ADDRESS);
+    setError(null);
+    setShowCreateModal(true);
+  };
+
+  const openEditModal = (p: PartnerRow) => {
+    setEditingPartnerId(p.id);
+    setForm({
+      partnerNumber: p.partnerNumber,
+      partnerType: p.partnerType,
+      legalNameAr: p.legalNameAr,
+      legalNameEn: p.legalNameEn || '',
+      tradeNameAr: p.tradeNameAr || '',
+      taxIdentificationNumber: p.taxIdentificationNumber || '',
+      commercialRegistrationNumber: p.commercialRegistrationNumber || '',
+      primaryPhone: p.primaryPhone || '',
+      primaryEmail: p.primaryEmail || '',
+      bothRoles: p.roles.includes('CUSTOMER') && p.roles.includes('VENDOR'),
+      notes: '',
+    });
+    setNationalAddress(p.nationalAddress ? { ...EMPTY_NATIONAL_ADDRESS, ...p.nationalAddress } : EMPTY_NATIONAL_ADDRESS);
+    setError(null);
+    setShowCreateModal(true);
+  };
+
   const handleCreatePartner = async (e: React.FormEvent) => {
     e.preventDefault();
+    const addrErr = validateNationalAddress(nationalAddress, isEn);
+    if (addrErr) {
+      setError(addrErr);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     setFeedback(null);
     try {
       const roles = form.bothRoles ? ['CUSTOMER', 'VENDOR'] : [mode];
-      await apiClient.post('/partners', {
+      const payload = {
         partnerNumber:
           form.partnerNumber.trim() || `${isCustomer ? 'CUST' : 'SUP'}-${Date.now().toString().slice(-6)}`,
         partnerType: form.partnerType,
@@ -160,9 +215,16 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
         primaryPhone: form.primaryPhone.trim() || undefined,
         primaryEmail: form.primaryEmail.trim() || undefined,
         notes: form.notes.trim() || undefined,
-        roles,
-      });
+        nationalAddress,
+      };
+      if (editingPartnerId) {
+        await apiClient.patch(`/partners/${editingPartnerId}`, payload);
+      } else {
+        await apiClient.post('/partners', { ...payload, roles });
+      }
       setShowCreateModal(false);
+      setEditingPartnerId(null);
+      setNationalAddress(EMPTY_NATIONAL_ADDRESS);
       setForm({
         partnerNumber: '',
         partnerType: 'CORPORATE',
@@ -176,10 +238,18 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
         bothRoles: false,
         notes: '',
       });
-      setFeedback(isEn ? 'Partner created successfully.' : 'تم حفظ سجل الطرف التجاري بنجاح.');
-      await loadPartners(1);
+      setFeedback(
+        editingPartnerId
+          ? isEn
+            ? 'Partner updated successfully.'
+            : 'تم تحديث بيانات الطرف التجاري بنجاح.'
+          : isEn
+            ? 'Partner created successfully.'
+            : 'تم حفظ سجل الطرف التجاري بنجاح.'
+      );
+      await loadPartners(editingPartnerId ? page : 1);
     } catch (err: any) {
-      setError(err?.message || 'Failed to create partner');
+      setError(err?.message || 'Failed to save partner');
     } finally {
       setSubmitting(false);
     }
@@ -326,7 +396,7 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
           </label>
           <button
             type="button"
-            onClick={() => setShowCreateModal(true)}
+            onClick={openCreateModal}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0D6E4F] hover:bg-[#0A5A40] text-white text-xs font-bold cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -509,6 +579,14 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
+                              onClick={() => openEditModal(p)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>{isEn ? 'Edit' : 'تعديل'}</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleOpenStatement(p.id)}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
                             >
@@ -570,19 +648,27 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
         </div>
       </div>
 
-      {/* Create Modal */}
+      {/* Create / Edit Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-xl p-6 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">
-                {isCustomer
-                  ? isEn
-                    ? 'Add Customer'
-                    : 'إضافة عميل جديد'
-                  : isEn
-                    ? 'Add Supplier'
-                    : 'إضافة مورد جديد'}
+                {editingPartnerId
+                  ? isCustomer
+                    ? isEn
+                      ? 'Edit Customer'
+                      : 'تعديل بيانات العميل'
+                    : isEn
+                      ? 'Edit Supplier'
+                      : 'تعديل بيانات المورد'
+                  : isCustomer
+                    ? isEn
+                      ? 'Add Customer'
+                      : 'إضافة عميل جديد'
+                    : isEn
+                      ? 'Add Supplier'
+                      : 'إضافة مورد جديد'}
               </h3>
               <button
                 type="button"
@@ -671,18 +757,25 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
                   />
                 </div>
               </div>
-              <label className="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  checked={form.bothRoles}
-                  onChange={(e) => setForm({ ...form, bothRoles: e.target.checked })}
-                />
-                <span>
-                  {isEn
-                    ? 'Activate as BOTH Customer & Supplier in unified registry'
-                    : 'تفعيل الطرف كعميل ومورد معاً في السجل الموحد'}
-                </span>
-              </label>
+              <NationalAddressFields
+                value={nationalAddress}
+                onChange={setNationalAddress}
+                isEn={isEn}
+              />
+              {!editingPartnerId && (
+                <label className="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={form.bothRoles}
+                    onChange={(e) => setForm({ ...form, bothRoles: e.target.checked })}
+                  />
+                  <span>
+                    {isEn
+                      ? 'Activate as BOTH Customer & Supplier in unified registry'
+                      : 'تفعيل الطرف كعميل ومورد معاً في السجل الموحد'}
+                  </span>
+                </label>
+              )}
               <div className="flex justify-end gap-2 pt-3">
                 <button
                   type="button"
@@ -720,6 +813,11 @@ export const BusinessPartnersDirectoryView: React.FC<{ mode: 'CUSTOMER' | 'VENDO
                 <X className="w-5 h-5" />
               </button>
             </div>
+            <NationalAddressFields
+              value={statementData.partner.nationalAddress || EMPTY_NATIONAL_ADDRESS}
+              isEn={isEn}
+              readOnly
+            />
             <div className="overflow-x-auto max-h-80">
               <table className="w-full text-xs text-start">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">

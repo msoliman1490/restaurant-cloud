@@ -1011,6 +1011,9 @@ export class ZatcaV2Service {
           .where(and(eq(arInvoices.tenantId, context.tenantId), eq(arInvoices.id, dto.sourceId)))
           .limit(1);
         if (!inv) throw new NotFoundException('فاتورة العملاء غير موجودة');
+        if (inv.status === 'DRAFT') {
+          throw new BadRequestException('لا يمكن إصدار مستند ZATCA لفاتورة مسودة قبل اعتمادها وترحيلها');
+        }
         if (inv.legalEntityId !== unit.legal_entity_id) {
           throw new ForbiddenException('الفاتورة لا تتبع لنفس المنشأة القانونية لوحدة EGS');
         }
@@ -1477,9 +1480,11 @@ export class ZatcaV2Service {
   async runOutboxWorkerBatch(context: TenantContext, legalEntityId: string, batchSize = 20) {
     const candidateIds: string[] = await this.dbService.withTenantContext(context, async (tx) => {
       await this.verifyEntityScope(tx, context, legalEntityId);
+      const priorityOrder = sql`CASE ${zatcaDocuments.invoiceTypeCode} WHEN '388' THEN 1 WHEN '381' THEN 2 WHEN '383' THEN 3 ELSE 4 END`;
       const rows = await tx
         .select({ id: zatcaOutboxQueue.id })
         .from(zatcaOutboxQueue)
+        .innerJoin(zatcaDocuments, eq(zatcaOutboxQueue.zatcaDocumentId, zatcaDocuments.id))
         .where(
           and(
             eq(zatcaOutboxQueue.tenantId, context.tenantId),
@@ -1488,7 +1493,7 @@ export class ZatcaV2Service {
             lte(zatcaOutboxQueue.nextRetryAt, new Date()),
           ),
         )
-        .orderBy(asc(zatcaOutboxQueue.nextRetryAt))
+        .orderBy(asc(priorityOrder), asc(zatcaDocuments.documentNumber), asc(zatcaOutboxQueue.nextRetryAt))
         .limit(batchSize);
       return rows.map((r) => r.id);
     });
@@ -1642,11 +1647,12 @@ export class ZatcaV2Service {
         .where(and(...conds));
       const total = countRows[0]?.cnt ?? 0;
 
+      const priorityOrder = sql`CASE ${zatcaDocuments.invoiceTypeCode} WHEN '388' THEN 1 WHEN '381' THEN 2 WHEN '383' THEN 3 ELSE 4 END`;
       const rows = await tx
         .select()
         .from(zatcaDocuments)
         .where(and(...conds))
-        .orderBy(desc(zatcaDocuments.createdAt))
+        .orderBy(asc(priorityOrder), asc(zatcaDocuments.documentNumber), asc(zatcaDocuments.createdAt))
         .limit(limit)
         .offset(offset);
 
@@ -1676,11 +1682,25 @@ export class ZatcaV2Service {
         .where(and(...conds));
       const total = countRows[0]?.cnt ?? 0;
 
+      const priorityOrder = sql`CASE ${zatcaDocuments.invoiceTypeCode} WHEN '388' THEN 1 WHEN '381' THEN 2 WHEN '383' THEN 3 ELSE 4 END`;
       const rows = await tx
-        .select()
+        .select({
+          id: zatcaOutboxQueue.id,
+          tenantId: zatcaOutboxQueue.tenantId,
+          legalEntityId: zatcaOutboxQueue.legalEntityId,
+          zatcaDocumentId: zatcaOutboxQueue.zatcaDocumentId,
+          status: zatcaOutboxQueue.status,
+          attemptCount: zatcaOutboxQueue.attemptCount,
+          nextRetryAt: zatcaOutboxQueue.nextRetryAt,
+          lastError: zatcaOutboxQueue.lastErrorMessage,
+          createdAt: zatcaOutboxQueue.createdAt,
+          documentNumber: zatcaDocuments.documentNumber,
+          invoiceTypeCode: zatcaDocuments.invoiceTypeCode,
+        })
         .from(zatcaOutboxQueue)
+        .innerJoin(zatcaDocuments, eq(zatcaOutboxQueue.zatcaDocumentId, zatcaDocuments.id))
         .where(and(...conds))
-        .orderBy(desc(zatcaOutboxQueue.createdAt))
+        .orderBy(asc(priorityOrder), asc(zatcaDocuments.documentNumber), asc(zatcaOutboxQueue.nextRetryAt))
         .limit(limit)
         .offset(offset);
 

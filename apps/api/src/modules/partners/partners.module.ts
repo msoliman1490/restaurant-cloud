@@ -8,9 +8,10 @@ import { SubledgerReconciliationService } from './subledger-reconciliation.servi
 import { DatabaseModule } from '../../database/database.module';
 import { AuditModule } from '../audit/audit.module';
 import { AccountingModule } from '../accounting/accounting.module';
+import { OperationsFrameworkModule } from '../../common/operations/operations-framework.module';
 
 @Module({
-  imports: [DatabaseModule, AuditModule, AccountingModule],
+  imports: [DatabaseModule, AuditModule, AccountingModule, OperationsFrameworkModule],
   controllers: [PartnersController, SubledgerController],
   providers: [
     PartnersService,

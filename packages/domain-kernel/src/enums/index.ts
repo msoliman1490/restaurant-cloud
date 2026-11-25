@@ -652,6 +652,8 @@ export enum PeriodClosingAction {
   CLOSED = 'CLOSED',
   REOPENED = 'REOPENED',
   YEAR_END_CLOSE = 'YEAR_END_CLOSE',
+  YEAR_END_REOPENED = 'YEAR_END_REOPENED',
+  NEXT_YEAR_OPENED = 'NEXT_YEAR_OPENED',
 }
 
 export enum ClosingCheckSeverity {

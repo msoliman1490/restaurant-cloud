@@ -3,10 +3,13 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingEngineService } from '../accounting/posting-engine.service';
+import { DocumentNumberingService } from '../../common/operations/document-numbering.service';
 import {
   arInvoices,
   arInvoiceLines,
@@ -16,12 +19,17 @@ import {
   partnerCompanySettings,
   partnerBalances,
   chartOfAccounts,
+  accountMappings,
 } from '@restaurant-cloud/database';
 import {
   CreateArInvoiceRequest,
   AllocateArReceiptRequest,
 } from '@restaurant-cloud/shared-contracts';
-import { TenantContext, JournalType } from '@restaurant-cloud/domain-kernel';
+import {
+  TenantContext,
+  JournalType,
+  DefaultAccountMappingKey,
+} from '@restaurant-cloud/domain-kernel';
 import { eq, and, sql, desc } from 'drizzle-orm';
 
 @Injectable()
@@ -29,8 +37,56 @@ export class ArSubledgerService {
   constructor(
     private readonly dbService: DatabaseService,
     private readonly auditService: AuditService,
-    private readonly postingEngine: PostingEngineService
+    private readonly postingEngine: PostingEngineService,
+    @Optional() private readonly documentNumbering?: DocumentNumberingService
   ) {}
+
+  /**
+   * Helper: Resolve account by mappingKey first, then fallback to candidate accountCodes
+   */
+  private async resolveMappedOrCodeAccount(
+    tx: any,
+    tenantId: string,
+    legalEntityId: string,
+    mappingKey: DefaultAccountMappingKey,
+    fallbackCodes: string[]
+  ) {
+    const [mapped] = await tx
+      .select({ id: accountMappings.accountId })
+      .from(accountMappings)
+      .where(
+        and(
+          eq(accountMappings.tenantId, tenantId),
+          eq(accountMappings.legalEntityId, legalEntityId),
+          eq(accountMappings.mappingKey, mappingKey),
+          eq(accountMappings.isActive, true)
+        )
+      )
+      .limit(1);
+
+    if (mapped?.id) {
+      return { id: mapped.id };
+    }
+
+    for (const code of fallbackCodes) {
+      const [acc] = await tx
+        .select({ id: chartOfAccounts.id, name: chartOfAccounts.name })
+        .from(chartOfAccounts)
+        .where(
+          and(
+            eq(chartOfAccounts.tenantId, tenantId),
+            eq(chartOfAccounts.legalEntityId, legalEntityId),
+            eq(chartOfAccounts.accountCode, code)
+          )
+        )
+        .limit(1);
+      if (acc) return acc;
+    }
+
+    throw new NotFoundException(
+      `الحساب المحاسبي (${mappingKey} / ${fallbackCodes.join(', ')}) غير موجود في دليل الحسابات لهذه الشركة`
+    );
+  }
 
   /**
    * Helper: Resolve account by accountCode
@@ -55,26 +111,17 @@ export class ArSubledgerService {
   }
 
   /**
-   * 1. Create AR Invoice (Sales B2B Tax Invoice, Credit Note, or Debit Note)
+   * 1. Create AR Invoice (Sales B2B Tax Invoice, Credit Note, or Debit Note) in DRAFT status.
+   *    Official SALES_INVOICE / CREDIT_NOTE / DEBIT_NOTE number is allocated server-side upon approval/posting.
    */
   async createInvoice(context: TenantContext, dto: CreateArInvoiceRequest) {
+    const draftNumber = `DRAFT-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const refNote =
+      dto.invoiceNumber && dto.invoiceNumber !== 'AUTO' && !dto.invoiceNumber.startsWith('DRAFT-')
+        ? `[DraftRef: ${dto.invoiceNumber}]${dto.notes ? ' ' + dto.notes : ''}`
+        : dto.notes || null;
+
     return await this.dbService.withTenantContext(context, async (tx) => {
-      // Uniqueness check for invoiceNumber in this legal entity
-      const [existing] = await tx
-        .select({ id: arInvoices.id })
-        .from(arInvoices)
-        .where(
-          and(
-            eq(arInvoices.legalEntityId, dto.legalEntityId),
-            eq(arInvoices.invoiceNumber, dto.invoiceNumber)
-          )
-        )
-        .limit(1);
-
-      if (existing) {
-        throw new ConflictException(`رقم الفاتورة '${dto.invoiceNumber}' مسجل مسبقاً في هذه الشركة`);
-      }
-
       // Compute lines and totals
       let subtotal = 0;
       let totalDiscount = 0;
@@ -111,7 +158,7 @@ export class ArSubledgerService {
 
       const grandTotal = taxableAmount + totalTax;
 
-      // Insert Header
+      // Insert Header with server-generated DRAFT reference (official number allocated at postInvoice)
       const [invoice] = await tx
         .insert(arInvoices)
         .values({
@@ -119,16 +166,20 @@ export class ArSubledgerService {
           legalEntityId: dto.legalEntityId,
           branchId: dto.branchId || null,
           partnerId: dto.partnerId,
-          invoiceNumber: dto.invoiceNumber,
+          invoiceNumber: draftNumber,
           invoiceType: dto.invoiceType,
           originalInvoiceId: dto.originalInvoiceId || null,
           originalInvoiceUuid: dto.originalInvoiceUuid || null,
           originalInvoiceNumber: dto.originalInvoiceNumber || null,
-          originalInvoiceDate: dto.originalInvoiceDate ? (dto.originalInvoiceDate as any) : null,
+          originalInvoiceDate: dto.originalInvoiceDate
+            ? String(dto.originalInvoiceDate).slice(0, 10)
+            : null,
           zatcaReasonCode: dto.zatcaReasonCode || null,
           status: 'DRAFT',
-          issueDate: dto.issueDate ? (dto.issueDate as any) : (new Date() as any),
-          dueDate: dto.dueDate as any,
+          issueDate: dto.issueDate
+            ? String(dto.issueDate).slice(0, 10)
+            : new Date().toISOString().slice(0, 10),
+          dueDate: String(dto.dueDate).slice(0, 10),
           currency: dto.currency || 'SAR',
           exchangeRate: dto.exchangeRate || '1.0000',
           subtotal: subtotal.toFixed(4),
@@ -138,7 +189,7 @@ export class ArSubledgerService {
           grandTotal: grandTotal.toFixed(4),
           paidAmount: '0.0000',
           remainingAmount: grandTotal.toFixed(4),
-          notes: dto.notes || null,
+          notes: refNote,
           createdBy: context.userId,
         })
         .returning();
@@ -159,12 +210,23 @@ export class ArSubledgerService {
   }
 
   /**
-   * 2. Post AR Invoice: Enforces Credit Limit, Generates GL Double-Entry, Updates Partner Balance
+   * 2. Post AR Invoice: Allocates final official SALES_INVOICE / CREDIT_NOTE / DEBIT_NOTE number
+   *    atomically via DocumentNumberingService, enforces Credit Limit, generates GL Double-Entry,
+   *    and updates Partner Balance.
    */
   async postInvoice(context: TenantContext, invoiceId: string) {
-    return await this.dbService.withTenantContext(context, async (tx) => {
-      const [invoice] = await tx
-        .select()
+    // Pre-fetch invoice metadata before allocating an official sequence number
+    const preCheck = await this.dbService.withTenantContext(context, async (tx) => {
+      const [inv] = await tx
+        .select({
+          id: arInvoices.id,
+          legalEntityId: arInvoices.legalEntityId,
+          branchId: arInvoices.branchId,
+          invoiceType: arInvoices.invoiceType,
+          invoiceNumber: arInvoices.invoiceNumber,
+          issueDate: arInvoices.issueDate,
+          status: arInvoices.status,
+        })
         .from(arInvoices)
         .where(
           and(
@@ -173,142 +235,222 @@ export class ArSubledgerService {
           )
         )
         .limit(1);
+      return inv;
+    });
 
-      if (!invoice) throw new NotFoundException('فاتورة المبيعات غير موجودة');
-      if (invoice.status !== 'DRAFT') {
-        throw new BadRequestException('يمكن فقط ترحيل الفواتير التي في حالة مسودة (DRAFT)');
-      }
+    if (!preCheck) throw new NotFoundException('فاتورة المبيعات غير موجودة');
+    if (preCheck.status !== 'DRAFT') {
+      throw new BadRequestException('يمكن فقط ترحيل الفواتير التي في حالة مسودة (DRAFT)');
+    }
 
-      const grandTotal = parseFloat(invoice.grandTotal);
+    const docType =
+      preCheck.invoiceType === 'CREDIT_NOTE'
+        ? 'CREDIT_NOTE'
+        : preCheck.invoiceType === 'DEBIT_NOTE'
+          ? 'DEBIT_NOTE'
+          : 'SALES_INVOICE';
 
-      // Check Partner Company Settings & Credit Limit
-      const [settings] = await tx
-        .select()
-        .from(partnerCompanySettings)
-        .where(
-          and(
-            eq(partnerCompanySettings.legalEntityId, invoice.legalEntityId),
-            eq(partnerCompanySettings.partnerId, invoice.partnerId)
+    const executePost = async (finalInvoiceNumber: string) => {
+      return await this.dbService.withTenantContext(context, async (tx) => {
+        const [invoice] = await tx
+          .select()
+          .from(arInvoices)
+          .where(
+            and(
+              eq(arInvoices.tenantId, context.tenantId),
+              eq(arInvoices.id, invoiceId)
+            )
           )
-        )
-        .limit(1);
+          .for('update')
+          .limit(1);
 
-      const [balance] = await tx
-        .select()
-        .from(partnerBalances)
-        .where(
-          and(
-            eq(partnerBalances.legalEntityId, invoice.legalEntityId),
-            eq(partnerBalances.partnerId, invoice.partnerId),
-            eq(partnerBalances.currency, invoice.currency)
+        if (!invoice) throw new NotFoundException('فاتورة المبيعات غير موجودة');
+        if (invoice.status !== 'DRAFT') {
+          throw new BadRequestException('يمكن فقط ترحيل الفواتير التي في حالة مسودة (DRAFT)');
+        }
+
+        const grandTotal = parseFloat(invoice.grandTotal);
+
+        // Check Partner Company Settings & Credit Limit
+        const [settings] = await tx
+          .select()
+          .from(partnerCompanySettings)
+          .where(
+            and(
+              eq(partnerCompanySettings.legalEntityId, invoice.legalEntityId),
+              eq(partnerCompanySettings.partnerId, invoice.partnerId)
+            )
           )
-        )
-        .limit(1)
-        .for('update');
+          .limit(1);
 
-      const currentBalance = parseFloat(balance?.customerBalance || '0');
-      const creditLimit = parseFloat(settings?.creditLimit || '0');
+        // Ensure partner balance row exists atomically before locking (prevents concurrent first-invoice unique violation)
+        await tx
+          .insert(partnerBalances)
+          .values({
+            tenantId: context.tenantId,
+            legalEntityId: invoice.legalEntityId,
+            partnerId: invoice.partnerId,
+            currency: invoice.currency,
+            customerBalance: '0.0000',
+          })
+          .onConflictDoNothing();
 
-      if (settings?.isCreditBlocked) {
-        throw new BadRequestException('تم إيقاف التعامل الائتماني مع هذا العميل');
-      }
+        const [balance] = await tx
+          .select()
+          .from(partnerBalances)
+          .where(
+            and(
+              eq(partnerBalances.legalEntityId, invoice.legalEntityId),
+              eq(partnerBalances.partnerId, invoice.partnerId),
+              eq(partnerBalances.currency, invoice.currency)
+            )
+          )
+          .limit(1)
+          .for('update');
 
-      if (creditLimit > 0 && currentBalance + grandTotal > creditLimit) {
-        throw new BadRequestException(
-          `تجاوز حد الائتمان: الرصيد القائم (${currentBalance.toFixed(2)}) + الفاتورة (${grandTotal.toFixed(2)}) يتجاوز الحد المعتمد (${creditLimit.toFixed(2)})`
+        const currentBalance = parseFloat(balance?.customerBalance || '0');
+        const creditLimit = parseFloat(settings?.creditLimit || '0');
+
+        if (settings?.isCreditBlocked) {
+          throw new BadRequestException('تم إيقاف التعامل الائتماني مع هذا العميل');
+        }
+
+        if (creditLimit > 0 && currentBalance + grandTotal > creditLimit) {
+          throw new BadRequestException(
+            `تجاوز حد الائتمان: الرصيد القائم (${currentBalance.toFixed(2)}) + الفاتورة (${grandTotal.toFixed(2)}) يتجاوز الحد المعتمد (${creditLimit.toFixed(2)})`
+          );
+        }
+
+        // Resolve Standard Chart of Accounts via AccountMappings (with legacy code fallback)
+        const arControlAcc = await this.resolveMappedOrCodeAccount(
+          tx,
+          context.tenantId,
+          invoice.legalEntityId,
+          DefaultAccountMappingKey.ACCOUNTS_RECEIVABLE,
+          ['113100', '113000']
         );
-      }
+        const revenueAcc = await this.resolveMappedOrCodeAccount(
+          tx,
+          context.tenantId,
+          invoice.legalEntityId,
+          DefaultAccountMappingKey.SALES,
+          ['411000', '4100']
+        );
+        const vatAcc = await this.resolveMappedOrCodeAccount(
+          tx,
+          context.tenantId,
+          invoice.legalEntityId,
+          DefaultAccountMappingKey.VAT_OUTPUT,
+          ['211200', '212000', '2120']
+        );
 
-      // Resolve Standard Chart of Accounts
-      const arControlAcc = await this.getAccountByCode(tx, context.tenantId, invoice.legalEntityId, '113000');
-      const revenueAcc = await this.getAccountByCode(tx, context.tenantId, invoice.legalEntityId, '411000');
-      const vatAcc = await this.getAccountByCode(tx, context.tenantId, invoice.legalEntityId, '212000');
+        // Post Balanced GL Entry via PostingEngineService linked to the FINAL approved invoice number
+        const journalNumber = `JRN-AR-${finalInvoiceNumber}`;
+        const glEntry = await this.postingEngine.postEntry(
+          context,
+          {
+            legalEntityId: invoice.legalEntityId,
+            branchId: invoice.branchId,
+            journalNumber,
+            journalType: JournalType.GENERAL,
+            sourceType: 'AR_INVOICE',
+            sourceId: invoice.id,
+            description: `استحقاق فاتورة مبيعات آجل رقم ${finalInvoiceNumber}`,
+            lines: [
+              {
+                accountId: arControlAcc.id,
+                partnerId: invoice.partnerId,
+                partnerRole: 'CUSTOMER',
+                subledgerDocumentType: 'AR_INVOICE',
+                subledgerDocumentId: invoice.id,
+                debit: invoice.grandTotal,
+                credit: 0,
+                description: `ذمم مدينة - فاتورة مبيعات ${finalInvoiceNumber}`,
+              },
+              {
+                accountId: revenueAcc.id,
+                debit: 0,
+                credit: invoice.taxableAmount,
+                description: `إيرادات مبيعات - فاتورة ${finalInvoiceNumber}`,
+              },
+              {
+                accountId: vatAcc.id,
+                debit: 0,
+                credit: invoice.taxAmount,
+                description: `ضريبة مخرجات مستحقة - فاتورة ${finalInvoiceNumber}`,
+              },
+            ],
+          },
+          tx
+        );
 
-      // Post Balanced GL Entry via PostingEngineService
-      const journalNumber = `JRN-AR-${invoice.invoiceNumber}`;
-      const glEntry = await this.postingEngine.postEntry(
+        // Update Invoice Status & Final Official Invoice Number
+        const [updatedInvoice] = await tx
+          .update(arInvoices)
+          .set({
+            invoiceNumber: finalInvoiceNumber,
+            status: 'POSTED',
+            journalEntryId: glEntry.id,
+            remainingAmount: invoice.grandTotal,
+          })
+          .where(eq(arInvoices.id, invoice.id))
+          .returning();
+
+        // Upsert Partner Balances
+        if (balance) {
+          await tx
+            .update(partnerBalances)
+            .set({
+              customerBalance: (currentBalance + grandTotal).toFixed(4),
+              lastTransactionAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(partnerBalances.id, balance.id));
+        } else {
+          await tx.insert(partnerBalances).values({
+            tenantId: context.tenantId,
+            legalEntityId: invoice.legalEntityId,
+            partnerId: invoice.partnerId,
+            currency: invoice.currency,
+            customerBalance: grandTotal.toFixed(4),
+          });
+        }
+
+        await this.auditService.log(
+          {
+            tenantId: context.tenantId,
+            actorId: context.userId,
+            action: 'AR_INVOICE_POSTED',
+            entityType: 'AR_INVOICE',
+            entityId: invoice.id,
+            afterState: {
+              draftNumber: invoice.invoiceNumber,
+              invoiceNumber: finalInvoiceNumber,
+              journalEntryId: glEntry.id,
+              grandTotal,
+            },
+          },
+          tx
+        );
+
+        return updatedInvoice;
+      });
+    };
+
+    if (this.documentNumbering) {
+      return await this.documentNumbering.withAllocatedNumber(
         context,
         {
-          legalEntityId: invoice.legalEntityId,
-          branchId: invoice.branchId,
-          journalNumber,
-          journalType: JournalType.GENERAL,
-          sourceType: 'AR_INVOICE',
-          sourceId: invoice.id,
-          description: `استحقاق فاتورة مبيعات آجل رقم ${invoice.invoiceNumber}`,
-          lines: [
-            {
-              accountId: arControlAcc.id,
-              partnerId: invoice.partnerId,
-              partnerRole: 'CUSTOMER',
-              subledgerDocumentType: 'AR_INVOICE',
-              subledgerDocumentId: invoice.id,
-              debit: invoice.grandTotal,
-              credit: 0,
-              description: `ذمم مدينة - فاتورة مبيعات ${invoice.invoiceNumber}`,
-            },
-            {
-              accountId: revenueAcc.id,
-              debit: 0,
-              credit: invoice.taxableAmount,
-              description: `إيرادات مبيعات - فاتورة ${invoice.invoiceNumber}`,
-            },
-            {
-              accountId: vatAcc.id,
-              debit: 0,
-              credit: invoice.taxAmount,
-              description: `ضريبة مخرجات مستحقة - فاتورة ${invoice.invoiceNumber}`,
-            },
-          ],
+          legalEntityId: preCheck.legalEntityId,
+          branchId: preCheck.branchId ?? null,
+          documentType: docType,
+          sourceType: 'ar_invoices',
         },
-        tx
+        async (allocatedNumber) => await executePost(allocatedNumber)
       );
+    }
 
-      // Update Invoice Status
-      const [updatedInvoice] = await tx
-        .update(arInvoices)
-        .set({
-          status: 'POSTED',
-          journalEntryId: glEntry.id,
-          remainingAmount: invoice.grandTotal,
-        })
-        .where(eq(arInvoices.id, invoice.id))
-        .returning();
-
-      // Upsert Partner Balances
-      if (balance) {
-        await tx
-          .update(partnerBalances)
-          .set({
-            customerBalance: (currentBalance + grandTotal).toFixed(4),
-            lastTransactionAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(partnerBalances.id, balance.id));
-      } else {
-        await tx.insert(partnerBalances).values({
-          tenantId: context.tenantId,
-          legalEntityId: invoice.legalEntityId,
-          partnerId: invoice.partnerId,
-          currency: invoice.currency,
-          customerBalance: grandTotal.toFixed(4),
-        });
-      }
-
-      await this.auditService.log(
-        {
-          tenantId: context.tenantId,
-          actorId: context.userId,
-          action: 'AR_INVOICE_POSTED',
-          entityType: 'AR_INVOICE',
-          entityId: invoice.id,
-          afterState: { invoiceNumber: invoice.invoiceNumber, grandTotal },
-        },
-        tx
-      );
-
-      return updatedInvoice;
-    });
+    return await executePost(preCheck.invoiceNumber);
   }
 
   /**

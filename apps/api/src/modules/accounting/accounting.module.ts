@@ -7,9 +7,10 @@ import { ReconciliationService } from './reconciliation.service';
 import { PeriodClosingService } from './period-closing.service';
 import { DatabaseModule } from '../../database/database.module';
 import { AuditModule } from '../audit/audit.module';
+import { OperationsFrameworkModule } from '../../common/operations/operations-framework.module';
 
 @Module({
-  imports: [DatabaseModule, AuditModule],
+  imports: [DatabaseModule, AuditModule, OperationsFrameworkModule],
   controllers: [AccountingController],
   providers: [AccountingService, PostingEngineService, FinancialResourcesService, ReconciliationService, PeriodClosingService],
   exports: [AccountingService, PostingEngineService, FinancialResourcesService, ReconciliationService, PeriodClosingService],

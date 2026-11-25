@@ -12,6 +12,7 @@ import {
   journalEntries,
   journalLines,
   accountMappings,
+  fiscalYears,
   fiscalPeriods,
   cashVaults,
   bankAccounts,
@@ -22,6 +23,7 @@ import {
   JournalStatus,
   JournalType,
   FiscalPeriodStatus,
+  FiscalYearStatus,
   DefaultAccountMappingKey,
 } from '@restaurant-cloud/domain-kernel';
 import { eq, and, sql } from 'drizzle-orm';
@@ -52,6 +54,8 @@ export interface PostJournalParams {
   notes?: string;
   entryDate?: Date;
   lines: PostingLineInput[];
+  /** Internal engine-only bypass strictly for atomic Fiscal Year CLOSING / REVERSAL entries */
+  allowClosingForYearId?: string;
 }
 
 @Injectable()
@@ -286,17 +290,61 @@ export class PostingEngineService {
   }
 
   /**
-   * Validates that the transaction date does not fall within a CLOSED fiscal period.
+   * Validates that the transaction date does not fall within a CLOSED/CLOSING fiscal year
+   * or a CLOSED/CLOSING/LOCKED fiscal period, nor outside approved periods of an existing fiscal year.
    */
   async assertPeriodIsOpen(
     tx: any,
     context: TenantContext,
     legalEntityId: string,
-    entryDate: Date
+    entryDate: Date,
+    options?: { allowClosingForYearId?: string; journalType?: JournalType }
   ): Promise<string | null> {
+    const isAuthorizedYearEndEntry =
+      Boolean(options?.allowClosingForYearId) &&
+      (options?.journalType === JournalType.CLOSING ||
+        options?.journalType === JournalType.REVERSAL);
+
+    // 1. Check Fiscal Years first — blocks posting to any CLOSED fiscal year EVEN IF no period exists for the date
+    const years = await tx
+      .select({
+        id: fiscalYears.id,
+        yearCode: fiscalYears.yearCode,
+        status: fiscalYears.status,
+        startDate: fiscalYears.startDate,
+        endDate: fiscalYears.endDate,
+      })
+      .from(fiscalYears)
+      .where(
+        and(
+          eq(fiscalYears.tenantId, context.tenantId),
+          eq(fiscalYears.legalEntityId, legalEntityId)
+        )
+      );
+
+    const matchedYear = years.find(
+      (y: { startDate: Date; endDate: Date }) =>
+        new Date(y.startDate) <= entryDate && entryDate <= new Date(y.endDate)
+    );
+
+    if (matchedYear) {
+      const isClosedOrClosingYear =
+        matchedYear.status === FiscalYearStatus.CLOSED ||
+        matchedYear.status === FiscalYearStatus.CLOSING;
+      if (isClosedOrClosingYear) {
+        if (!(isAuthorizedYearEndEntry && options?.allowClosingForYearId === matchedYear.id)) {
+          throw new BadRequestException(
+            `لا يمكن إنشاء أو ترحيل قيود في سنة مالية مقفلة أو قيد الإقفال (${matchedYear.yearCode} - ${matchedYear.status})`
+          );
+        }
+      }
+    }
+
+    // 2. Check Fiscal Periods
     const periods = await tx
       .select({
         id: fiscalPeriods.id,
+        fiscalYearId: fiscalPeriods.fiscalYearId,
         periodName: fiscalPeriods.periodName,
         status: fiscalPeriods.status,
         startDate: fiscalPeriods.startDate,
@@ -310,7 +358,7 @@ export class PostingEngineService {
         )
       );
 
-    // If no periods are defined yet, allow posting (open by default)
+    // If no periods are defined yet, allow posting (unless blocked by a closed fiscal year above)
     if (periods.length === 0) return null;
 
     const matchedPeriod = periods.find(
@@ -324,11 +372,25 @@ export class PostingEngineService {
         matchedPeriod.status === FiscalPeriodStatus.CLOSING ||
         matchedPeriod.status === FiscalPeriodStatus.LOCKED
       ) {
+        if (
+          isAuthorizedYearEndEntry &&
+          matchedPeriod.fiscalYearId &&
+          matchedPeriod.fiscalYearId === options?.allowClosingForYearId
+        ) {
+          return matchedPeriod.id;
+        }
         throw new BadRequestException(
           `لا يمكن إنشاء أو ترحيل قيود في فترة مالية مغلقة أو قيد الإقفال (${matchedPeriod.periodName} - ${matchedPeriod.status})`
         );
       }
       return matchedPeriod.id;
+    }
+
+    // If fiscal years exist for this legal entity and the date falls outside all approved periods, block posting
+    if (years.length > 0 && !isAuthorizedYearEndEntry) {
+      throw new BadRequestException(
+        `لا يمكن الترحيل بتاريخ (${entryDate.toISOString().slice(0, 10)}) لعدم وجود فترة مالية معتمدة ومفتوحة تغطي هذا التاريخ`
+      );
     }
 
     return null;
@@ -342,12 +404,16 @@ export class PostingEngineService {
     const runner = async (tx: any) => {
       const entryDate = params.entryDate || new Date();
 
-      // 1. Verify Fiscal Period
+      // 1. Verify Fiscal Year & Fiscal Period
       const fiscalPeriodId = await this.assertPeriodIsOpen(
         tx,
         context,
         params.legalEntityId,
-        entryDate
+        entryDate,
+        {
+          allowClosingForYearId: params.allowClosingForYearId,
+          journalType: params.journalType,
+        }
       );
 
       // 2. Strict Double-Entry Balance Calculation

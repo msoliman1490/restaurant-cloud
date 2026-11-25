@@ -17,6 +17,7 @@ import { OptionalLegalEntityIdPipe } from '../../common/pipes/legal-entity-id.pi
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
   CreateBusinessPartnerSchema,
+  UpdateBusinessPartnerSchema,
   CreatePartnerAddressSchema,
   CreatePartnerContactSchema,
   SetPartnerCompanySettingsSchema,
@@ -33,6 +34,18 @@ export class PartnersController {
   async createPartner(@CurrentContext() context: TenantContext, @Body() body: unknown) {
     const dto = CreateBusinessPartnerSchema.parse(body);
     const data = await this.partnersService.createPartner(context, dto);
+    return { success: true, data };
+  }
+
+  @Patch(':id')
+  @RequirePermissions('partner.edit')
+  async updatePartner(
+    @CurrentContext() context: TenantContext,
+    @Param('id') id: string,
+    @Body() body: unknown
+  ) {
+    const dto = UpdateBusinessPartnerSchema.parse(body);
+    const data = await this.partnersService.updatePartner(context, id, dto);
     return { success: true, data };
   }
 

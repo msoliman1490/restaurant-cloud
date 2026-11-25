@@ -2085,23 +2085,27 @@ export class AccountingService {
       // If totalClosingDebit > totalClosingCredit, we have Net Profit -> Credit Retained Earnings
       // If totalClosingCredit > totalClosingDebit, we have Net Loss -> Debit Retained Earnings
       const diff = totalClosingDebit - totalClosingCredit;
+      const targetRetainedEarningsId = dto.retainedEarningsAccountId;
       if (Math.abs(diff) > 0.0001) {
+        if (!targetRetainedEarningsId) {
+          throw new BadRequestException('يجب تحديد حساب الأرباح المبقاة (retainedEarningsAccountId)');
+        }
         if (diff > 0) {
           // Profit -> Credit Retained Earnings
           closingLines.push({
-            accountId: dto.retainedEarningsAccountId,
+            accountId: targetRetainedEarningsId,
             debit: '0.0000',
             credit: diff.toFixed(4),
-            description: `ترحيل صافي أرباح السنة المالية ${dto.closingFiscalYear} للأرباح المبقاة`,
+            description: `ترحيل صافي أرباح السنة المالية ${dto.closingFiscalYear || ''} للأرباح المبقاة`,
           });
         } else {
           // Loss -> Debit Retained Earnings
           const absDiff = Math.abs(diff);
           closingLines.push({
-            accountId: dto.retainedEarningsAccountId,
+            accountId: targetRetainedEarningsId,
             debit: absDiff.toFixed(4),
             credit: '0.0000',
-            description: `ترحيل صافي خسائر السنة المالية ${dto.closingFiscalYear} للأرباح المبقاة`,
+            description: `ترحيل صافي خسائر السنة المالية ${dto.closingFiscalYear || ''} للأرباح المبقاة`,
           });
         }
       }
@@ -2115,11 +2119,11 @@ export class AccountingService {
         context,
         {
           legalEntityId: dto.legalEntityId,
-          journalNumber: dto.closingJournalNumber,
+          journalNumber: dto.closingJournalNumber || `JV-CLOSE-${Date.now().toString(36).toUpperCase()}`,
           journalType: JournalType.CLOSING,
           sourceType: 'year_end_closing',
-          sourceId: dto.retainedEarningsAccountId,
-          description: `قيد إقفال السنة المالية ${dto.closingFiscalYear}`,
+          sourceId: targetRetainedEarningsId || dto.legalEntityId,
+          description: `قيد إقفال السنة المالية ${dto.closingFiscalYear || ''}`,
           lines: closingLines,
         },
         tx

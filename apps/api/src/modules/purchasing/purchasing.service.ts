@@ -1375,6 +1375,19 @@ export class PurchasingService {
         .values(preparedLines.map((l) => ({ ...l, tenantId: context.tenantId, invoiceId: invoice.id })))
         .returning();
 
+      // Ensure supplier balance row exists atomically before locking (prevents concurrent first-invoice unique violation)
+      await tx
+        .insert(supplierBalances)
+        .values({
+          tenantId: context.tenantId,
+          legalEntityId: dto.legalEntityId,
+          supplierId: dto.supplierId,
+          currentBalance: '0.0000',
+          totalInvoiced: '0.0000',
+          totalPaid: '0.0000',
+        })
+        .onConflictDoNothing();
+
       // Update Supplier Balance (AP subledger) with row lock
       const [existingBal] = await tx
         .select()
@@ -1646,6 +1659,19 @@ export class PurchasingService {
           tx
         );
       }
+
+      // Ensure supplier balance row exists atomically before locking (prevents concurrent first-return unique violation)
+      await tx
+        .insert(supplierBalances)
+        .values({
+          tenantId: context.tenantId,
+          legalEntityId: dto.legalEntityId,
+          supplierId: dto.supplierId,
+          currentBalance: '0.0000',
+          totalInvoiced: '0.0000',
+          totalPaid: '0.0000',
+        })
+        .onConflictDoNothing();
 
       // Adjust supplier balance (debit balance / reduce debt) with row lock
       const [bal] = await tx

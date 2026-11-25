@@ -22,6 +22,7 @@ import {
   CreatePartnerAddressRequest,
   CreatePartnerContactRequest,
   SetPartnerCompanySettingsRequest,
+  NationalAddressInput,
 } from '@restaurant-cloud/shared-contracts';
 import { TenantContext } from '@restaurant-cloud/domain-kernel';
 import { eq, and, sql, or, ilike, desc, asc, inArray } from 'drizzle-orm';
@@ -32,6 +33,92 @@ export class PartnersService {
     private readonly dbService: DatabaseService,
     private readonly auditService: AuditService
   ) {}
+
+  private toNationalAddressDto(row: any) {
+    if (!row) return null;
+    return {
+      shortAddress: row.shortAddress || '',
+      buildingNumber: row.buildingNumber || '',
+      streetName: row.streetName || '',
+      district: row.districtName || '',
+      city: row.city || '',
+      postalCode: row.postalCode || '',
+      additionalNumber: row.additionalNumber || '',
+      unitNumber: row.unitNumber || '',
+      country: row.country || 'المملكة العربية السعودية',
+    };
+  }
+
+  private hasNationalAddressData(addr?: NationalAddressInput | null): boolean {
+    if (!addr) return false;
+    return Boolean(
+      addr.shortAddress?.trim() ||
+        addr.buildingNumber?.trim() ||
+        addr.streetName?.trim() ||
+        addr.district?.trim() ||
+        addr.city?.trim() ||
+        addr.postalCode?.trim() ||
+        addr.additionalNumber?.trim() ||
+        addr.unitNumber?.trim()
+    );
+  }
+
+  private async upsertNationalAddressInTx(
+    tx: any,
+    tenantId: string,
+    partnerId: string,
+    addr?: NationalAddressInput | null
+  ) {
+    if (!addr || !this.hasNationalAddressData(addr)) {
+      return null;
+    }
+
+    const [existing] = await tx
+      .select()
+      .from(partnerAddresses)
+      .where(
+        and(
+          eq(partnerAddresses.tenantId, tenantId),
+          eq(partnerAddresses.partnerId, partnerId),
+          eq(partnerAddresses.addressType, 'NATIONAL_ADDRESS')
+        )
+      )
+      .limit(1);
+
+    const payload = {
+      shortAddress: addr.shortAddress?.trim() ? addr.shortAddress.trim().toUpperCase() : null,
+      buildingNumber: addr.buildingNumber?.trim() || null,
+      streetName: addr.streetName?.trim() || null,
+      districtName: addr.district?.trim() || null,
+      city: addr.city?.trim() || null,
+      postalCode: addr.postalCode?.trim() || null,
+      additionalNumber: addr.additionalNumber?.trim() || null,
+      unitNumber: addr.unitNumber?.trim() || null,
+      country: addr.country?.trim() || 'المملكة العربية السعودية',
+      countryCode: 'SA',
+      isPrimary: true,
+    };
+
+    if (existing) {
+      const [updated] = await tx
+        .update(partnerAddresses)
+        .set(payload)
+        .where(eq(partnerAddresses.id, existing.id))
+        .returning();
+      return this.toNationalAddressDto(updated);
+    }
+
+    const [inserted] = await tx
+      .insert(partnerAddresses)
+      .values({
+        tenantId,
+        partnerId,
+        addressType: 'NATIONAL_ADDRESS',
+        ...payload,
+      })
+      .returning();
+    return this.toNationalAddressDto(inserted);
+  }
 
   /**
    * Create a unified business partner with roles, verifying VAT/CRN uniqueness per tenant.
@@ -129,6 +216,13 @@ export class PartnersService {
         });
       }
 
+      const savedAddress = await this.upsertNationalAddressInTx(
+        tx,
+        context.tenantId,
+        partner.id,
+        dto.nationalAddress
+      );
+
       // 6. Audit Trail
       await this.auditService.log(
         {
@@ -137,12 +231,95 @@ export class PartnersService {
           action: 'BUSINESS_PARTNER_CREATED',
           entityType: 'BUSINESS_PARTNER',
           entityId: partner.id,
-          afterState: { partnerNumber: partner.partnerNumber, roles: dto.roles },
+          afterState: { partnerNumber: partner.partnerNumber, roles: dto.roles, hasNationalAddress: Boolean(savedAddress) },
         },
         tx
       );
 
-      return partner;
+      return {
+        ...partner,
+        nationalAddress: savedAddress,
+      };
+    });
+  }
+
+  /**
+   * Update a unified business partner (Customer / Supplier) and its National Address.
+   */
+  async updatePartner(context: TenantContext, partnerId: string, dto: UpdateBusinessPartnerRequest) {
+    return await this.dbService.withTenantContext(context, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(businessPartners)
+        .where(and(eq(businessPartners.tenantId, context.tenantId), eq(businessPartners.id, partnerId)))
+        .limit(1);
+
+      if (!existing) {
+        throw new NotFoundException(`الطرف التجاري غير موجود: ${partnerId}`);
+      }
+
+      const updateFields: Record<string, any> = {
+        updatedAt: new Date(),
+        updatedBy: context.userId,
+      };
+      if (dto.partnerType !== undefined) updateFields.partnerType = dto.partnerType;
+      if (dto.legalNameAr !== undefined) updateFields.legalNameAr = dto.legalNameAr;
+      if (dto.legalNameEn !== undefined) updateFields.legalNameEn = dto.legalNameEn;
+      if (dto.tradeNameAr !== undefined) updateFields.tradeNameAr = dto.tradeNameAr;
+      if (dto.tradeNameEn !== undefined) updateFields.tradeNameEn = dto.tradeNameEn;
+      if (dto.taxIdentificationNumber !== undefined) updateFields.taxIdentificationNumber = dto.taxIdentificationNumber;
+      if (dto.commercialRegistrationNumber !== undefined) updateFields.commercialRegistrationNumber = dto.commercialRegistrationNumber;
+      if (dto.nationalIdOrIqama !== undefined) updateFields.nationalIdOrIqama = dto.nationalIdOrIqama;
+      if (dto.primaryEmail !== undefined) updateFields.primaryEmail = dto.primaryEmail;
+      if (dto.primaryPhone !== undefined) updateFields.primaryPhone = dto.primaryPhone;
+      if (dto.website !== undefined) updateFields.website = dto.website;
+      if (dto.notes !== undefined) updateFields.notes = dto.notes;
+
+      const [updated] = await tx
+        .update(businessPartners)
+        .set(updateFields)
+        .where(eq(businessPartners.id, partnerId))
+        .returning();
+
+      let savedAddress: any = undefined;
+      if (dto.nationalAddress !== undefined) {
+        savedAddress = await this.upsertNationalAddressInTx(
+          tx,
+          context.tenantId,
+          partnerId,
+          dto.nationalAddress
+        );
+      } else {
+        const [addrRow] = await tx
+          .select()
+          .from(partnerAddresses)
+          .where(
+            and(
+              eq(partnerAddresses.tenantId, context.tenantId),
+              eq(partnerAddresses.partnerId, partnerId),
+              eq(partnerAddresses.addressType, 'NATIONAL_ADDRESS')
+            )
+          )
+          .limit(1);
+        savedAddress = this.toNationalAddressDto(addrRow);
+      }
+
+      await this.auditService.log(
+        {
+          tenantId: context.tenantId,
+          actorId: context.userId,
+          action: 'BUSINESS_PARTNER_UPDATED',
+          entityType: 'BUSINESS_PARTNER',
+          entityId: partnerId,
+          afterState: { updateFields, hasNationalAddress: Boolean(savedAddress) },
+        },
+        tx
+      );
+
+      return {
+        ...updated,
+        nationalAddress: savedAddress,
+      };
     });
   }
 
@@ -220,9 +397,13 @@ export class PartnersService {
         .from(partnerBalances)
         .where(and(...balanceConditions));
 
+      const primaryNatAddr =
+        addresses.find((a) => a.addressType === 'NATIONAL_ADDRESS') || addresses[0] || null;
+
       return {
         partner,
         roles: roles.map((r) => r.roleType),
+        nationalAddress: this.toNationalAddressDto(primaryNatAddr),
         addresses,
         contacts,
         companySettings: settings,
@@ -371,6 +552,21 @@ export class PartnersService {
       const arMap = new Map(arAggRows.map((a) => [a.partnerId, a]));
       const apMap = new Map(apAggRows.map((a) => [a.partnerId, a]));
 
+      const addrRows =
+        ids.length > 0
+          ? await tx
+              .select()
+              .from(partnerAddresses)
+              .where(
+                and(
+                  eq(partnerAddresses.tenantId, context.tenantId),
+                  inArray(partnerAddresses.partnerId, ids),
+                  eq(partnerAddresses.addressType, 'NATIONAL_ADDRESS')
+                )
+              )
+          : [];
+      const addrMap = new Map(addrRows.map((a) => [a.partnerId, this.toNationalAddressDto(a)]));
+
       const items = rawItems.map((item) => {
         const bal = balMap.get(item.id) ?? { arBalance: 0, apBalance: 0 };
         const arAgg = arMap.get(item.id);
@@ -378,6 +574,7 @@ export class PartnersService {
         return {
           ...item,
           roles: rolesMap.get(item.id) ?? [],
+          nationalAddress: addrMap.get(item.id) ?? null,
           arBalance: bal.arBalance,
           apBalance: bal.apBalance,
           totalSales: Number(arAgg?.totalSales || 0),

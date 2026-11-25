@@ -7,6 +7,7 @@ import {
   Param,
   Query,
   Body,
+  Headers,
   UseGuards,
 } from '@nestjs/common';
 import { AccountingService } from './accounting.service';
@@ -14,6 +15,7 @@ import { z } from 'zod';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions, RequireAnyPermissions } from '../../common/decorators/permissions.decorator';
+import { RequireIdempotencyKey } from '../../common/decorators/require-idempotency.decorator';
 import { CurrentContext } from '../../common/decorators/current-context.decorator';
 import {
   OptionalLegalEntityIdPipe,
@@ -50,6 +52,9 @@ import {
   CreateReceiptVoucherSchema,
   CreateExpenseSchema,
   YearEndClosingSchema,
+  CloseFiscalYearSchema,
+  OpenNextFiscalYearSchema,
+  ReopenFiscalYearSchema,
   FinancialReportQuerySchema,
   VatReturnReportQuerySchema,
   AgingReportQuerySchema,
@@ -769,23 +774,42 @@ export class AccountingController {
   }
 
   @Post('fiscal-periods/close')
-  @RequirePermissions('accounting.period.manage')
+  @RequireAnyPermissions('accounting.period.close', 'accounting.period.manage')
+  @RequireIdempotencyKey()
   async closeFiscalPeriod(
     @CurrentContext() context: TenantContext,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers('idempotency-key') headerIdempKey?: string
   ) {
     const validatedDto = CloseFiscalPeriodSchema.parse(body);
-    const data = await this.accountingService.closeFiscalPeriod(context, validatedDto);
+    const data = await this.periodClosingService.closeFiscalPeriod(context, {
+      periodId: validatedDto.periodId,
+      idempotencyKey: headerIdempKey || undefined,
+    });
     return { success: true, data };
   }
 
   @Post('fiscal-periods/year-end-close')
-  @RequirePermissions('accounting.period.manage')
+  @RequireAnyPermissions('accounting.fiscal_year.close', 'accounting.period.manage')
+  @RequireIdempotencyKey()
   async closeFiscalYear(
     @CurrentContext() context: TenantContext,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers('idempotency-key') headerIdempKey?: string
   ) {
     const validatedDto = YearEndClosingSchema.parse(body);
+    if (validatedDto.fiscalYearId) {
+      const data = await this.periodClosingService.closeFiscalYear(context, {
+        fiscalYearId: validatedDto.fiscalYearId,
+        retainedEarningsAccountId: validatedDto.retainedEarningsAccountId,
+        autoOpenNextYear: validatedDto.autoOpenNextYear,
+        nextYearCode: validatedDto.nextYearCode,
+        nextYearName: validatedDto.nextYearName,
+        idempotencyKey: validatedDto.idempotencyKey || headerIdempKey || undefined,
+        notes: validatedDto.notes,
+      });
+      return { success: true, data };
+    }
     const data = await this.accountingService.closeFiscalYear(context, validatedDto);
     return { success: true, data };
   }
@@ -1197,6 +1221,95 @@ export class AccountingController {
     @Query('branchId') branchId?: string
   ) {
     const data = await this.periodClosingService.getFinalTrialBalanceReport(context, periodId, branchId || undefined);
+    return { success: true, data };
+  }
+
+  // ==================================================================
+  // Priority 3 — Fiscal Year Closing, Opening Balances & Reopening
+  // ==================================================================
+
+  @Post('fiscal-years/:id/pre-check')
+  @RequireAnyPermissions('accounting.fiscal_year.close', 'accounting.period.manage')
+  async preCheckFiscalYear(
+    @CurrentContext() context: TenantContext,
+    @Param('id') fiscalYearId: string,
+    @Query('retainedEarningsAccountId') retainedEarningsAccountId?: string
+  ) {
+    const data = await this.periodClosingService.runYearEndPreChecks(
+      context,
+      fiscalYearId,
+      retainedEarningsAccountId || undefined
+    );
+    return { success: true, data };
+  }
+
+  @Post('fiscal-years/:id/close')
+  @RequireAnyPermissions('accounting.fiscal_year.close', 'accounting.period.manage')
+  @RequireIdempotencyKey()
+  async closeFiscalYearById(
+    @CurrentContext() context: TenantContext,
+    @Param('id') fiscalYearId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') headerIdempKey?: string
+  ) {
+    const validated = CloseFiscalYearSchema.optional().default({}).parse(body);
+    const data = await this.periodClosingService.closeFiscalYear(context, {
+      fiscalYearId,
+      retainedEarningsAccountId: validated.retainedEarningsAccountId,
+      autoOpenNextYear: validated.autoOpenNextYear,
+      nextYearCode: validated.nextYearCode,
+      nextYearName: validated.nextYearName,
+      idempotencyKey: validated.idempotencyKey || headerIdempKey || undefined,
+      notes: validated.notes,
+    });
+    return { success: true, data };
+  }
+
+  @Post('fiscal-years/:id/open-next')
+  @RequireAnyPermissions('accounting.fiscal_year.open_next', 'accounting.fiscal_year.close', 'accounting.period.manage')
+  @RequireIdempotencyKey()
+  async openNextFiscalYear(
+    @CurrentContext() context: TenantContext,
+    @Param('id') sourceFiscalYearId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') headerIdempKey?: string
+  ) {
+    const validated = OpenNextFiscalYearSchema.optional().default({}).parse(body);
+    const data = await this.periodClosingService.openNextFiscalYear(context, {
+      sourceFiscalYearId,
+      nextYearCode: validated.nextYearCode,
+      nextYearName: validated.nextYearName,
+      generateMonthlyPeriods: validated.generateMonthlyPeriods,
+      idempotencyKey: validated.idempotencyKey || headerIdempKey || undefined,
+    });
+    return { success: true, data };
+  }
+
+  @Post('fiscal-years/:id/reopen')
+  @RequirePermissions('accounting.fiscal_year.reopen')
+  @RequireIdempotencyKey()
+  async reopenFiscalYear(
+    @CurrentContext() context: TenantContext,
+    @Param('id') fiscalYearId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') headerIdempKey?: string
+  ) {
+    const validated = ReopenFiscalYearSchema.parse(body);
+    const data = await this.periodClosingService.reopenFiscalYear(context, {
+      fiscalYearId,
+      reason: validated.reason,
+      idempotencyKey: validated.idempotencyKey || headerIdempKey || undefined,
+    });
+    return { success: true, data };
+  }
+
+  @Get('fiscal-years/:id/opening-balances')
+  @RequireAnyPermissions('accounting.period.view', 'accounting.period.manage', 'accounting.reports.view')
+  async getFiscalYearOpeningBalances(
+    @CurrentContext() context: TenantContext,
+    @Param('id') fiscalYearId: string
+  ) {
+    const data = await this.periodClosingService.getFiscalYearOpeningBalances(context, fiscalYearId);
     return { success: true, data };
   }
 }

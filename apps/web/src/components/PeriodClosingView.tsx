@@ -121,6 +121,15 @@ export const PeriodClosingView: React.FC = () => {
   const [closeTarget, setCloseTarget] = useState<FiscalPeriodRow | null>(null);
   const [closeNotes, setCloseNotes] = useState('');
 
+  // Priority 3: Fiscal Year Closing, Opening Balances & Reopening Modals
+  const [fyCloseTarget, setFyCloseTarget] = useState<FiscalYearRow | null>(null);
+  const [fyAutoOpenNext, setFyAutoOpenNext] = useState(true);
+  const [fyCloseNotes, setFyCloseNotes] = useState('');
+  const [fyPrecheckResult, setFyPrecheckResult] = useState<any | null>(null);
+  const [fyReopenTarget, setFyReopenTarget] = useState<FiscalYearRow | null>(null);
+  const [fyReopenReason, setFyReopenReason] = useState('');
+  const [fyOpeningView, setFyOpeningView] = useState<any | null>(null);
+
   useEffect(() => {
     if (!showYearModal && !showPeriodModal && !showCloseModal && !showReopenModal) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -318,6 +327,79 @@ export const PeriodClosingView: React.FC = () => {
     }
   };
 
+  const handleFyPrecheck = async (fy: FiscalYearRow) => {
+    try {
+      const res = await apiClient.post<any>(`/api/v1/accounting/fiscal-years/${fy.id}/pre-check`, {});
+      const data = res.data || res;
+      setFyPrecheckResult({ fy, ...data });
+      showToast(
+        data.canClose ? 'السنة المالية جاهزة للإقفال' : `توجد ${data.blockersCount} عوائق تمنع إقفال السنة`,
+        data.canClose ? 'success' : 'error',
+      );
+    } catch (err: any) {
+      showToast(err?.message || 'تعذر تنفيذ فحص إقفال السنة المالية', 'error');
+    }
+  };
+
+  const handleCloseFiscalYear = async () => {
+    if (!fyCloseTarget) return;
+    try {
+      await apiClient.post(`/api/v1/accounting/fiscal-years/${fyCloseTarget.id}/close`, {
+        autoOpenNextYear: fyAutoOpenNext,
+        notes: fyCloseNotes || undefined,
+        idempotencyKey: `fy-close-${fyCloseTarget.id}-${Date.now()}`,
+      });
+      setFyCloseTarget(null);
+      setFyCloseNotes('');
+      showToast('تم إقفال السنة المالية بنجاح وترحيل صافي النتيجة للأرباح المبقاة', 'success');
+      await loadYearsAndPeriods();
+    } catch (err: any) {
+      showToast(err?.message || 'تعذر إقفال السنة المالية', 'error');
+    }
+  };
+
+  const handleOpenNextFiscalYear = async (fy: FiscalYearRow) => {
+    try {
+      await apiClient.post(`/api/v1/accounting/fiscal-years/${fy.id}/open-next`, {
+        generateMonthlyPeriods: true,
+        idempotencyKey: `fy-open-next-${fy.id}-${Date.now()}`,
+      });
+      showToast('تم فتح السنة المالية التالية وترحيل الأرصدة الافتتاحية بنجاح', 'success');
+      await loadYearsAndPeriods();
+    } catch (err: any) {
+      showToast(err?.message || 'تعذر فتح السنة المالية التالية', 'error');
+    }
+  };
+
+  const handleReopenFiscalYear = async () => {
+    if (!fyReopenTarget) return;
+    if (fyReopenReason.trim().length < 10) {
+      showToast('سبب إعادة فتح السنة المالية يجب أن لا يقل عن 10 أحرف', 'error');
+      return;
+    }
+    try {
+      await apiClient.post(`/api/v1/accounting/fiscal-years/${fyReopenTarget.id}/reopen`, {
+        reason: fyReopenReason.trim(),
+        idempotencyKey: `fy-reopen-${fyReopenTarget.id}-${Date.now()}`,
+      });
+      setFyReopenTarget(null);
+      setFyReopenReason('');
+      showToast('تمت إعادة فتح السنة المالية وعكس قيد الإقفال بقيد عكسي معتمد', 'success');
+      await loadYearsAndPeriods();
+    } catch (err: any) {
+      showToast(err?.message || 'تعذر إعادة فتح السنة المالية', 'error');
+    }
+  };
+
+  const handleViewOpeningBalances = async (fy: FiscalYearRow) => {
+    try {
+      const res = await apiClient.get<any>(`/api/v1/accounting/fiscal-years/${fy.id}/opening-balances`);
+      setFyOpeningView(res.data || res);
+    } catch (err: any) {
+      showToast(err?.message || 'تعذر تحميل الأرصدة الافتتاحية', 'error');
+    }
+  };
+
   const statusBadge = (status: string) => {
     if (status === 'OPEN') {
       return <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">مفتوحة (OPEN)</span>;
@@ -430,15 +512,54 @@ export const PeriodClosingView: React.FC = () => {
           {fiscalYears.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {fiscalYears.map((fy) => (
-                <div key={fy.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div key={fy.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-slate-900">{fy.yearCode}</span>
-                    <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{fy.status}</span>
+                    {statusBadge(fy.status)}
                   </div>
-                  <p className="text-sm text-slate-600 mt-1">{fy.yearName}</p>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-sm text-slate-600">{fy.yearName}</p>
+                  <p className="text-xs text-slate-400">
                     {String(fy.startDate).slice(0, 10)} — {String(fy.endDate).slice(0, 10)}
                   </p>
+                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
+                    {fy.status !== 'CLOSED' ? (
+                      <>
+                        <button
+                          onClick={() => handleFyPrecheck(fy)}
+                          className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100"
+                        >
+                          فحص السنة
+                        </button>
+                        <button
+                          onClick={() => setFyCloseTarget(fy)}
+                          className="px-2 py-1 text-xs rounded bg-rose-50 text-rose-700 hover:bg-rose-100 inline-flex items-center gap-1"
+                        >
+                          <Lock className="w-3 h-3" /> إقفال السنة
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleOpenNextFiscalYear(fy)}
+                          className="px-2 py-1 text-xs rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        >
+                          فتح السنة التالية
+                        </button>
+                        <button
+                          onClick={() => setFyReopenTarget(fy)}
+                          className="px-2 py-1 text-xs rounded bg-amber-50 text-amber-700 hover:bg-amber-100 inline-flex items-center gap-1"
+                        >
+                          <Unlock className="w-3 h-3" /> إعادة فتح السنة
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => handleViewOpeningBalances(fy)}
+                      className="px-2 py-1 text-xs rounded bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    >
+                      الأرصدة الافتتاحية
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -831,6 +952,128 @@ export const PeriodClosingView: React.FC = () => {
               <button onClick={() => setShowReopenModal(false)} className="px-4 py-2 border rounded-lg text-sm">إلغاء</button>
               <button onClick={handleReopenPeriod} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium">تأكيد إعادة الفتح</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Fiscal Year Pre-Check */}
+      {fyPrecheckResult && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-lg">فحص جاهزية إقفال السنة: {fyPrecheckResult.fy.yearCode}</h3>
+              <button onClick={() => setFyPrecheckResult(null)}><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-2">
+              {(fyPrecheckResult.checks || []).map((c: any) => (
+                <div key={c.code} className="p-3 rounded-lg border border-slate-200 flex items-start justify-between gap-2 text-sm">
+                  <div>
+                    <div className="font-semibold text-slate-800">{c.title}</div>
+                    <div className="text-xs text-slate-600 mt-0.5">{c.message}</div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${c.severity === 'PASS' ? 'bg-emerald-100 text-emerald-700' : c.severity === 'WARNING' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
+                    {c.severity}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Close Fiscal Year */}
+      {fyCloseTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
+            <h3 className="font-bold text-lg text-rose-700">تأكيد إقفال السنة المالية: {fyCloseTarget.yearCode}</h3>
+            <p className="text-sm text-slate-600">
+              سيتم تصفير حسابات الإيرادات والمصروفات وترحيل صافي الربح/الخسارة إلى الأرباح المبقاة (Retained Earnings)، وقفل جميع الفترات الـ 12 نهائياً.
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={fyAutoOpenNext} onChange={(e) => setFyAutoOpenNext(e.target.checked)} />
+              فتح السنة المالية التالية وتوثيق الأرصدة الافتتاحية تلقائياً
+            </label>
+            <textarea
+              value={fyCloseNotes}
+              onChange={(e) => setFyCloseNotes(e.target.value)}
+              placeholder="ملاحظات الإقفال السنوي (اختياري)"
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              rows={3}
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setFyCloseTarget(null)} className="px-4 py-2 border rounded-lg text-sm">إلغاء</button>
+              <button onClick={handleCloseFiscalYear} className="px-4 py-2 bg-rose-600 text-white rounded-lg text-sm font-medium">إقفال السنة نهائياً</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Reopen Fiscal Year */}
+      {fyReopenTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
+            <h3 className="font-bold text-lg text-amber-700">إعادة فتح السنة المالية: {fyReopenTarget.yearCode}</h3>
+            <p className="text-sm text-slate-600">
+              يتطلب صلاحية مستقلة (accounting.fiscal_year.reopen)؛ سيتم إنشاء قيد عكسي (REVERSAL) لقيد الإقفال دون تعديل القيود التاريخية.
+            </p>
+            <textarea
+              value={fyReopenReason}
+              onChange={(e) => setFyReopenReason(e.target.value)}
+              placeholder="سبب إعادة الفتح (إلزامي، 10 أحرف على الأقل)"
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              rows={3}
+              required
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setFyReopenTarget(null)} className="px-4 py-2 border rounded-lg text-sm">إلغاء</button>
+              <button onClick={handleReopenFiscalYear} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium">تأكيد إعادة الفتح</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Fiscal Year Opening Balances */}
+      {fyOpeningView && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-lg">الأرصدة الافتتاحية — {fyOpeningView.fiscalYear?.yearCode}</h3>
+              <button onClick={() => setFyOpeningView(null)}><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              <span className="px-2.5 py-1 rounded bg-slate-100">إجمالي المدين: <b>{fyOpeningView.totals?.totalDebit}</b></span>
+              <span className="px-2.5 py-1 rounded bg-slate-100">إجمالي الدائن: <b>{fyOpeningView.totals?.totalCredit}</b></span>
+              <span className={`px-2.5 py-1 rounded font-bold ${fyOpeningView.totals?.isBalanced ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                {fyOpeningView.totals?.isBalanced ? 'متوازن 100%' : 'غير متوازن'}
+              </span>
+            </div>
+            <table className="w-full text-xs text-right border-t border-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="p-2">رمز الحساب</th>
+                  <th className="p-2">اسم الحساب</th>
+                  <th className="p-2">النوع</th>
+                  <th className="p-2">مدين افتتاحي</th>
+                  <th className="p-2">دائن افتتاحي</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(fyOpeningView.balances || []).map((b: any) => (
+                  <tr key={b.id}>
+                    <td className="p-2 font-mono">{b.accountCode}</td>
+                    <td className="p-2">{b.accountName}</td>
+                    <td className="p-2">{b.accountType}</td>
+                    <td className="p-2 font-mono">{b.openingDebit}</td>
+                    <td className="p-2 font-mono">{b.openingCredit}</td>
+                  </tr>
+                ))}
+                {(fyOpeningView.balances || []).length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center text-slate-400">لا توجد أرصدة افتتاحية مرحّلة لهذه السنة بعد</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

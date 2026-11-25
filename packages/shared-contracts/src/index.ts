@@ -1552,12 +1552,41 @@ export type CreateExpenseRequest = z.infer<typeof CreateExpenseSchema>;
 
 export const YearEndClosingSchema = z.object({
   legalEntityId: z.string().uuid(),
-  closingFiscalYear: z.string().min(4).max(10),
-  retainedEarningsAccountId: z.string().uuid(),
-  closingJournalNumber: z.string().min(1).max(50),
-  notes: z.string().max(500).optional(),
+  fiscalYearId: z.string().uuid().optional(),
+  closingFiscalYear: z.string().min(4).max(30).optional(),
+  retainedEarningsAccountId: z.string().uuid().optional(),
+  closingJournalNumber: z.string().min(1).max(50).optional(),
+  autoOpenNextYear: z.boolean().optional().default(false),
+  nextYearCode: z.string().min(2).max(30).optional(),
+  nextYearName: z.string().min(2).max(100).optional(),
+  idempotencyKey: z.string().min(3).max(255).optional(),
+  notes: z.string().max(1000).optional(),
 });
 export type YearEndClosingRequest = z.infer<typeof YearEndClosingSchema>;
+
+export const CloseFiscalYearSchema = z.object({
+  retainedEarningsAccountId: z.string().uuid().optional(),
+  autoOpenNextYear: z.boolean().optional().default(false),
+  nextYearCode: z.string().min(2).max(30).optional(),
+  nextYearName: z.string().min(2).max(100).optional(),
+  idempotencyKey: z.string().min(3).max(255).optional(),
+  notes: z.string().max(1000).optional(),
+});
+export type CloseFiscalYearRequest = z.infer<typeof CloseFiscalYearSchema>;
+
+export const OpenNextFiscalYearSchema = z.object({
+  nextYearCode: z.string().min(2).max(30).optional(),
+  nextYearName: z.string().min(2).max(100).optional(),
+  generateMonthlyPeriods: z.boolean().optional().default(true),
+  idempotencyKey: z.string().min(3).max(255).optional(),
+});
+export type OpenNextFiscalYearRequest = z.infer<typeof OpenNextFiscalYearSchema>;
+
+export const ReopenFiscalYearSchema = z.object({
+  reason: z.string().min(10, 'سبب إعادة فتح السنة المالية يجب أن لا يقل عن 10 أحرف').max(1000),
+  idempotencyKey: z.string().min(3).max(255).optional(),
+});
+export type ReopenFiscalYearRequest = z.infer<typeof ReopenFiscalYearSchema>;
 
 // ====================================================================
 // 25. Financial Reports & Tax Queries
@@ -1590,6 +1619,33 @@ export type AgingReportQuery = z.infer<typeof AgingReportQuerySchema>;
 // 26. Business Partners Master (سجل الأطراف الموحد)
 // ====================================================================
 
+export const NationalAddressSchema = z.object({
+  shortAddress: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^[A-Za-z]{4}\d{4}$/.test(v), {
+      message: 'العنوان المختصر يجب أن يتكون من 4 أحرف إنجليزية متبوعة بـ 4 أرقام (مثال: RNAD2323)',
+    })
+    .optional()
+    .nullable(),
+  buildingNumber: z.string().trim().max(10).optional().nullable(),
+  streetName: z.string().trim().max(255).optional().nullable(),
+  district: z.string().trim().max(100).optional().nullable(),
+  city: z.string().trim().max(100).optional().nullable(),
+  postalCode: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^\d{5}$/.test(v), {
+      message: 'الرمز البريدي يجب أن يتكون من 5 أرقام',
+    })
+    .optional()
+    .nullable(),
+  additionalNumber: z.string().trim().max(10).optional().nullable(),
+  unitNumber: z.string().trim().max(20).optional().nullable(),
+  country: z.string().trim().max(100).default('المملكة العربية السعودية').optional().nullable(),
+});
+export type NationalAddressInput = z.infer<typeof NationalAddressSchema>;
+
 export const CreateBusinessPartnerSchema = z.object({
   partnerNumber: z.string().min(1).max(50),
   partnerType: z.enum(['CORPORATE', 'INDIVIDUAL']).default('CORPORATE'),
@@ -1605,6 +1661,7 @@ export const CreateBusinessPartnerSchema = z.object({
   website: z.string().max(255).optional().nullable(),
   roles: z.array(z.enum(['CUSTOMER', 'VENDOR', 'EMPLOYEE', 'BROKER'])).min(1),
   notes: z.string().max(1000).optional().nullable(),
+  nationalAddress: NationalAddressSchema.optional().nullable(),
 });
 export type CreateBusinessPartnerRequest = z.infer<typeof CreateBusinessPartnerSchema>;
 
@@ -1613,13 +1670,15 @@ export type UpdateBusinessPartnerRequest = z.infer<typeof UpdateBusinessPartnerS
 
 export const CreatePartnerAddressSchema = z.object({
   addressType: z.enum(['NATIONAL_ADDRESS', 'BILLING', 'SHIPPING', 'BRANCH_SITE']).default('NATIONAL_ADDRESS'),
-  buildingNumber: z.string().min(1).max(10),
-  streetName: z.string().min(2).max(255),
-  districtName: z.string().min(2).max(100),
-  city: z.string().min(2).max(100),
-  postalCode: z.string().min(4).max(20),
+  buildingNumber: z.string().max(10).optional().nullable(),
+  streetName: z.string().max(255).optional().nullable(),
+  districtName: z.string().max(100).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
+  postalCode: z.string().max(20).optional().nullable(),
   additionalNumber: z.string().max(10).optional().nullable(),
-  countryCode: z.string().length(3).default('SA'),
+  unitNumber: z.string().max(20).optional().nullable(),
+  countryCode: z.string().max(3).default('SA'),
+  country: z.string().max(100).default('المملكة العربية السعودية'),
   shortAddress: z.string().max(20).optional().nullable(),
   isPrimary: z.boolean().default(false),
 });

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit/audit.service';
+import { CoaProvisioningService } from '../../common/operations/coa-provisioning.service';
 import { CryptoUtil } from '../iam/crypto.util';
 import { invalidateTenantCache } from '../../common/guards/tenant-context.guard';
 import {
@@ -87,7 +88,8 @@ const SECRET_CONFIG_KEYS = new Set([
 export class TenantService implements OnModuleInit {
   constructor(
     private readonly dbService: DatabaseService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly coaProvisioning: CoaProvisioningService
   ) {}
 
   onModuleInit() {
@@ -208,6 +210,13 @@ export class TenantService implements OnModuleInit {
 
       if (!newLegalEntity) throw new Error('Failed to create legal entity');
 
+      // 3b. Automatically provision standard Chart of Accounts, Account Mappings & Document Sequences
+      await this.coaProvisioning.provisionLegalEntityDefaultsInTx(tx, {
+        tenantId: newTenant.id,
+        legalEntityId: newLegalEntity.id,
+        currency: newLegalEntity.functionalCurrency || 'SAR',
+      });
+
       // 4. Create Initial Operational Branch
       const [newBranch] = await tx
         .insert(branches)
@@ -228,6 +237,7 @@ export class TenantService implements OnModuleInit {
         .insert(warehouses)
         .values({
           tenantId: newTenant.id,
+          legalEntityId: newLegalEntity.id,
           branchId: newBranch.id,
           code: 'WH-01',
           name: 'المستودع الرئيسي',
@@ -457,16 +467,23 @@ export class TenantService implements OnModuleInit {
 
       if (!entity) throw new Error('Failed to create legal entity');
 
+      const provisioning = await this.coaProvisioning.provisionLegalEntityDefaultsInTx(tx, {
+        tenantId: context.tenantId,
+        legalEntityId: entity.id,
+        actorId: context.userId,
+        currency: entity.functionalCurrency || 'SAR',
+      });
+
       await this.auditService.log({
         tenantId: context.tenantId,
         actorId: context.userId,
         action: 'LEGAL_ENTITY_CREATED',
         entityType: 'legal_entity',
         entityId: entity.id,
-        afterState: dto,
+        afterState: { ...dto, provisioning },
       }, tx);
 
-      return entity;
+      return { ...entity, provisioning };
     });
   }
 
